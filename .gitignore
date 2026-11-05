@@ -1,0 +1,32 @@
+# Secrets
+.env
+
+# Model files are gigabytes. They never belong in git.
+*.safetensors
+*.ckpt
+*.gguf
+*.pt
+*.pth
+*.bin
+*.onnx
+
+# Unfinished downloads and archives
+*.part
+*.7z
+
+# Generated images. Only the example images of a workflow are kept.
+*.png
+*.jpg
+*.jpeg
+*.webp
+!workflows/*/examples/*.png
+
+# Local scratch space and logs
+.scratch/
+*.log
+
+# Python and OS files
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

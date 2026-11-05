@@ -58,6 +58,7 @@ New to the words? Read [`docs/concepts.md`](docs/concepts.md) first.
 | [`docs/concepts.md`](docs/concepts.md) | Every term, what it does, what breaks if it is wrong |
 | [`docs/running-workflows.md`](docs/running-workflows.md) | The MCP run loop and its failure modes |
 | [`docs/models.md`](docs/models.md) | The verified model catalog |
+| [`docs/why-flux3-klein.md`](docs/why-flux3-klein.md) | Why FLUX 3 Image Klein, what else was tried, small-GPU traps |
 | [`ROADMAP.md`](ROADMAP.md) | Where horus goes next |
 
 ## Workflows

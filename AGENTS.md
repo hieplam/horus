@@ -13,6 +13,7 @@ MCP tools and the scripts in this repo. The user does not need to know ComfyUI.
 | A new style, a new model, a new workflow | [`docs/style-to-workflow.md`](docs/style-to-workflow.md) |
 | A run fails | [`docs/running-workflows.md`](docs/running-workflows.md) |
 | Which model pairs with which | [`docs/models.md`](docs/models.md) |
+| Why this model, and GPU traps | [`docs/why-flux3-klein.md`](docs/why-flux3-klein.md) |
 | A term you must explain to the user | [`docs/concepts.md`](docs/concepts.md) |
 
 For a tech or IT illustration, use

@@ -1,0 +1,287 @@
+{
+  "recipe": "it-illustration",
+  "params": {
+    "prompt": {
+      "type": "string",
+      "default": "A clean flat vector illustration for a modern tech explainer. It looks like a tidy technical diagram, with dark navy outlines of uniform medium weight and rounded corners, and solid flat pastel fills. On the left, a mint-green server box with a small round icon sends small sun-yellow envelopes onto a long lilac conveyor belt that crosses the middle of the picture. The belt is a message queue, and five envelopes wait in a row on it. On the right, a sky-blue server box takes the envelopes off the end of the belt one by one. Thin navy arrows show the direction from left to right. The colour palette is dark navy for outlines, white, sky blue, lilac, mint green, sun yellow and coral, each with a light pastel tint for fills. Each object has one very soft flat shadow below it. The background is plain very pale blue with a faint sparse dotted grid and nothing else. Shapes are simple and friendly, with generous empty space. The whole scene is centred and fully inside the frame, with wide margins on all sides. Every surface is blank: screens and panels show only abstract coloured bars and blocks. The picture contains no text of any kind: no letters, no digits, no symbols and no logos."
+    },
+    "seed": {
+      "type": "int",
+      "default": 424242
+    },
+    "steps": {
+      "type": "int",
+      "default": 15
+    },
+    "width": {
+      "type": "int",
+      "default": 1536
+    },
+    "height": {
+      "type": "int",
+      "default": 1024
+    },
+    "filename_prefix": {
+      "type": "string",
+      "default": "it-illustration"
+    }
+  },
+  "ops": [
+    {
+      "op": "add_node",
+      "class_type": "UNETLoader",
+      "as": "unet",
+      "at": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "set_widget",
+      "node": "unet",
+      "widget": "unet_name",
+      "value": "flux3-image-klein-int8-convrot.safetensors"
+    },
+    {
+      "op": "set_widget",
+      "node": "unet",
+      "widget": "weight_dtype",
+      "value": "default"
+    },
+    {
+      "op": "add_node",
+      "class_type": "ModelAttentionBackend",
+      "as": "attention",
+      "title": "Attention: PyTorch (int8 kernel needs a CUDA 13 driver)",
+      "at": [
+        0,
+        -160
+      ]
+    },
+    {
+      "op": "set_widget",
+      "node": "attention",
+      "widget": "attention",
+      "value": "pytorch attention"
+    },
+    {
+      "op": "add_node",
+      "class_type": "CLIPLoader",
+      "as": "text_encoder",
+      "at": [
+        0,
+        160
+      ]
+    },
+    {
+      "op": "set_widget",
+      "node": "text_encoder",
+      "widget": "clip_name",
+      "value": "qwen3vl_4b_int8_convrot.safetensors"
+    },
+    {
+      "op": "set_widget",
+      "node": "text_encoder",
+      "widget": "type",
+      "value": "flux3"
+    },
+    {
+      "op": "set_widget",
+      "node": "text_encoder",
+      "widget": "device",
+      "value": "default"
+    },
+    {
+      "op": "add_node",
+      "class_type": "VAELoader",
+      "as": "vae",
+      "at": [
+        0,
+        340
+      ]
+    },
+    {
+      "op": "set_widget",
+      "node": "vae",
+      "widget": "vae_name",
+      "value": "flux2-vae.safetensors"
+    },
+    {
+      "op": "add_node",
+      "class_type": "CLIPTextEncode",
+      "as": "prompt",
+      "title": "Prompt (subject + house style)",
+      "at": [
+        420,
+        0
+      ]
+    },
+    {
+      "op": "set_widget",
+      "node": "prompt",
+      "widget": "text",
+      "value": "${prompt}"
+    },
+    {
+      "op": "add_node",
+      "class_type": "ConditioningZeroOut",
+      "as": "negative",
+      "at": [
+        420,
+        320
+      ]
+    },
+    {
+      "op": "add_node",
+      "class_type": "EmptyFlux2LatentImage",
+      "as": "canvas",
+      "at": [
+        420,
+        440
+      ]
+    },
+    {
+      "op": "set_widget",
+      "node": "canvas",
+      "widget": "width",
+      "value": "${width}"
+    },
+    {
+      "op": "set_widget",
+      "node": "canvas",
+      "widget": "height",
+      "value": "${height}"
+    },
+    {
+      "op": "set_widget",
+      "node": "canvas",
+      "widget": "batch_size",
+      "value": 1
+    },
+    {
+      "op": "add_node",
+      "class_type": "KSampler",
+      "as": "sampler",
+      "at": [
+        880,
+        0
+      ]
+    },
+    {
+      "op": "set_widget",
+      "node": "sampler",
+      "widget": "seed",
+      "value": "${seed}"
+    },
+    {
+      "op": "set_widget",
+      "node": "sampler",
+      "widget": "control_after_generate",
+      "value": "fixed"
+    },
+    {
+      "op": "set_widget",
+      "node": "sampler",
+      "widget": "steps",
+      "value": "${steps}"
+    },
+    {
+      "op": "set_widget",
+      "node": "sampler",
+      "widget": "cfg",
+      "value": 1
+    },
+    {
+      "op": "set_widget",
+      "node": "sampler",
+      "widget": "sampler_name",
+      "value": "er_sde"
+    },
+    {
+      "op": "set_widget",
+      "node": "sampler",
+      "widget": "scheduler",
+      "value": "simple"
+    },
+    {
+      "op": "set_widget",
+      "node": "sampler",
+      "widget": "denoise",
+      "value": 1
+    },
+    {
+      "op": "add_node",
+      "class_type": "VAEDecode",
+      "as": "decode",
+      "at": [
+        1260,
+        0
+      ]
+    },
+    {
+      "op": "add_node",
+      "class_type": "SaveImage",
+      "as": "save",
+      "at": [
+        1500,
+        0
+      ]
+    },
+    {
+      "op": "set_widget",
+      "node": "save",
+      "widget": "filename_prefix",
+      "value": "${filename_prefix}"
+    },
+    {
+      "op": "connect",
+      "from": "text_encoder.CLIP",
+      "to": "prompt.clip"
+    },
+    {
+      "op": "connect",
+      "from": "prompt.CONDITIONING",
+      "to": "negative.conditioning"
+    },
+    {
+      "op": "connect",
+      "from": "unet.MODEL",
+      "to": "attention.model"
+    },
+    {
+      "op": "connect",
+      "from": "attention.MODEL",
+      "to": "sampler.model"
+    },
+    {
+      "op": "connect",
+      "from": "prompt.CONDITIONING",
+      "to": "sampler.positive"
+    },
+    {
+      "op": "connect",
+      "from": "negative.CONDITIONING",
+      "to": "sampler.negative"
+    },
+    {
+      "op": "connect",
+      "from": "canvas.LATENT",
+      "to": "sampler.latent_image"
+    },
+    {
+      "op": "connect",
+      "from": "sampler.LATENT",
+      "to": "decode.samples"
+    },
+    {
+      "op": "connect",
+      "from": "vae.VAE",
+      "to": "decode.vae"
+    },
+    {
+      "op": "connect",
+      "from": "decode.IMAGE",
+      "to": "save.images"
+    }
+  ]
+}

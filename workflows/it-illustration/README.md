@@ -112,7 +112,7 @@ From Python, import the function `generate(subject, seed, out, ...)`. It returns
 
 ## Hardware notes
 
-- Tested on an NVIDIA GTX 1660 Ti with 6 GB VRAM, 16 GB RAM and a driver that supports CUDA 12.5. It works. ComfyUI streams the model through VRAM.
+- Tested on a GTX 1660 Ti class card (6 GB VRAM, 16 GB RAM) with a driver that supports CUDA 12.x only. It works. ComfyUI streams the model through VRAM.
 - This GPU has no native bf16, so ComfyUI computes in fp32. That is slow.
 - Measured: 217 s to 284 s per picture at 1536x1024 and 15 steps. One run took 470 s. The cause of that run is not verified. A job that ran just before it had been cancelled.
 - A GPU with more VRAM and a CUDA 13 driver is faster. Not tested.

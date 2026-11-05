@@ -1,0 +1,593 @@
+{
+  "id": "0ae2b50b-b07a-4465-bb7c-d8fe58e8e0ac",
+  "nodes": [
+    {
+      "id": 1145655848684232,
+      "type": "UNETLoader",
+      "pos": [
+        0,
+        0
+      ],
+      "size": [
+        270.0,
+        118.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "unet_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "unet_name"
+          },
+          "link": null
+        },
+        {
+          "name": "weight_dtype",
+          "type": "COMBO",
+          "widget": {
+            "name": "weight_dtype"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            4205757303666585
+          ]
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "flux3-image-klein-int8-convrot.safetensors",
+        "default"
+      ]
+    },
+    {
+      "id": 1303296545618025,
+      "type": "ModelAttentionBackend",
+      "pos": [
+        0,
+        -160
+      ],
+      "size": [
+        270.0,
+        94.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 4205757303666585
+        },
+        {
+          "name": "attention",
+          "type": "COMBO",
+          "widget": {
+            "name": "attention"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            2638552485959375
+          ]
+        }
+      ],
+      "title": "Attention: PyTorch (int8 kernel needs a CUDA 13 driver)",
+      "properties": {},
+      "widgets_values": [
+        "pytorch attention"
+      ]
+    },
+    {
+      "id": 2943881201999604,
+      "type": "CLIPLoader",
+      "pos": [
+        0,
+        160
+      ],
+      "size": [
+        270.0,
+        142.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "clip_name"
+          },
+          "link": null
+        },
+        {
+          "name": "type",
+          "type": "COMBO",
+          "widget": {
+            "name": "type"
+          },
+          "link": null
+        },
+        {
+          "name": "device",
+          "type": "COMBO",
+          "widget": {
+            "name": "device"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            2425320392170970
+          ]
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "qwen3vl_4b_int8_convrot.safetensors",
+        "flux3",
+        "default"
+      ]
+    },
+    {
+      "id": 1003919775051822,
+      "type": "VAELoader",
+      "pos": [
+        0,
+        340
+      ],
+      "size": [
+        270.0,
+        94.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "vae_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "vae_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            3418494382158156
+          ]
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "flux2-vae.safetensors"
+      ]
+    },
+    {
+      "id": 2752976026169904,
+      "type": "CLIPTextEncode",
+      "pos": [
+        420,
+        0
+      ],
+      "size": [
+        400.0,
+        236.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 2425320392170970
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            2407270790227491,
+            3368119860930062
+          ]
+        }
+      ],
+      "title": "Prompt (subject + house style)",
+      "properties": {},
+      "widgets_values": [
+        "A clean flat vector illustration for a modern tech explainer. It looks like a tidy technical diagram, with dark navy outlines of uniform medium weight and rounded corners, and solid flat pastel fills. On the left, a mint-green server box with a small round icon sends small sun-yellow envelopes onto a long lilac conveyor belt that crosses the middle of the picture. The belt is a message queue, and five envelopes wait in a row on it. On the right, a sky-blue server box takes the envelopes off the end of the belt one by one. Thin navy arrows show the direction from left to right. The colour palette is dark navy for outlines, white, sky blue, lilac, mint green, sun yellow and coral, each with a light pastel tint for fills. Each object has one very soft flat shadow below it. The background is plain very pale blue with a faint sparse dotted grid and nothing else. Shapes are simple and friendly, with generous empty space. The whole scene is centred and fully inside the frame, with wide margins on all sides. Every surface is blank: screens and panels show only abstract coloured bars and blocks. The picture contains no text of any kind: no letters, no digits, no symbols and no logos."
+      ]
+    },
+    {
+      "id": 579953344854396,
+      "type": "ConditioningZeroOut",
+      "pos": [
+        420,
+        320
+      ],
+      "size": [
+        246.6,
+        62.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 2407270790227491
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            3272068289804364
+          ]
+        }
+      ],
+      "properties": {},
+      "widgets_values": []
+    },
+    {
+      "id": 3955927623628478,
+      "type": "EmptyFlux2LatentImage",
+      "pos": [
+        420,
+        440
+      ],
+      "size": [
+        270.0,
+        142.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": null
+        },
+        {
+          "name": "batch_size",
+          "type": "INT",
+          "widget": {
+            "name": "batch_size"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            2688515569223541
+          ]
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        1536,
+        1024,
+        1
+      ]
+    },
+    {
+      "id": 3394534790677934,
+      "type": "KSampler",
+      "pos": [
+        880,
+        0
+      ],
+      "size": [
+        288.79999999999995,
+        298.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 2638552485959375
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 3368119860930062
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 3272068289804364
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 2688515569223541
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": null
+        },
+        {
+          "name": "cfg",
+          "type": "FLOAT",
+          "widget": {
+            "name": "cfg"
+          },
+          "link": null
+        },
+        {
+          "name": "sampler_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "sampler_name"
+          },
+          "link": null
+        },
+        {
+          "name": "scheduler",
+          "type": "COMBO",
+          "widget": {
+            "name": "scheduler"
+          },
+          "link": null
+        },
+        {
+          "name": "denoise",
+          "type": "FLOAT",
+          "widget": {
+            "name": "denoise"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            725478156462043
+          ]
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        424242,
+        "fixed",
+        15,
+        1,
+        "er_sde",
+        "simple",
+        1
+      ]
+    },
+    {
+      "id": 1085814466336247,
+      "type": "VAEDecode",
+      "pos": [
+        1260,
+        0
+      ],
+      "size": [
+        145.8,
+        82.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 725478156462043
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 3418494382158156
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            266029142878907
+          ]
+        }
+      ],
+      "properties": {},
+      "widgets_values": []
+    },
+    {
+      "id": 126941226278325,
+      "type": "SaveImage",
+      "pos": [
+        1500,
+        0
+      ],
+      "size": [
+        270.0,
+        94.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 266029142878907
+        },
+        {
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": []
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "it-illustration"
+      ]
+    }
+  ],
+  "links": [
+    [
+      2425320392170970,
+      2943881201999604,
+      0,
+      2752976026169904,
+      0,
+      "CLIP"
+    ],
+    [
+      2407270790227491,
+      2752976026169904,
+      0,
+      579953344854396,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      4205757303666585,
+      1145655848684232,
+      0,
+      1303296545618025,
+      0,
+      "MODEL"
+    ],
+    [
+      2638552485959375,
+      1303296545618025,
+      0,
+      3394534790677934,
+      0,
+      "MODEL"
+    ],
+    [
+      3368119860930062,
+      2752976026169904,
+      0,
+      3394534790677934,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      3272068289804364,
+      579953344854396,
+      0,
+      3394534790677934,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      2688515569223541,
+      3955927623628478,
+      0,
+      3394534790677934,
+      3,
+      "LATENT"
+    ],
+    [
+      725478156462043,
+      3394534790677934,
+      0,
+      1085814466336247,
+      0,
+      "LATENT"
+    ],
+    [
+      3418494382158156,
+      1003919775051822,
+      0,
+      1085814466336247,
+      1,
+      "VAE"
+    ],
+    [
+      266029142878907,
+      1085814466336247,
+      0,
+      126941226278325,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "last_node_id": 3955927623628478,
+  "last_link_id": 0,
+  "version": 0.4
+}

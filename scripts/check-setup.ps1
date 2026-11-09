@@ -10,12 +10,17 @@ Checks:
   2. The ComfyUI server answers at -ServerUrl.
   3. The comfy-mcp environment exists (comfy-mcp.exe and comfy.exe).
   4. The command in .mcp.json points at that environment.
-  5. With -Workflow: the model files of that workflow are present and verified
+  5. The horus MCP environment exists (horus-mcp.exe), and the horus entry
+     in .mcp.json points at it.
+  6. With -Workflow: the model files of that workflow are present and verified
      (runs install-workflow-models.ps1 -CheckOnly; hashing 11 GB takes minutes).
 
 .PARAMETER ComfyUIDir
 The portable folder. Default: HORUS_COMFYUI_DIR, then
 "$env:USERPROFILE\ComfyUI_windows_portable".
+
+.PARAMETER HorusVenvPath
+Folder of the horus MCP venv. Default: "$env:USERPROFILE\.venvs\horus-mcp".
 
 .PARAMETER Workflow
 Also check the model files of workflows\<Workflow>\models.json.
@@ -40,6 +45,7 @@ param(
     [string] $ComfyUIDir = '',
     [string] $ServerUrl = 'http://127.0.0.1:8188',
     [string] $VenvPath = '',
+    [string] $HorusVenvPath = '',
     [string] $Workflow = '',
     [string] $ModelsDir = '',
     [string] $TextEncoderDir = '',
@@ -74,6 +80,7 @@ if (-not $ComfyUIDir) {
     $ComfyUIDir = Get-HorusSetting 'HORUS_COMFYUI_DIR' (Join-Path $env:USERPROFILE 'ComfyUI_windows_portable')
 }
 if (-not $VenvPath) { $VenvPath = Join-Path $env:USERPROFILE '.venvs\comfy-mcp' }
+if (-not $HorusVenvPath) { $HorusVenvPath = Join-Path $env:USERPROFILE '.venvs\horus-mcp' }
 
 # 1. ComfyUI installed.
 $mainPy = Join-Path $ComfyUIDir 'ComfyUI\main.py'
@@ -117,7 +124,25 @@ try {
     Write-Check $false '.mcp.json' "cannot read comfy-mcp entry in $mcpJson : $($_.Exception.Message)"
 }
 
-# 5. Models of one workflow.
+# 5. horus MCP environment, and its entry in .mcp.json.
+$horusExe = Join-Path $HorusVenvPath 'Scripts\horus-mcp.exe'
+if (Test-Path -LiteralPath $horusExe -PathType Leaf) { Write-Check $true 'horus-mcp environment' $HorusVenvPath }
+else { Write-Check $false 'horus-mcp environment' "horus-mcp.exe missing in $HorusVenvPath. Fix: .\scripts\install-horus-mcp.ps1" }
+try {
+    $config = Get-Content -LiteralPath $mcpJson -Raw | ConvertFrom-Json
+    $horus = $config.mcpServers.horus
+    if (-not $horus) { throw 'no horus entry' }
+    $horusCommand = ([string] $horus.command).Replace('${USERPROFILE}', $env:USERPROFILE)
+    if (($horusCommand -ieq $horusExe) -and (Test-Path -LiteralPath $horusCommand -PathType Leaf)) {
+        Write-Check $true '.mcp.json horus' "command points at $HorusVenvPath"
+    } else {
+        Write-Check $false '.mcp.json horus' "command is '$horusCommand'; expected '$horusExe'. Fix: .\scripts\install-horus-mcp.ps1 with the default path, or edit .mcp.json."
+    }
+} catch {
+    Write-Check $false '.mcp.json horus' "cannot read horus entry in $mcpJson : $($_.Exception.Message)"
+}
+
+# 6. Models of one workflow.
 if ($Workflow) {
     $params = @{ Workflow = $Workflow; ComfyUIDir = $ComfyUIDir; CheckOnly = $true }
     if ($ModelsDir) { $params.ModelsDir = $ModelsDir }

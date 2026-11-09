@@ -1,0 +1,77 @@
+{
+  "manifest_version": 1,
+  "name": "it-illustration",
+  "title": "IT illustration",
+  "summary": "A flat-vector illustration of a software or IT idea: servers, queues, databases, networks, data moving between parts. No text in the picture.",
+  "theme": {
+    "look": "Clean flat vector, like a tidy technical diagram: dark navy outlines of one medium weight, rounded corners, solid flat pastel fills, one very soft flat shadow under each object.",
+    "palette": ["dark navy", "white", "sky blue", "lilac", "mint green", "sun yellow", "coral"],
+    "background": "Plain very pale blue with a faint sparse dotted grid.",
+    "text_in_image": "None. The style forbids letters, digits, symbols and logos. Put labels on top of the picture yourself."
+  },
+  "good_for": [
+    "Explainer pictures of system architecture: services, servers, load balancers, queues, caches, databases",
+    "Data flow between a few objects, shown with arrows",
+    "Simple metaphors for an algorithm or a data structure: boxes in a row, a moving frame, a tree of nodes",
+    "Cover and section pictures for an article, a slide or a video about a technical topic"
+  ],
+  "not_good_for": [
+    "Readable text, labels, numbers or code in the picture: the model draws them wrong, and the style forbids them",
+    "An exact diagram: an exact count of arrows, exact positions, or a fixed layout",
+    "Photographs, people, faces, brand logos"
+  ],
+  "output": {
+    "format": "png",
+    "default_width": 1536,
+    "default_height": 1024,
+    "min_side": 512,
+    "max_side": 1536,
+    "multiple_of": 16,
+    "note": "1536x1024 (3:2) is the tested size. A 6 GB GPU can run out of memory above it."
+  },
+  "subject": {
+    "min_chars": 40,
+    "max_chars": 2000,
+    "how_to_write": "Write only what the picture shows. horus adds the house style (look, palette, background, the no-text rule) around your subject.",
+    "rules": [
+      "Write 2 to 4 full sentences. Name each object, its colour, its position, and what connects to what.",
+      "Use only the palette colours: dark navy, white, sky blue, lilac, mint green, sun yellow, coral.",
+      "Describe only what you can see. Do not write the name of the concept: a phrase such as 'these are the read replicas' came back as the words 'read replicas' in the picture.",
+      "Never write hex colour codes such as #2D7FF9. The model draws them as text. Use colour names.",
+      "Screens and panels show 'abstract coloured bars'. Never ask for readable content.",
+      "Keep the scene centred with wide margins."
+    ],
+    "examples": [
+      {
+        "subject": "On the left, a mint-green server box with a small round icon sends small sun-yellow envelopes onto a long lilac conveyor belt that crosses the middle of the picture. The belt is a message queue, and five envelopes wait in a row on it. On the right, a sky-blue server box takes the envelopes off the end of the belt one by one. Thin navy arrows show the direction from left to right.",
+        "image": "examples/message-queue.png",
+        "seed": 2024
+      },
+      {
+        "subject": "On the left, a sky-blue laptop shows only abstract coloured bars. A thin navy arrow runs from the laptop to a lilac rounded box in the centre, and three short navy arrows fan out of that box to the right. On the right, three mint-green server boxes stand in a column, and each of the three arrows points at one server box.",
+        "image": "examples/load-balancer.png",
+        "seed": 77
+      }
+    ]
+  },
+  "timing": {
+    "measured_seconds": [217, 470],
+    "hardware": "6 GB VRAM GPU without native bf16 (GTX 1660 Ti class), 1536x1024, 15 steps",
+    "note": "The first image after the backend starts also loads 11 GB of model files."
+  },
+  "graph": {
+    "file": "workflow.json",
+    "node_count": 10,
+    "inputs": {
+      "caption": { "class_type": "CLIPTextEncode", "input": "text" },
+      "seed": { "class_type": "KSampler", "input": "seed" },
+      "width": { "class_type": "EmptyFlux2LatentImage", "input": "width" },
+      "height": { "class_type": "EmptyFlux2LatentImage", "input": "height" },
+      "filename_prefix": { "class_type": "SaveImage", "input": "filename_prefix" }
+    }
+  },
+  "caption": {
+    "style_file": "house-style.json",
+    "join": "prefix subject suffix"
+  }
+}

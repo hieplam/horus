@@ -27,6 +27,7 @@
 
 # Python and OS files
 __pycache__/
+*.egg-info/
 *.pyc
 .DS_Store
 Thumbs.db

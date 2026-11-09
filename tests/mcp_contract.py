@@ -181,10 +181,27 @@ async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Pa
     with open(tmp / "server.stderr.log", "w", encoding="utf-8") as errlog:
         await session_checks(params, errlog, sandbox, tmp, c)
 
+    neutral_checks(c)
+
     from horus.errors import ERRORS  # the doc table must list every code
     doc = (ROOT / "docs" / "mcp.md").read_text(encoding="utf-8") if (ROOT / "docs" / "mcp.md").is_file() else ""
     missing = [code for code in ERRORS if f"`{code}`" not in doc]
     c.check("docs/mcp.md lists every error code", not missing, f"missing: {missing}")
+
+
+STYLE_WORDS = ("palette", "pastel", "navy", "flat vector", "house style", "house-style", "dotted grid")
+
+
+def neutral_checks(c: Checks) -> None:
+    """Every shipped workflow is style-neutral: no theme, no style file, no style words in the graph."""
+    for d in sorted(p for p in (ROOT / "workflows").iterdir() if (p / "manifest.json").is_file()):
+        m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
+        c.check(f"{d.name}: manifest has no theme and no caption style file",
+                "theme" not in m and "caption" not in m and not list(d.glob("*style*.json")), json.dumps(m.get("theme") or m.get("caption")))
+        graph = json.loads((d / m["graph"]["file"]).read_text(encoding="utf-8"))
+        texts = " ".join(str(v) for n in graph.get("nodes", []) for v in (n.get("widgets_values") or [])).lower()
+        words = [w for w in STYLE_WORDS if w in texts]
+        c.check(f"{d.name}: the graph holds no style words", not words, str(words))
 
 
 async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: Checks) -> None:
@@ -216,6 +233,10 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             c.check("describe_workflow gives subject rules, examples and 3 present files",
                     res["ok"] and len(r.get("subject", {}).get("rules", [])) >= 3 and r["subject"]["examples"]
                     and [f["state"] for f in r.get("files", [])] == ["present"] * 3, json.dumps(res)[:400])
+            listed = (env_of(await s.call_tool("list_workflows", {})).get("result") or {}).get("workflows", [])
+            c.check("list_workflows and describe_workflow carry no theme or look",
+                    not any(k in r for k in ("theme", "look")) and not any(k in w for w in listed for k in ("theme", "look")),
+                    json.dumps(r)[:300])
             c.check("describe_workflow hides the ComfyUI graph (no node class names)",
                     not any(k in text for k in ("CLIPTextEncode", "KSampler", "class_type", "workflow.json")), "")
 
@@ -236,12 +257,12 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             r = res.get("result") or {}
             graph = Fake.prompts.get(r.get("job_id", ""), {}).get("graph", {})
             caption = next((n["inputs"]["text"] for n in graph.values() if n["class_type"] == "CLIPTextEncode"), "")
-            style = json.loads((ROOT / "workflows" / "it-illustration" / "house-style.json").read_text(encoding="utf-8"))
             c.check("generate_image writes a PNG at out_path and returns its path and seed",
                     res["ok"] and Path(r.get("path", "")) == out and out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n" and r.get("seed") == 7,
                     json.dumps(res)[:400])
-            c.check("the caption is house-style prefix + subject + suffix",
-                    caption == f"{style['prefix']} {SUBJECT} {style['suffix']}", caption[:200])
+            # horus is style-neutral: the caller owns the look, the palette and the design system.
+            c.check(f"horus sends the subject to the model as written ({len(caption) - len(SUBJECT)} characters added)",
+                    caption == SUBJECT, caption[:200])
             sampler = next((n["inputs"] for n in graph.values() if n["class_type"] == "KSampler"), {})
             c.check("seed 7 reaches the sampler of the graph", sampler.get("seed") == 7, str(sampler)[:200])
             c.check("generate_image sends progress notifications", len(progress) >= 1, str(progress))
@@ -347,7 +368,8 @@ def main() -> int:
             if log.is_file():
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
     passed = sum(1 for ok, _, _ in c.rows if ok)
-    total = 27
+    shipped = sum(1 for d in (ROOT / "workflows").iterdir() if (d / "manifest.json").is_file())
+    total = 28 + 2 * shipped  # 28 server checks, plus 2 style-neutral checks for each shipped workflow
     print(f"contract: {passed} of {total} passed")
     return 0 if passed == total and len(c.rows) == total else 1
 

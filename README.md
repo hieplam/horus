@@ -18,7 +18,7 @@ result.
 |---|---|
 | ComfyUI | The program that runs image models on your GPU. A job is a graph of nodes, called a workflow. |
 | comfy MCP server | A local process that gives an agent tools such as `validate_workflow` and `run_workflow`. MCP (Model Context Protocol) is the standard way an agent calls tools. |
-| horus MCP server | The image tool for other agents: `list_workflows`, `describe_workflow`, `install_workflow`, `uninstall_workflow`, `generate_image`. The caller names a style and a subject and gets a PNG path. It never sees ComfyUI. See [`docs/mcp.md`](docs/mcp.md). |
+| horus MCP server | The image tool for other agents: `list_workflows`, `describe_workflow`, `install_workflow`, `uninstall_workflow`, `generate_image`. The caller names a workflow and a subject and gets a PNG path. horus adds no style: the caller writes the look in the subject. It never sees ComfyUI. See [`docs/mcp.md`](docs/mcp.md). |
 | This repo | The rules, scripts, workflows and saved prompts. The agent reads it. You run its scripts. |
 | Model files | Gigabytes of weights on disk. Never in git. Each file is checked by SHA-256. |
 

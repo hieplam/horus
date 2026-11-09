@@ -53,6 +53,10 @@ horus server shows it to every caller.
 9. **The user approves a new model** before you download it. Show the model, its
    license and its size first.
 10. **Never put a token in a URL, a command line or a log.** Tokens live in `.env`.
+11. **A workflow has no style.** horus sends the caller's subject to the model as
+    written. Do not add a theme, a palette, a house style or style words to a
+    `manifest.json`, a `workflow.json` default or the server. The caller owns the
+    look. `tests/mcp_contract.py` fails when a workflow adds a style.
 
 ## Explaining to the user
 

@@ -1,12 +1,15 @@
 """The workflows that horus offers.
 
 A workflow is a folder workflows/<name>/ with:
-    manifest.json     the public contract: summary, theme, what it is good for,
+    manifest.json     the public contract: summary, what it is good for,
                       output sizes, how to write the subject, and which graph
                       inputs horus sets (graph.inputs).
     workflow.json     the ComfyUI graph in UI format.
     models.json       the model files, with size and SHA-256.
-    house-style.json  optional: caption text that goes around every subject.
+
+A workflow is style-neutral. horus sends the caller's subject to the model as
+written. The look, the palette and the design system belong to the caller, so a
+manifest with "theme" or "caption" (a house style) is refused.
 
 A folder without manifest.json (or with a name that starts with "_") is not
 offered by the MCP server.
@@ -41,12 +44,6 @@ class Workflow:
         path = self.dir / "models.json"
         return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {"files": []}
 
-    def house_style(self) -> dict[str, str] | None:
-        name = (self.manifest.get("caption") or {}).get("style_file")
-        if not name:
-            return None
-        return json.loads((self.dir / name).read_text(encoding="utf-8"))
-
     def license(self) -> dict[str, Any]:
         m = self.models()
         repo = m.get("repo")
@@ -58,9 +55,12 @@ class Workflow:
 
 
 def _check_manifest(name: str, m: dict[str, Any]) -> None:
-    missing = [k for k in ("name", "title", "summary", "theme", "output", "subject", "graph") if k not in m]
+    missing = [k for k in ("name", "title", "summary", "output", "subject", "graph") if k not in m]
     if missing:
         raise ValueError(f"manifest.json of {name} lacks: {', '.join(missing)}")
+    styled = [k for k in ("theme", "caption") if k in m]
+    if styled:
+        raise ValueError(f"manifest.json of {name} has {', '.join(styled)}: a workflow must not add a style; the caller owns it")
     if m["name"] != name:
         raise ValueError(f"manifest.json of {name} has name {m['name']!r}")
     absent = [k for k in REQUIRED_INPUTS if k not in m["graph"].get("inputs", {})]
@@ -100,7 +100,6 @@ def summary(w: Workflow) -> dict[str, Any]:
         "name": w.name,
         "title": m["title"],
         "summary": m["summary"],
-        "look": m["theme"].get("look", ""),
         "good_for": m.get("good_for", []),
         "not_good_for": m.get("not_good_for", []),
         "output": {"format": out["format"], "default_width": out["default_width"], "default_height": out["default_height"]},
@@ -117,7 +116,6 @@ def detail(w: Workflow) -> dict[str, Any]:
         examples.append({**ex, "image": str(img) if img and img.is_file() else None})
     return {
         **summary(w),
-        "theme": m["theme"],
         "output": m["output"],
         "subject": {**m["subject"], "examples": examples},
         "timing": m.get("timing"),

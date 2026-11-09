@@ -1,14 +1,14 @@
 # horus as an MCP server
 
-The horus MCP server lets any AI agent on this PC make an image in a named
-style. The agent calls five tools. It does not need to know ComfyUI, the
+The horus MCP server lets any AI agent on this PC make an image with a named
+workflow. The agent calls five tools. It does not need to know ComfyUI, the
 model files, the graph or the GPU.
 
 Terms:
 
 - **MCP (Model Context Protocol):** the standard way for an agent to call the tools of another program.
 - **stdio:** the agent harness starts the server as a child process and sends messages through its standard input and output. Nothing listens on the network.
-- **Workflow:** one image style, a folder under `workflows/`. The server offers each folder that has a `manifest.json`.
+- **Workflow:** one image model and its ComfyUI graph, a folder under `workflows/`. A workflow has no style of its own. The server offers each folder that has a `manifest.json`.
 - **Envelope:** the one result shape that every tool returns (below).
 
 ```mermaid
@@ -38,14 +38,17 @@ does not answer, `generate_image` starts it with `scripts/start-comfyui.ps1`.
 
 | Tool | Does | Changes the PC |
 |---|---|---|
-| `list_workflows` | Lists the styles: name, summary, look, `good_for`, `not_good_for`, default size, measured time, `install_state`. | No |
-| `describe_workflow(workflow)` | One style in full: theme, size limits, how to write the subject (rules and examples), license, the state of each model file. | No |
+| `list_workflows` | Lists the workflows: name, summary, `good_for`, `not_good_for`, default size, measured time, `install_state`. | No |
+| `describe_workflow(workflow)` | One workflow in full: size limits, how to write the subject (rules and examples), license, the state of each model file. | No |
 | `install_workflow(workflow, accept_license=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license and the size. | Yes: downloads GB |
-| `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another style lists is kept unless `remove_shared=true`. | Yes: deletes files |
+| `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another workflow lists is kept unless `remove_shared=true`. | Yes: deletes files |
 | `generate_image(workflow, subject, out_path?, seed?, width?, height?, overwrite=false)` | Makes one PNG and waits until it is on disk. Returns the absolute path and the seed. | Writes one PNG |
 
-The subject is what the picture shows. The server adds the style text of the
-workflow around it (`house-style.json`). The caller never sends style words.
+The subject is the whole prompt. The server sends it to the model exactly as
+written and adds nothing. The caller owns the look: style, palette, light,
+composition and design system. A workflow never adds a style. The server
+refuses a `manifest.json` that has `theme` or `caption`, and
+`tests/mcp_contract.py` checks that the caption equals the subject.
 
 `out_path` must be absolute and end with `.png`. Without it, the PNG goes to
 `HORUS_OUTPUT_DIR` (default `.scratch/outputs/<workflow>/` in this repo). The
@@ -132,13 +135,12 @@ and change every field. The fields:
 | Field | What it is |
 |---|---|
 | `name` | Must equal the folder name. |
-| `title`, `summary`, `theme`, `good_for`, `not_good_for` | What the caller reads to choose a style. Write what the image looks like and what it cannot do. |
+| `title`, `summary`, `good_for`, `not_good_for` | What the caller reads to choose a workflow. Write what the model can and cannot draw. Do not describe a look: the caller owns the look. |
 | `output` | `default_width`, `default_height`, `min_side`, `max_side`, `multiple_of`. Set `max_side` to a size that you ran on the target GPU. |
 | `subject` | `min_chars`, `max_chars`, `how_to_write`, `rules`, `examples` (subject, image, seed). The caller writes the subject from these. |
 | `timing` | Measured seconds per image and the hardware. |
 | `graph.file`, `graph.node_count` | The UI-format graph and its node count. A different count after conversion stops the run. |
 | `graph.inputs` | For each of `caption`, `seed`, `width`, `height`, `filename_prefix`: the node class and the input name that horus sets. Exactly one node of that class must exist. |
-| `caption.style_file` | Optional: a JSON file with `prefix` and `suffix` that go around the subject. |
 
 The caller never sees `graph`: `describe_workflow` leaves it out.
 

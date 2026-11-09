@@ -4,6 +4,14 @@
 
 Model family: **{{MODEL_FAMILY}}**
 
+## Offer it to other agents
+
+The horus MCP server offers this workflow only when the folder has
+`manifest.json`. Copy `workflows/it-illustration/manifest.json` and change
+every field: summary, theme, `good_for`, `not_good_for`, sizes, subject rules,
+timing and `graph.inputs`. See [`docs/mcp.md`](../../docs/mcp.md#add-a-workflow-to-the-server).
+Then run `tests/mcp_contract.py`.
+
 ## Purpose
 
 State in one or two sentences what image this workflow makes and for whom.

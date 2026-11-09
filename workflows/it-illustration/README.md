@@ -14,6 +14,7 @@ Files in this folder:
 
 | File | What it is |
 |---|---|
+| `manifest.json` | The public contract for the horus MCP server: summary, theme, sizes, subject rules, and the graph inputs that horus sets. |
 | `workflow.json` | The graph, in ComfyUI "UI" format. 10 nodes. Do not edit it by hand. |
 | `recipe.json` | A comfy-cli recipe that builds the same graph. |
 | `models.json` | The model files, with size and SHA-256. The install script reads it. |
@@ -127,6 +128,17 @@ All runs on 2026-11-05. Graph: `workflow.json`, 15 steps, CFG 1, 1536x1024.
 | Script | Message queue | 2024 | 469.9 | Passes. Flat vector, on subject, no text. |
 | Script | Database with read replicas | 1001 | 262.4 | Passes after one retry. The first try drew the words "read replicas". |
 | MCP | Laptop, load balancer, three servers | 77 | 284.5 | Passes. Flat vector, on subject, no text. |
+
+Runs on 2026-11-06 through the horus MCP server (`generate_image`). A separate headless Claude Code agent (Sonnet,
+no file tools, only the horus tools) got a brief for 4 video images. It called `list_workflows`, `describe_workflow`,
+then `generate_image` 4 times, and wrote each subject itself. Another agent's jobs shared the GPU queue.
+
+| Route | Subject | Seed | Seconds of the call | Result |
+|---|---|---|---|---|
+| horus MCP | A window frame over a row of tiles | 3001 | 519 (queue wait and model load included) | Passes. Flat vector, on subject, no text. |
+| horus MCP | A cafe counter, a cup, coins, a bar chart | 3002 | 738 (queue wait included) | Passes, with one gap: the subject asked for two coral bars below a baseline; the picture has four green bars. |
+| horus MCP | One tile leaves the frame on the left, one enters on the right | 3003 | 219 | Passes. Flat vector, on subject, no text. |
+| horus MCP | The frame at the end of the row, a flag, a cup | 3004 | 221 | Passes. Flat vector, on subject, no text. |
 
 `validate_workflow` on `workflow.json`: `valid: true`, `converted_node_count: 10`.
 

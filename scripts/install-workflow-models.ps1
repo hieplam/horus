@@ -3,6 +3,9 @@
 Download and verify the model files that one workflow needs.
 
 .DESCRIPTION
+This script calls workflow.ps1 (install, or check with -CheckOnly). Use
+workflow.ps1 directly for the newer actions: list, remove, and -Only.
+
 Reads workflows\<Workflow>\models.json. For each file in the list, the script
 calls download-model.ps1. That script skips a file that is already correct and
 refuses to overwrite a file that is wrong.
@@ -65,118 +68,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$repoRoot = Split-Path -Parent $PSScriptRoot
 
-function Get-HorusSetting([string] $Name, [string] $Default = '') {
-    $value = [Environment]::GetEnvironmentVariable($Name)
-    if ($value) { return $value }
-    $envFile = Join-Path $repoRoot '.env'
-    if (Test-Path -LiteralPath $envFile -PathType Leaf) {
-        $line = Get-Content -LiteralPath $envFile |
-            Where-Object { $_ -match ('^\s*' + [regex]::Escape($Name) + '\s*=') } | Select-Object -First 1
-        if ($line) {
-            $value = ($line -replace ('^\s*' + [regex]::Escape($Name) + '\s*=\s*'), '').Trim().Trim('"').Trim("'")
-            if ($value) { return $value }
-        }
-    }
-    return $Default
-}
-
-function Get-FullPath([string] $Path) { return [IO.Path]::GetFullPath($Path).TrimEnd('\') }
-
-try {
-    if ($Workflow -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') { throw "Invalid workflow name: $Workflow" }
-    if (-not $ModelsJson) { $ModelsJson = Join-Path $repoRoot "workflows\$Workflow\models.json" }
-    if (-not (Test-Path -LiteralPath $ModelsJson -PathType Leaf)) { throw "Model list not found: $ModelsJson" }
-    $manifest = Get-Content -LiteralPath $ModelsJson -Raw | ConvertFrom-Json
-    if (-not $manifest.files -or @($manifest.files).Count -eq 0) { throw "No files listed in $ModelsJson" }
-
-    if (-not $ComfyUIDir) {
-        $ComfyUIDir = Get-HorusSetting 'HORUS_COMFYUI_DIR' (Join-Path $env:USERPROFILE 'ComfyUI_windows_portable')
-    }
-    $comfyDir = Join-Path $ComfyUIDir 'ComfyUI'
-    $defaultModelsRoot = Join-Path $comfyDir 'models'
-    if (-not $ModelsDir) { $ModelsDir = Get-HorusSetting 'HORUS_MODELS_DIR' $defaultModelsRoot }
-    if (-not $TextEncoderDir) { $TextEncoderDir = Get-HorusSetting 'HORUS_TEXT_ENCODER_DIR' '' }
-    if (-not $CheckOnly -and -not (Test-Path -LiteralPath (Join-Path $comfyDir 'main.py') -PathType Leaf)) {
-        throw "ComfyUI was not found in $ComfyUIDir. Run .\scripts\install-comfyui.ps1 first, or pass -ComfyUIDir."
-    }
-
-    # Build the target list.
-    $targets = @()
-    foreach ($f in @($manifest.files)) {
-        $dir = Join-Path $ModelsDir $f.folder
-        if ($f.folder -eq 'text_encoders' -and $TextEncoderDir) { $dir = $TextEncoderDir }
-        $targets += [pscustomobject]@{
-            Role = $f.role; Folder = $f.folder; Dir = $dir
-            Dest = Join-Path $dir (Split-Path -Leaf $f.repo_path)
-            Bytes = [long] $f.bytes; Sha256 = ([string] $f.sha256).ToLowerInvariant()
-            Url = "https://huggingface.co/$($manifest.repo)/resolve/$($manifest.revision)/$($f.repo_path)"
-        }
-    }
-
-    $failures = 0
-    if ($CheckOnly) {
-        Write-Output "Checking $($targets.Count) model file(s) for workflow '$Workflow' (no download, no change)."
-        foreach ($t in $targets) {
-            if (-not (Test-Path -LiteralPath $t.Dest -PathType Leaf)) {
-                Write-Output "MISSING   $($t.Role): $($t.Dest)"; $failures++; continue
-            }
-            $length = (Get-Item -LiteralPath $t.Dest).Length
-            if ($length -ne $t.Bytes) {
-                Write-Output "BAD SIZE  $($t.Role): $($t.Dest) has $length bytes, expected $($t.Bytes)"; $failures++; continue
-            }
-            $got = (Get-FileHash -LiteralPath $t.Dest -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($got -ne $t.Sha256) {
-                Write-Output "BAD HASH  $($t.Role): $($t.Dest) SHA-256 is $got, expected $($t.Sha256)"; $failures++; continue
-            }
-            Write-Output "OK        $($t.Role): $($t.Dest) ($length bytes, SHA-256 verified)"
-        }
-    } else {
-        Write-Output "License: $($manifest.license)"
-        Write-Output "Installing $($targets.Count) model file(s) for workflow '$Workflow'."
-        foreach ($t in $targets) {
-            Write-Output "-- $($t.Role) -> $($t.Dest)"
-            & (Join-Path $PSScriptRoot 'download-model.ps1') -Url $t.Url -Destination $t.Dest `
-                -ExpectedBytes $t.Bytes -Sha256 $t.Sha256 -TokenEnvVar 'HF_TOKEN'
-            if ($LASTEXITCODE -ne 0) { $failures++ }
-        }
-
-        # Map folders that are outside ComfyUI's own models folder.
-        $yamlPath = Join-Path $comfyDir 'extra_model_paths.yaml'
-        $yaml = ''
-        if (Test-Path -LiteralPath $yamlPath -PathType Leaf) { $yaml = Get-Content -LiteralPath $yamlPath -Raw }
-        $changed = $false
-        $backedUp = $false
-        $seen = @{}
-        foreach ($t in $targets) {
-            if ($seen.ContainsKey($t.Dir)) { continue }
-            $seen[$t.Dir] = $true
-            if ((Get-FullPath $t.Dir) -ieq (Get-FullPath (Join-Path $defaultModelsRoot $t.Folder))) { continue }
-            $full = Get-FullPath $t.Dir
-            $base = (Split-Path -Parent $full) -replace '\\', '/'
-            $leaf = Split-Path -Leaf $full
-            $hasBase = $yaml -match [regex]::Escape("base_path: $base")
-            $hasLine = $yaml -match ('(?m)^\s+' + [regex]::Escape($t.Folder) + ':\s*' + [regex]::Escape($leaf) + '\s*$')
-            if ($hasBase -and $hasLine) { Write-Output "extra_model_paths.yaml already maps $($t.Folder) -> $base/$leaf"; continue }
-            if ((Test-Path -LiteralPath $yamlPath) -and -not $backedUp) {
-                Copy-Item -LiteralPath $yamlPath -Destination ("$yamlPath.bak-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
-                $backedUp = $true
-            }
-            $yaml = ($yaml.TrimEnd() + "`n`nhorus_$($t.Folder):`n    base_path: $base`n    $($t.Folder): $leaf`n").TrimStart()
-            $changed = $true
-            Write-Output "extra_model_paths.yaml: added $($t.Folder) -> $base/$leaf"
-        }
-        if ($changed) {
-            [IO.File]::WriteAllText($yamlPath, $yaml, (New-Object System.Text.UTF8Encoding($false)))
-            Write-Output 'Restart ComfyUI so that it reads the new paths (.\scripts\start-comfyui.ps1).'
-        }
-    }
-
-    if ($failures -gt 0) { throw "$failures of $($targets.Count) file(s) are not ready." }
-    Write-Output "OK: all $($targets.Count) file(s) are present and verified."
-    exit 0
-} catch {
-    Write-Output "FAIL: $($_.Exception.Message)"
-    exit 1
-}
+# This script is kept for its old command line. workflow.ps1 does the work.
+$params = @{ Action = $(if ($CheckOnly) { 'check' } else { 'install' }); Workflow = $Workflow }
+if ($ComfyUIDir) { $params.ComfyUIDir = $ComfyUIDir }
+if ($ModelsDir) { $params.ModelsDir = $ModelsDir }
+if ($TextEncoderDir) { $params.TextEncoderDir = $TextEncoderDir }
+if ($ModelsJson) { $params.ModelsJson = $ModelsJson }
+& (Join-Path $PSScriptRoot 'workflow.ps1') @params
+exit $LASTEXITCODE

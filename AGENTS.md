@@ -9,16 +9,27 @@ MCP tools and the scripts in this repo. The user does not need to know ComfyUI.
 | Task | Read |
 |---|---|
 | Set up or repair a machine | [`docs/setup.md`](docs/setup.md) |
+| `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed. Run `scripts\check-setup.ps1`, then the install script that its FAIL line names. Then ask the user to restart `claude`. |
+| List workflows, install or remove the files of one | `scripts\workflow.ps1 list`, then `install <name>`, `check <name>`, `remove <name>` ([how](docs/setup.md#manage-workflows-list-install-check-remove)) |
 | Make an image with an existing workflow | `workflows/<name>/README.md` |
 | A new style, a new model, a new workflow | [`docs/style-to-workflow.md`](docs/style-to-workflow.md) |
 | A run fails | [`docs/running-workflows.md`](docs/running-workflows.md) |
 | Which model pairs with which | [`docs/models.md`](docs/models.md) |
 | Why this model, and GPU traps | [`docs/why-flux3-klein.md`](docs/why-flux3-klein.md) |
 | A term you must explain to the user | [`docs/concepts.md`](docs/concepts.md) |
+| Change the horus MCP server, its tools or its errors | [`docs/mcp.md`](docs/mcp.md), then run `tests/mcp_contract.py` |
+| Offer a workflow to other agents | Add `workflows/<name>/manifest.json` ([fields](docs/mcp.md#add-a-workflow-to-the-server)) |
 
 For a tech or IT illustration, use
 [`workflows/it-illustration`](workflows/it-illustration/README.md). Its README
 tells you how to write the caption.
+
+**Two MCP servers.** The comfy MCP server (`comfy-mcp`) is the low-level tool
+for work on this repo: build, check and debug a workflow. The horus MCP server
+(`horus`, [`docs/mcp.md`](docs/mcp.md)) is the product for other agents: they
+call `list_workflows`, `describe_workflow` and `generate_image` and never see
+ComfyUI. When you change a workflow, keep its `manifest.json` true, because the
+horus server shows it to every caller.
 
 ## Rules
 
@@ -57,10 +68,13 @@ AGENTS.md                         this file
 ROADMAP.md                        what comes next (horus as an MCP server)
 docs/                             setup, style-to-workflow, concepts, running, models
 scripts/                          PowerShell setup scripts, run-illustration.py, lint-public.py
-workflows/<name>/                 workflow.json, models.json, README.md, examples/
+horus/                            the horus MCP server (Python package; server.py needs mcp, the rest only the stdlib)
+tests/                            mcp_contract.py: the contract test of the MCP server (fake ComfyUI, no GPU)
+workflows/<name>/                 manifest.json, workflow.json, models.json, README.md, examples/
 workflows/_template/README.md     template for a new workflow README
 prompts/<family>/<name>.md        one saved prompt each, with its result
 ```
 
 Before you open a pull request, run `python scripts/lint-public.py`. It must
-exit 0. This repo is public.
+exit 0. This repo is public. A change to `horus/`, `scripts/workflow.ps1` or a
+`manifest.json` also needs `tests/mcp_contract.py` to end with all checks passed.

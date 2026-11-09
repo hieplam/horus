@@ -14,7 +14,8 @@ Python:
 The prompt that FLUX 3 Image Klein receives is: house-style prefix + subject +
 house-style suffix (workflows/it-illustration/house-style.json).
 
-The script needs only the Python standard library. It reads the workflow in
+The script needs only the Python standard library and the horus/ package of this
+repo (no third-party package). It reads the workflow in
 ComfyUI "UI" format, converts it to the "API" format with the node definitions
 of the running server (GET /object_info), submits it (POST /prompt), polls
 GET /history, and downloads the PNG (GET /view).
@@ -41,6 +42,9 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from horus.comfy import ui_to_api  # noqa: E402  (the same converter as the MCP server)
+from horus.errors import HorusError  # noqa: E402
 WORKFLOW_DIR = ROOT / "workflows" / "it-illustration"
 DEFAULT_WORKFLOW = WORKFLOW_DIR / "workflow.json"
 DEFAULT_STYLE = WORKFLOW_DIR / "house-style.json"
@@ -53,7 +57,6 @@ ROLE_CLASSES = {
     "EmptyFlux2LatentImage": "canvas",
     "SaveImage": "save",
 }
-SIMPLE_TYPES = {"INT", "FLOAT", "STRING", "BOOLEAN", "COMBO"}
 
 
 class IllustrationError(RuntimeError):
@@ -84,47 +87,6 @@ def build_prompt_text(subject: str, style: dict | None) -> str:
     if style is None:
         return subject
     return f"{style['prefix']} {subject} {style['suffix']}"
-
-
-def ui_to_api(workflow: dict, object_info: dict) -> dict:
-    """Convert a ComfyUI UI-format graph to the API format.
-
-    For each node, the widget values (widgets_values) are matched to the input
-    names in the order that the server lists them in /object_info. Linked inputs
-    become [source_node_id, source_slot].
-    """
-    links = {link[0]: link for link in workflow.get("links", [])}
-    api: dict[str, dict] = {}
-    for node in workflow["nodes"]:
-        class_type = node["type"]
-        if class_type in ("Note", "MarkdownNote"):
-            continue
-        info = object_info.get(class_type)
-        if info is None:
-            raise IllustrationError(f"the server does not know the node class {class_type}")
-        inputs: dict = {}
-        linked = set()
-        for slot in node.get("inputs", []):
-            if slot.get("link") is not None:
-                link = links[slot["link"]]
-                inputs[slot["name"]] = [str(link[1]), link[2]]
-                linked.add(slot["name"])
-        values = list(node.get("widgets_values", []))
-        specs = {**info["input"].get("required", {}), **info["input"].get("optional", {})}
-        for name, spec in specs.items():
-            kind = spec[0]
-            opts = spec[1] if len(spec) > 1 and isinstance(spec[1], dict) else {}
-            if not (isinstance(kind, list) or kind in SIMPLE_TYPES):
-                continue  # a connection type such as MODEL or CLIP, never a widget
-            if not values:
-                break
-            value = values.pop(0)
-            if opts.get("control_after_generate") and values:
-                values.pop(0)  # the UI stores "fixed" or "randomize" after the seed
-            if name not in linked:
-                inputs[name] = value
-        api[str(node["id"])] = {"class_type": class_type, "inputs": inputs}
-    return api
 
 
 def find_roles(workflow: dict) -> dict[str, str]:
@@ -262,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
             subject, a.seed, a.out, url=a.url, steps=a.steps, width=a.width, height=a.height,
             use_style=not a.no_style, workflow_path=a.workflow, style_path=a.style_file, timeout=a.timeout,
         )
-    except (IllustrationError, OSError, ValueError) as err:
+    except (IllustrationError, HorusError, OSError, ValueError) as err:
         print(json.dumps({"ok": False, "error": str(err)}), file=sys.stderr)
         return 1
     print(json.dumps({"ok": True, **result}))

@@ -74,16 +74,27 @@ The first start can take a few minutes. Open that address in a browser to see Co
 - ComfyUI stops at start with `WinError 1114`: install the Visual C++ Redistributable, then run `start-comfyui.ps1` again.
 - Other start errors: read `horus-comfyui.err.log` in the ComfyUI folder.
 
-## Step 2: install the MCP bridge
+## Step 2: install the two MCP servers
 
 ```powershell
 .\scripts\install-comfy-mcp.ps1
+.\scripts\install-horus-mcp.ps1
 ```
 
-**What it makes.** A Python virtual environment at `%USERPROFILE%\.venvs\comfy-mcp`.
-It holds `comfy-mcp` 0.10.0 and `comfy-cli` 1.25.0. The versions are fixed on
-purpose, so that every PC behaves the same. Keep the default path. The file `.mcp.json`
-in this repo points at it.
+**What it makes.** Two Python virtual environments (venvs). Claude Code starts each
+server program itself when a session starts. You do not start them.
+
+| venv | Holds | Program |
+|---|---|---|
+| `%USERPROFILE%\.venvs\comfy-mcp` | `comfy-mcp` 0.10.0 and `comfy-cli` 1.25.0 | `comfy-mcp.exe` |
+| `%USERPROFILE%\.venvs\horus-mcp` | this repo (editable) and `mcp` 2.3.0 | `horus-mcp.exe` |
+
+The versions are fixed on purpose, so that every PC behaves the same. Keep the default
+paths. The file `.mcp.json` in this repo points at both programs. If a program is
+missing, Claude Code shows that server as failed in `/mcp`.
+
+"Editable" means that the horus venv runs the code in this folder. So `git pull`
+updates the horus server without a new install.
 
 **If it fails.**
 
@@ -117,7 +128,7 @@ Also set the `HORUS_*` paths in this file if you chose other drives.
 ## Step 4: download the models, sync the workflow, run a smoke test
 
 ```powershell
-.\scripts\install-workflow-models.ps1 -Workflow it-illustration
+.\scripts\workflow.ps1 install it-illustration
 .\scripts\sync-workflows.ps1
 .\scripts\check-setup.ps1 -Workflow it-illustration
 ```
@@ -132,7 +143,9 @@ to the first command. Add `-ModelsDir` to move all model folders.
 - The second script copies the workflow into ComfyUI as `horus-it-illustration.json`. You see it in the Workflows pane of the ComfyUI page.
 - The third script is the smoke test (a quick check that everything is in place). It prints one `PASS` or `FAIL` line for each check. It exits with code 0 only if all checks pass. It needs a few minutes, because it hashes 11 GB.
 
-To check only, without a download, run `install-workflow-models.ps1 -Workflow it-illustration -CheckOnly`.
+To check only, without a download, run `.\scripts\workflow.ps1 check it-illustration`.
+The old command `install-workflow-models.ps1 -Workflow it-illustration` still works. It calls `workflow.ps1`.
+See [manage workflows](#manage-workflows-list-install-check-remove) for the other actions.
 
 **If it fails.**
 
@@ -151,10 +164,10 @@ Start the agent in this repo folder:
 claude
 ```
 
-Claude Code reads `.mcp.json` and asks whether to use the project server `comfy-mcp`.
-Approve it. Then:
+Claude Code reads `.mcp.json` and asks whether to use the project servers `comfy-mcp`
+and `horus`. Approve both. Then:
 
-1. Type `/mcp`. It must show `comfy-mcp` as connected.
+1. Type `/mcp`. It must show `comfy-mcp` and `horus` as connected.
 2. Type: `run server_info`.
 
 **What it makes.** A live link between the agent and your ComfyUI. `server_info` must
@@ -162,13 +175,30 @@ report that ComfyUI is running at `http://127.0.0.1:8188`.
 
 **If it fails.**
 
-- `comfy-mcp (CONNECTION_CLOSED)`: the program in `.mcp.json` does not exist. Run step 2 with the default path, then `/mcp`. `scripts\check-setup.ps1` tells you whether the path matches.
+- `comfy-mcp` or `horus` failed (`CONNECTION_CLOSED`): the program in `.mcp.json` does not exist. Run step 2 with the default paths, then restart `claude`. `scripts\check-setup.ps1` tells you whether the path matches.
 - `Pending approval` in `claude mcp list`: approve the server in an interactive `claude` session. To be asked again, run `claude mcp reset-project-choices`.
 - `UnicodeEncodeError: 'charmap' codec`: set `PYTHONUTF8=1`. The `.mcp.json` file already does this.
 - `server_info` shows `running: false`: run `start-comfyui.ps1`.
 
 For Codex, add the same server to its configuration. Use the paths of the venv from
 step 2. Then restart Codex.
+
+### Optional: the image tool for agents in other folders
+
+```powershell
+.\scripts\install-horus-mcp.ps1 -Register
+```
+
+**What it makes.** The same venv as step 2, and an entry `horus` in your Claude Code
+user settings (user scope). Without `-Register`, only a session in this repo folder
+sees `horus`, through `.mcp.json` (project scope). An agent in any folder then has the
+tools `list_workflows`, `describe_workflow`, `install_workflow`, `uninstall_workflow`
+and `generate_image`. Check it with `claude mcp get horus` from any folder: it shows
+`Connected`. See [`mcp.md`](mcp.md).
+
+**If it fails.** `claude was not found`: install Claude Code, or add the stdio server
+`<venv>\Scripts\horus-mcp.exe` to your agent by hand. To remove the entry, run
+`claude mcp remove horus -s user`.
 
 ## Step 6: make your first image
 
@@ -186,6 +216,40 @@ The first image can take several minutes, because ComfyUI loads 11 GB of models.
 ## Check an existing machine at any time
 
 ```powershell
-.\scripts\check-setup.ps1                              # server, venv and .mcp.json
+.\scripts\check-setup.ps1                              # server, both venvs and .mcp.json
 .\scripts\check-setup.ps1 -Workflow it-illustration    # also the model hashes
 ```
+
+## Manage workflows: list, install, check, remove
+
+`scripts\workflow.ps1` manages the files that each workflow needs. A workflow
+is a folder under `workflows\`. Its `models.json` lists every model file (diffusion
+model, text encoder, VAE, LoRA and so on) with its size and SHA-256.
+
+```powershell
+.\scripts\workflow.ps1 list                                # every workflow, its description, installed or not
+.\scripts\workflow.ps1 install it-illustration             # download and verify, then check
+.\scripts\workflow.ps1 check it-illustration               # is this PC ready to run it?
+.\scripts\workflow.ps1 remove it-illustration              # prints what it deletes, deletes nothing
+.\scripts\workflow.ps1 remove it-illustration -Yes         # deletes the files
+.\scripts\workflow.ps1 remove it-illustration -Only vae -Yes  # deletes one file (a role or a file name)
+```
+
+| Action | What it does | What it never does |
+|---|---|---|
+| `list` | Prints each workflow with the first paragraph of its README, the number and size of its model files, and if they are on disk (size check). `-Json` prints JSON. | Download or delete. |
+| `install` | Downloads each missing file, checks the SHA-256, then runs `check`. A file that is present and correct is skipped. | Overwrite a file that differs. |
+| `check` | Checks size and SHA-256 of each file (`-Quick`: size only). Checks that `models.json` lists every model file that `workflow.json` loads. When ComfyUI runs, checks that the server has every node class and lists every model file. | Change a file. |
+| `remove` | Without `-Yes`, prints the plan. With `-Yes`, deletes the files and unfinished `.part` downloads. | Delete a file that another workflow lists (unless `-Force`), or a file whose size differs from `models.json`. |
+
+The script finds a model file in the `-ModelsDir` folder, in ComfyUI's own
+`models` folder, and in every folder that `extra_model_paths.yaml` maps. So a
+text encoder on another drive is found when ComfyUI can find it.
+
+`check` does not install a missing custom node pack. It names the missing node
+class. Install the pack with the MCP tool `install_node`, then restart ComfyUI.
+
+A file from another source (for example a LoRA from another Hugging Face
+repository) gets its own `repo` and `revision`, or a full `url`, in its
+`models.json` entry. The token goes only to `huggingface.co` hosts.
+

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Make one flat-vector IT illustration with a local ComfyUI.
+"""Make one image with the it-illustration workflow (FLUX 3 Image Klein) and a local ComfyUI.
 
 Command line:
 
@@ -11,8 +11,9 @@ Python:
     from run_illustration import generate   # import with sys.path set to scripts/
     result = generate("a message queue between two services", seed=7, out="out/queue.png")
 
-The prompt that FLUX 3 Image Klein receives is: house-style prefix + subject +
-house-style suffix (workflows/it-illustration/house-style.json).
+The prompt that FLUX 3 Image Klein receives is the subject, exactly as written.
+The workflow adds no style. To wrap a style around the subject, pass
+--style-file with a JSON file {"prefix": ..., "suffix": ...} that you own.
 
 The script needs only the Python standard library and the horus/ package of this
 repo (no third-party package). It reads the workflow in
@@ -47,7 +48,6 @@ from horus.comfy import ui_to_api  # noqa: E402  (the same converter as the MCP 
 from horus.errors import HorusError  # noqa: E402
 WORKFLOW_DIR = ROOT / "workflows" / "it-illustration"
 DEFAULT_WORKFLOW = WORKFLOW_DIR / "workflow.json"
-DEFAULT_STYLE = WORKFLOW_DIR / "house-style.json"
 DEFAULT_URL = "http://127.0.0.1:8188"
 
 # Node classes that carry the settings this script changes.
@@ -80,7 +80,7 @@ def _post_json(url: str, body: dict, timeout: int = 60) -> dict:
 
 
 def build_prompt_text(subject: str, style: dict | None) -> str:
-    """Join house-style prefix, subject and house-style suffix."""
+    """The subject, or the caller's style prefix + subject + suffix when a style is given."""
     subject = " ".join(subject.split())
     if not subject:
         raise IllustrationError("the subject is empty")
@@ -113,9 +113,8 @@ def generate(
     steps: int | None = None,
     width: int = 1536,
     height: int = 1024,
-    use_style: bool = True,
     workflow_path: str | os.PathLike = DEFAULT_WORKFLOW,
-    style_path: str | os.PathLike = DEFAULT_STYLE,
+    style_path: str | os.PathLike | None = None,
     timeout: int = 1800,
     poll_seconds: float = 5.0,
 ) -> dict:
@@ -127,7 +126,7 @@ def generate(
     url = (url or os.environ.get("HORUS_COMFYUI_URL") or DEFAULT_URL).rstrip("/")
     if width % 16 or height % 16:
         raise IllustrationError("width and height must be multiples of 16")
-    style = json.loads(Path(style_path).read_text(encoding="utf-8")) if use_style else None
+    style = json.loads(Path(style_path).read_text(encoding="utf-8")) if style_path else None
     prompt_text = build_prompt_text(subject, style)
 
     workflow = json.loads(Path(workflow_path).read_text(encoding="utf-8"))
@@ -203,26 +202,25 @@ def generate(
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="Make one flat-vector IT illustration with a local ComfyUI.")
+    p = argparse.ArgumentParser(description="Make one image with the it-illustration workflow and a local ComfyUI.")
     src = p.add_mutually_exclusive_group(required=True)
-    src.add_argument("--subject", help="what the picture shows: objects, positions, relations")
+    src.add_argument("--subject", help="the whole prompt: content and style, sent as written")
     src.add_argument("--subject-file", help="a text file that holds the subject")
     p.add_argument("--out", default="illustration.png", help="where to save the PNG")
     p.add_argument("--seed", type=int, default=424242)
     p.add_argument("--steps", type=int, default=None, help="default: the value in the workflow (15)")
     p.add_argument("--width", type=int, default=1536)
     p.add_argument("--height", type=int, default=1024)
-    p.add_argument("--no-style", action="store_true", help="send the subject without the house style")
     p.add_argument("--url", default=None, help="ComfyUI URL (default: $HORUS_COMFYUI_URL or %s)" % DEFAULT_URL)
     p.add_argument("--workflow", default=str(DEFAULT_WORKFLOW))
-    p.add_argument("--style-file", default=str(DEFAULT_STYLE))
+    p.add_argument("--style-file", default=None, help="optional JSON {prefix, suffix} that you own; default: no style")
     p.add_argument("--timeout", type=int, default=1800, help="seconds to wait for the job")
     a = p.parse_args(argv)
     try:
         subject = a.subject if a.subject is not None else Path(a.subject_file).read_text(encoding="utf-8")
         result = generate(
             subject, a.seed, a.out, url=a.url, steps=a.steps, width=a.width, height=a.height,
-            use_style=not a.no_style, workflow_path=a.workflow, style_path=a.style_file, timeout=a.timeout,
+            workflow_path=a.workflow, style_path=a.style_file, timeout=a.timeout,
         )
     except (IllustrationError, HorusError, OSError, ValueError) as err:
         print(json.dumps({"ok": False, "error": str(err)}), file=sys.stderr)

@@ -5,7 +5,8 @@ The steps:
     2. Make sure that ComfyUI answers. Start it when it does not (HORUS_AUTOSTART=0 turns this off).
     3. Convert workflow.json to the API format with the live node definitions.
     4. Refuse early when the server does not list a model file of the graph (WORKFLOW_NOT_INSTALLED).
-    5. Set caption (house-style prefix + subject + suffix), seed, size and file prefix.
+    5. Set caption (the caller's subject, exactly as written), seed, size and file prefix.
+       horus adds no style text: the caller owns the look, the palette and the design system.
     6. Submit, then wait. Report progress every few seconds.
     7. Save the PNG to out_path.
 
@@ -37,12 +38,6 @@ REPORT_SECONDS = 10.0
 
 async def _noop(progress: float, total: float | None, message: str) -> None:
     return None
-
-
-def build_caption(subject: str, style: dict[str, str] | None) -> str:
-    if style is None:
-        return subject
-    return f"{style['prefix']} {subject} {style['suffix']}"
 
 
 def validate(w: Workflow, subject: Any, seed: Any, width: Any, height: Any,
@@ -121,7 +116,7 @@ async def generate_image(workflow: str, subject: str, *, seed: int | None = None
                          next_step=f"Call install_workflow with workflow={w.name!r}, then call generate_image again.")
 
     values = {
-        "caption": build_caption(req["subject"], w.house_style()),
+        "caption": req["subject"],
         "seed": req["seed"],
         "width": req["width"],
         "height": req["height"],

@@ -1,8 +1,14 @@
 # it-illustration
 
-Text in, flat-vector illustration of a tech topic out. The picture is 1536x1024.
-The model is FLUX 3 Image Klein (int8 build) running in ComfyUI. This is the
-first horus example.
+Text in, image out. The picture is 1536x1024. The model is FLUX 3 Image Klein
+(int8 build) running in ComfyUI. This is the first horus example.
+
+The workflow has no style. horus sends the subject to the model exactly as
+written. The caller writes the look (style, palette, light, composition) in the
+subject. The examples below are flat vector because their subjects ask for flat
+vector, with the sentences in
+[`prompts/flux3-klein/flat-vector-tech-style.md`](../../prompts/flux3-klein/flat-vector-tech-style.md).
+The name `it-illustration` is older than this rule. It does not mean a style.
 
 | Example | Subject |
 |---|---|
@@ -14,11 +20,10 @@ Files in this folder:
 
 | File | What it is |
 |---|---|
-| `manifest.json` | The public contract for the horus MCP server: summary, theme, sizes, subject rules, and the graph inputs that horus sets. |
+| `manifest.json` | The public contract for the horus MCP server: summary, sizes, subject rules, and the graph inputs that horus sets. |
 | `workflow.json` | The graph, in ComfyUI "UI" format. 10 nodes. Do not edit it by hand. |
 | `recipe.json` | A comfy-cli recipe that builds the same graph. |
 | `models.json` | The model files, with size and SHA-256. The install script reads it. |
-| `house-style.json` | Two text pieces (`prefix`, `suffix`) that surround every subject. |
 | `examples/` | Pictures made with this workflow. |
 
 ## Models and pairings
@@ -63,18 +68,17 @@ The int8 checkpoint stores `comfy_kitchen_int8` as its attention method. That ke
 
 ## How to write the caption
 
-FLUX 3 expects a long, descriptive caption. Its authors ship a prompt upsampler (a language model that expands a short request into a caption). horus does not install it. The agent does the same job: it writes the subject, and the house style goes around it.
+FLUX 3 expects a long, descriptive caption. Its authors ship a prompt upsampler (a language model that expands a short request into a caption). horus does not install it. The caller does the same job: it writes the whole caption.
 
-caption = `prefix` + subject + `suffix` (from `house-style.json`)
+caption = subject (horus adds nothing)
 
 Rules for the subject:
 
-1. Write 2 to 4 full sentences. Name each object, its colour, its position, and what connects to what.
-2. Use only the palette colours: navy, white, sky blue, lilac, mint green, sun yellow, coral.
+1. Write full descriptive sentences. Name the medium and the style first. Then name each object with its position, colour and light.
+2. Write the look yourself: medium, palette, light, mood, background and framing. Without them the model picks its own.
 3. Describe only what you can see. Do not write the concept name. A phrase such as "these are the read replicas" came back as the words "read replicas" in the picture.
 4. Never put hex colour codes such as `#2D7FF9` in the caption. The model draws them as text. Use colour names.
-5. Screens and panels show "abstract coloured bars". Never ask for readable content.
-6. Keep the scene centred with wide margins.
+5. If you want no text in the picture, say so in the caption. The model draws text badly.
 
 ## Run it through MCP
 
@@ -87,7 +91,7 @@ MCP (Model Context Protocol) is how an agent calls tools. These tools come from 
 5. `run_workflow(wait=False)`. It returns a `prompt_id`.
 6. `job(action="wait", timeout_seconds=600)` with that `prompt_id`.
 7. `fetch_outputs` with the `prompt_id` and an output folder.
-8. Open the PNG. Check that it is flat vector, on subject and free of text. Change one thing in the subject and rerun when it is not.
+8. Open the PNG. Check that it matches the subject and the look that the caption asks for. Change one thing in the subject and rerun when it is not.
 
 `run_workflow(wait=True)` has a budget of about 110 s. A model load alone can exceed it, so always use `wait=False`.
 
@@ -103,7 +107,7 @@ The script needs only the Python standard library. It reads `workflow.json`, con
 {"ok": true, "prompt_id": "...", "out": "out/queue.png", "seed": 7, "steps": 15, "width": 1536, "height": 1024, "execution_seconds": 217.5, "comfy_output": "..."}
 ```
 
-On failure it prints `{"ok": false, "error": "..."}` to stderr and exits with code 1. Options: `--subject-file`, `--steps`, `--width`, `--height`, `--no-style`, `--url`, `--timeout`. The server URL is `--url`, or the environment variable `HORUS_COMFYUI_URL`, or `http://127.0.0.1:8188`.
+On failure it prints `{"ok": false, "error": "..."}` to stderr and exits with code 1. Options: `--subject-file`, `--steps`, `--width`, `--height`, `--style-file` (an optional JSON `{prefix, suffix}` that you own; default: none), `--url`, `--timeout`. The server URL is `--url`, or the environment variable `HORUS_COMFYUI_URL`, or `http://127.0.0.1:8188`.
 
 From Python, import the function `generate(subject, seed, out, ...)`. It returns a dict with the same keys and raises `IllustrationError` on failure.
 
@@ -143,3 +147,24 @@ then `generate_image` 4 times, and wrote each subject itself. Another agent's jo
 `validate_workflow` on `workflow.json`: `valid: true`, `converted_node_count: 10`.
 
 The style is the same across the three examples, but the model does not follow the layout exactly. In the read-replicas picture, the sky-blue arrows reach only one of the three small cylinders.
+
+### Style-neutral check (2026-11-09)
+
+horus used to add a flat-vector house style around every subject. A caller that
+asked for a dark space scene got a pale pastel picture. horus now sends the
+subject as written. We sent 5 dark-scene prompts from another project, word for
+word, with fixed seeds, before and after the change. "Dark pixels" is the share
+of pixels with a luminance below 60 of 255. The reference is an image of the
+same prompt from a different model.
+
+| Prompt (seed) | Reference | Before: house style | After: subject only | Seconds (after) |
+|---|---|---|---|---|
+| Cookies on a table in a dark space station (2001) | 95.1% | 20.6%, pale flat vector | 80.3%, dark, photographic | 296.2 |
+| Four children before a round window (2002) | 95.6% | 30.7%, pale flat vector | 88.6%, dark silhouettes | 215.8 |
+| A child on a dark moon holds a cookie (2003) | 98.7% | not run | 86.2%, dark | 215.8 |
+| A space station and a tree of lit nodes (1001) | 98.1% | not run | 98.3%, dark | 218.0 |
+| A stone ring gate in deep space (1005) | 98.2% | not run | 93.4%, dark | 217.8 |
+
+Limits that remain are model limits, not style: the node tree has 1, 3 and 4
+nodes (the prompt asks for 1, 2 and 4), and a wall panel shows small marks that
+look like text.

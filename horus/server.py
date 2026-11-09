@@ -1,11 +1,11 @@
 """The horus MCP server (stdio).
 
 Tools:
-    list_workflows      the image styles on this machine, and if each one is installed
-    describe_workflow   one style in full: theme, sizes, how to write the subject, examples, license
-    install_workflow    download and verify the model files of a style
-    uninstall_workflow  delete the model files of a style
-    generate_image      make one image with a style; waits until the PNG is on disk
+    list_workflows      the image workflows on this machine, and if each one is installed
+    describe_workflow   one workflow in full: sizes, how to write the subject, examples, license
+    install_workflow    download and verify the model files of a workflow
+    uninstall_workflow  delete the model files of a workflow
+    generate_image      make one image with a workflow; waits until the PNG is on disk
 
 Every tool returns the same envelope, in structuredContent and as JSON text:
     {"ok": true,  "result": {...}, "error": null}
@@ -37,9 +37,10 @@ log = logging.getLogger("horus")
 
 INSTRUCTIONS = """\
 horus makes images on this machine with local AI models. You do not need to know how.
-1. Call list_workflows. Each workflow is one image style; pick the one whose summary and good_for fit.
-2. Call describe_workflow for that style once, and read subject.rules and subject.examples.
-   Write your subject by those rules: describe only what the picture shows. horus adds the style itself.
+1. Call list_workflows. Each workflow is one image model and graph; pick the one whose summary and good_for fit.
+2. Call describe_workflow for that workflow once, and read subject.rules and subject.examples.
+   horus adds no style: it sends your subject to the model exactly as written. You own the look,
+   the palette, the light and the composition, so write them in the subject.
 3. Call generate_image. It waits until the PNG is on disk (often 3 to 8 minutes, longer on a cold start)
    and returns its absolute path. Open the file and check it against what you asked.
 Every result has ok, result and error. On ok=false, read error.code, error.action_by and error.next_step:
@@ -73,7 +74,6 @@ class WorkflowSummary(BaseModel):
     name: str = Field(description="Pass this to the other tools.")
     title: str
     summary: str
-    look: str = Field(description="The visual style that horus adds to every subject.")
     good_for: list[str]
     not_good_for: list[str]
     output: dict[str, Any] = Field(description="format, default_width, default_height")
@@ -100,10 +100,8 @@ class DescribeResult(BaseModel):
     name: str
     title: str
     summary: str
-    look: str
     good_for: list[str]
     not_good_for: list[str]
-    theme: dict[str, Any] = Field(description="look, palette, background, text_in_image")
     output: dict[str, Any] = Field(description="format, default size, min_side, max_side, multiple_of")
     subject: dict[str, Any] = Field(description="min_chars, max_chars, how_to_write, rules, examples (subject, image path, seed)")
     timing: dict[str, Any] | None
@@ -204,10 +202,10 @@ def _status_rows(w: catalog.Workflow) -> list[InstallFile]:
 # -- tools -----------------------------------------------------------------------------------------
 
 @mcp.tool(
-    title="List image styles",
+    title="List image workflows",
     description=(
-        "List the image styles (workflows) that horus can make on this machine. Each entry has the name to pass "
-        "to the other tools, a summary, the look, what the style is good and bad for, the output size, the measured "
+        "List the image workflows (model + graph) on this machine. Each entry has the name to pass "
+        "to the other tools, a summary, what the workflow is good and bad for, the output size, the measured "
         "time per image, and install_state. Call this first."),
     annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False),
 )
@@ -226,11 +224,11 @@ async def list_workflows(ctx: Context) -> Annotated[CallToolResult, Envelope[Lis
 
 
 @mcp.tool(
-    title="Describe an image style",
+    title="Describe an image workflow",
     description=(
-        "Everything a caller needs to use one image style: the theme (look, palette, background, text rule), the "
-        "allowed sizes, how to write the subject (rules and example subjects with their images), the license and "
-        "the install state of each model file. Read subject.rules before the first generate_image with this style."),
+        "Everything a caller needs to use one image workflow: the allowed sizes, how to write the subject (rules "
+        "and example subjects with their images), the license and the install state of each model file. The workflow "
+        "has no style of its own. Read subject.rules before the first generate_image with this workflow."),
     annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False),
 )
 async def describe_workflow(
@@ -247,9 +245,9 @@ async def describe_workflow(
 
 
 @mcp.tool(
-    title="Install an image style",
+    title="Install an image workflow",
     description=(
-        "Download and verify (SHA-256) the model files of one image style, so that generate_image can use it. "
+        "Download and verify (SHA-256) the model files of one image workflow, so that generate_image can use it. "
         "Files that are already present are kept. Downloads are large (several GB) and can take 10 to 60 minutes. "
         "The models have their own license: the first call without accept_license=true returns the error "
         "LICENSE_CONFIRMATION_REQUIRED with the license and the size. Ask the user, then call again with "
@@ -299,9 +297,9 @@ async def install_workflow(
 
 
 @mcp.tool(
-    title="Uninstall an image style",
+    title="Uninstall an image workflow",
     description=(
-        "Delete the model files of one image style to free disk space. A file that another installed style also "
+        "Delete the model files of one image workflow to free disk space. A file that another installed workflow also "
         "uses is kept unless remove_shared=true. Without confirm=true nothing is deleted: the call returns the error "
         "CONFIRMATION_REQUIRED with the list of files and sizes. Show it to the user, then call again with confirm=true."),
     annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True, open_world_hint=False),
@@ -310,7 +308,7 @@ async def uninstall_workflow(
     ctx: Context,
     workflow: Annotated[str, Field(description="Name from list_workflows.")],
     confirm: Annotated[bool, Field(description="True only after the user agreed to the plan from the first reply.")] = False,
-    remove_shared: Annotated[bool, Field(description="Also delete files that other styles use.")] = False,
+    remove_shared: Annotated[bool, Field(description="Also delete files that other workflows use.")] = False,
 ) -> Annotated[CallToolResult, Envelope[UninstallResult]]:
     async def body() -> CallToolResult:
         w = catalog.get(workflow)
@@ -331,17 +329,17 @@ async def uninstall_workflow(
 @mcp.tool(
     title="Generate an image",
     description=(
-        "Make one image in the given style and save it as a PNG on this machine. The call waits until the image is "
+        "Make one image with the given workflow and save it as a PNG on this machine. The call waits until the image is "
         "done (often 3 to 8 minutes; the first call after a cold start takes longer) and reports progress. "
-        "Write the subject by the rules from describe_workflow: describe only what the picture shows (objects, "
-        "colours, positions, connections). horus adds the style. The result has the absolute path of the PNG; open "
+        "The subject is the whole prompt: what the picture shows and how it looks (style, palette, light, "
+        "composition). horus sends it to the model exactly as written and adds nothing. The result has the absolute path of the PNG; open "
         "it and check it. The same subject and seed give the same image."),
     annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
 )
 async def generate_image(
     ctx: Context,
     workflow: Annotated[str, Field(description="Name from list_workflows, for example 'it-illustration'.")],
-    subject: Annotated[str, Field(description="What the picture shows, in 2 to 4 sentences. Follow subject.rules of describe_workflow.")],
+    subject: Annotated[str, Field(description="The whole prompt, sent to the model as written: content and style. Follow subject.rules of describe_workflow.")],
     out_path: Annotated[str | None, Field(description="Absolute path of the PNG to write. Default: a new file in the horus output folder.")] = None,
     seed: Annotated[int | None, Field(description="Integer for a repeatable image. Default: a random seed (returned in the result).")] = None,
     width: Annotated[int | None, Field(description="Pixels. Default and limits: describe_workflow output.")] = None,

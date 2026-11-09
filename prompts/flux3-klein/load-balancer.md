@@ -8,7 +8,7 @@ steps: 15
 
 # A laptop, a load balancer and three servers
 
-## Caption (house style prefix + subject + house style suffix)
+## Caption (flat-vector style sentences + subject; see [flat-vector-tech-style](flat-vector-tech-style.md))
 
 ```text
 A clean flat vector illustration for a modern tech explainer. It looks like a tidy technical diagram, with dark navy outlines of uniform medium weight and rounded corners, and solid flat pastel fills. On the left, a sky-blue laptop shows only abstract coloured bars. A thin navy arrow runs from the laptop to a lilac rounded box in the centre, and three short navy arrows fan out of that box to the right. On the right, three mint-green server boxes stand in a column, and each of the three arrows points at one server box. The colour palette is dark navy for outlines, white, sky blue, lilac, mint green, sun yellow and coral, each with a light pastel tint for fills. Each object has one very soft flat shadow below it. The background is plain very pale blue with a faint sparse dotted grid and nothing else. Shapes are simple and friendly, with generous empty space. The whole scene is centred and fully inside the frame, with wide margins on all sides. Every surface is blank: screens and panels show only abstract coloured bars and blocks. The picture contains no text of any kind: no letters, no digits, no symbols and no logos.

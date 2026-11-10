@@ -88,6 +88,16 @@ func (f *Fake) Job(id string) *Job {
 	return f.jobs[id]
 }
 
+// Polls is the count of GET /history for one job.
+func (f *Fake) Polls(id string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if j, ok := f.jobs[id]; ok {
+		return j.Polls
+	}
+	return 0
+}
+
 // Interrupts are the prompt ids of POST /interrupt.
 func (f *Fake) Interrupts() []string {
 	f.mu.Lock()

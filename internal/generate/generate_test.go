@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -321,7 +322,7 @@ func TestTimeoutCancelsTheJob(t *testing.T) {
 	if i.Code != "GENERATION_TIMEOUT" || i.Details["job_id"] != "job-1" || !reflect.DeepEqual(e.fake.Interrupts(), []string{"job-1"}) {
 		t.Fatalf("running: %+v interrupts=%v", i, e.fake.Interrupts())
 	}
-	if !contains(r.all(), "rendering, 0 s") {
+	if !hasReport(r.all(), "rendering, ") {
 		t.Fatalf("reports: %v", r.all())
 	}
 
@@ -330,7 +331,7 @@ func TestTimeoutCancelsTheJob(t *testing.T) {
 	if codeOf(err) != "GENERATION_TIMEOUT" || !reflect.DeepEqual(e.fake.Deleted(), []string{"job-2"}) {
 		t.Fatalf("pending: %v deleted=%v", err, e.fake.Deleted())
 	}
-	if !contains(r.all(), "waiting in the backend queue, position 2, 0 s") {
+	if !hasReport(r.all(), "waiting in the backend queue, position 2, ") {
 		t.Fatalf("reports: %v", r.all())
 	}
 }
@@ -349,7 +350,8 @@ func TestCancelledCallCancelsTheJob(t *testing.T) {
 	e.fake.SetMode(comfytest.Slow)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		for len(e.fake.Jobs()) == 0 {
+		// Cancel in the wait loop: after the first poll of /history for the job.
+		for len(e.fake.Jobs()) == 0 || e.fake.Polls(e.fake.Jobs()[0]) == 0 {
 			time.Sleep(time.Millisecond)
 		}
 		cancel()
@@ -390,6 +392,20 @@ func contains(list []string, s string) bool {
 	for _, x := range list {
 		if x == s {
 			return true
+		}
+	}
+	return false
+}
+
+// hasReport finds a report "<text><elapsed> s". The elapsed seconds depend on
+// the speed of the machine, so only the form is checked.
+func hasReport(list []string, text string) bool {
+	for _, x := range list {
+		rest := strings.TrimPrefix(x, text)
+		if rest != x && strings.HasSuffix(rest, " s") {
+			if _, err := strconv.Atoi(strings.TrimSuffix(rest, " s")); err == nil {
+				return true
+			}
 		}
 	}
 	return false

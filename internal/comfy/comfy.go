@@ -58,7 +58,17 @@ type HTTPError struct {
 func (e *HTTPError) Error() string { return fmt.Sprintf("HTTP Error %d", e.Code) }
 
 // open sends one request. A transport failure is BACKEND_UNAVAILABLE.
-func (c *Client) open(ctx context.Context, method, path string, body []byte, timeout time.Duration) ([]byte, error) {
+// A cancelled call (not a timeout) gives the error of ctx, as a cancelled
+// asyncio task in Python raises CancelledError and no horus error.
+func (c *Client) open(parent context.Context, method, path string, body []byte, timeout time.Duration) ([]byte, error) {
+	data, err := c.send(parent, method, path, body, timeout)
+	if err != nil && parent.Err() != nil {
+		return nil, parent.Err()
+	}
+	return data, err
+}
+
+func (c *Client) send(ctx context.Context, method, path string, body []byte, timeout time.Duration) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var rd io.Reader

@@ -1962,12 +1962,12 @@ Each `next_step` of `horus errors -json` was read for a name that is gone. Only 
 
 Three fixes were merged after the review of `fd83a80`: PR #44 (#38), PR #45 (#43, which took points 2 and 3 of follow-up #41 into the epic) and PR #47 (#46, found by the coordinator). The branch `docs/g12-acceptance` was merged with `origin/main` (`98edd90`). `bin/horus.exe` was built from the merged tree (`vcs.revision=fe180c47cd477ec860b8634594733f3288966aa8`). Only what the three fixes touched was checked again. The statements in steps 1 and 2 about the old `check-setup` lines (`-full`, no comfy-cli check, "verified" after a size-only check) describe `fd83a80` and are replaced by this step.
 
-`README.md` lines 96 to 98 against `internal/scripts/register/register.go` line 58 (`"-e", "HORUS_ROOT="+o.Root`): they agree.
+`README.md` lines 96 to 98 (the two link targets rewritten relative to this file) against `internal/scripts/register/register.go` line 58 (`"-e", "HORUS_ROOT="+o.Root`): they agree.
 
 ```
-call or ask you. Details: [`docs/mcp.md`](docs/mcp.md). `horus register` also sets
+call or ask you. Details: [`docs/mcp.md`](../mcp.md). `horus register` also sets
 the variable `HORUS_ROOT` to the repo folder. You do not set it by hand
-([setup step 5](docs/setup.md#optional-the-image-tool-for-agents-in-other-folders)).
+([setup step 5](../setup.md#optional-the-image-tool-for-agents-in-other-folders)).
 ```
 
 `check-setup -h` (`-full` is gone, `-quick` is new):

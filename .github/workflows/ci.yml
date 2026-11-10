@@ -1,0 +1,21 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  python-baseline:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: Contract test against the Python server
+        shell: bash
+        run: |
+          python tests/mcp_contract.py | tee contract.log
+          grep -q "contract: 30 of 30 passed" contract.log

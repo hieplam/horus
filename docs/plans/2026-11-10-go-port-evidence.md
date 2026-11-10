@@ -1392,7 +1392,7 @@ exit 0
 
 | File | Bytes | Size | SHA-256 | Seed | Seconds |
 |---|---|---|---|---|---|
-| `<repo>\.scratch\g11eal-image-seed7-20261110-185211.png` | 2,421,991 | 1536 x 1024 | `9f8fbe697dc813d1e8ca17a7152e651fd7682df008790f51e8c217e21bee6080` | 7 | 216 |
+| `<repo>\.scratch\g11\real-image-seed7-20261110-185211.png` | 2,421,991 | 1536 x 1024 | `9f8fbe697dc813d1e8ca17a7152e651fd7682df008790f51e8c217e21bee6080` | 7 | 216 |
 
 Subject of the contract test: "On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. On the right, a sky-blue server box takes them off the belt."
 
@@ -1958,14 +1958,158 @@ differences: 0
 
 Each `next_step` of `horus errors -json` was read for a name that is gone. Only one names a command: `BACKEND_UNAVAILABLE` ("Ask the user to run horus start-comfyui in the horus repo and read docs/setup.md."). `horus start-comfyui` exists. The others name tool names (`list_workflows`, `install_workflow`, `generate_image`), arguments (`accept_license`, `confirm`, `out_path`, `overwrite`), `details` keys, `HF_TOKEN`, `.env` and `docs/setup.md`. All exist.
 
+### Step 5: re-check after the fixes
+
+Three fixes were merged after the review of `fd83a80`: PR #44 (#38), PR #45 (#43, which took points 2 and 3 of follow-up #41 into the epic) and PR #47 (#46, found by the coordinator). The branch `docs/g12-acceptance` was merged with `origin/main` (`98edd90`). `bin/horus.exe` was built from the merged tree (`vcs.revision=fe180c47cd477ec860b8634594733f3288966aa8`). Only what the three fixes touched was checked again. The statements in steps 1 and 2 about the old `check-setup` lines (`-full`, no comfy-cli check, "verified" after a size-only check) describe `fd83a80` and are replaced by this step.
+
+`README.md` lines 96 to 98 against `internal/scripts/register/register.go` line 58 (`"-e", "HORUS_ROOT="+o.Root`): they agree.
+
+```
+call or ask you. Details: [`docs/mcp.md`](docs/mcp.md). `horus register` also sets
+the variable `HORUS_ROOT` to the repo folder. You do not set it by hand
+([setup step 5](docs/setup.md#optional-the-image-tool-for-agents-in-other-folders)).
+```
+
+`check-setup -h` (`-full` is gone, `-quick` is new):
+
+```
+$ bin/horus.exe check-setup -h
+Usage of horus check-setup:
+  -comfyui-dir string
+    	the portable folder (default: HORUS_COMFYUI_DIR, then <home>/ComfyUI_windows_portable)
+  -models-dir string
+    	with -workflow: models folder (default: HORUS_MODELS_DIR)
+  -quick
+    	with -workflow: check the size of each file only (the default also checks the SHA-256, and hashing 11 GB takes minutes)
+  -server-url string
+    	address of the ComfyUI server (default "http://127.0.0.1:8188")
+  -text-encoder-dir string
+    	with -workflow: folder of the text encoder on another drive (default: HORUS_TEXT_ENCODER_DIR)
+  -venv-path string
+    	folder of the comfy-mcp venv (default: <home>/.venvs/comfy-mcp)
+  -workflow string
+    	also check the model files of workflows/<name>/models.json
+exit=2
+$ bin/horus.exe check-setup -full
+flag provided but not defined: -full
+exit=2
+```
+
+`check-setup` on this PC (read-only; `HORUS_ROOT=<repo>`, `<user>\go\bin` on the PATH), new:
+
+```
+PASS  ComfyUI folder - D:\ComfyUI_windows_portable
+PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+PASS  comfy-cli - <user>\.venvs\comfy-mcp\Scripts\comfy.exe
+PASS  .mcp.json - command points at <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe, COMFY_BIN at <user>\.venvs\comfy-mcp\Scripts\comfy.exe
+PASS  horus on PATH - <user>\go\bin\horus.exe
+PASS  .mcp.json horus - command points at <user>\go\bin\horus.exe
+All checks passed.
+exit=0
+```
+
+`check-setup.ps1` at `c5379f9`, same state, run again:
+
+```
+PASS  ComfyUI folder - D:\ComfyUI_windows_portable
+PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - <user>\.venvs\comfy-mcp
+PASS  .mcp.json - command and COMFY_BIN point at <user>\.venvs\comfy-mcp
+PASS  horus-mcp environment - <user>\.venvs\horus-mcp
+PASS  .mcp.json horus - command points at <user>\.venvs\horus-mcp
+All checks passed.
+exit=0
+```
+
+Each check of the old script has a Go line now: the comfy-cli program (`comfy.exe`) and `COMFY_BIN` are checked again. The `horus-mcp` venv lines became `horus on PATH` and `.mcp.json horus`, as the port map of issue #4 says.
+
+`check-setup -workflow it-illustration -quick` (the run without `-quick` hashes 11 GB and was not run; PR #47 tests the default):
+
+```
+(the 7 PASS lines above)
+      Checking workflow 'it-illustration': 3 model file(s), size only.
+      OK        diffusion <user>\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors (5827874779 bytes)
+      OK        text_encoder <user>\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors (4858559240 bytes)
+      OK        vae <user>\ComfyUI-models\vae\flux2-vae.safetensors (336211292 bytes)
+      OK        models.json lists all 3 model file(s) that workflow.json loads
+      OK        the server has all 10 node classes of workflow.json
+      OK        the server lists flux3-image-klein-int8-convrot.safetensors
+      OK        the server lists qwen3vl_4b_int8_convrot.safetensors
+      OK        the server lists flux2-vae.safetensors
+      OK: workflow 'it-illustration' is ready.
+PASS  models for 'it-illustration' - all files present, size checked (the SHA-256 is not checked; drop -quick)
+All checks passed.
+exit=0
+```
+
+`docs/setup.md` agrees with the code: step 4 runs `horus check-setup -workflow it-illustration` (full check by default, `-quick` for sizes only), and "Check an existing machine" lists the three forms. No doc names `-full`:
+
+```
+$ git grep -n -- '-full' -- '*.md' ':!docs/plans' ':!docs/specs'
+(no output)
+```
+
+The checks of the merged tree:
+
+```
+$ go test -count=1 ./...
+ok  	github.com/hieplam/horus/cmd/horus	3.547s
+ok  	github.com/hieplam/horus/internal/catalog	1.268s
+ok  	github.com/hieplam/horus/internal/comfy	4.501s
+?   	github.com/hieplam/horus/internal/comfy/comfytest	[no test files]
+ok  	github.com/hieplam/horus/internal/generate	4.536s
+ok  	github.com/hieplam/horus/internal/herr	0.945s
+ok  	github.com/hieplam/horus/internal/models	3.547s
+ok  	github.com/hieplam/horus/internal/scripts/checksetup	4.436s
+ok  	github.com/hieplam/horus/internal/scripts/downloadmodel	3.921s
+ok  	github.com/hieplam/horus/internal/scripts/installcomfymcp	4.644s
+ok  	github.com/hieplam/horus/internal/scripts/installcomfyui	4.481s
+ok  	github.com/hieplam/horus/internal/scripts/newworkflow	1.196s
+ok  	github.com/hieplam/horus/internal/scripts/register	5.665s
+ok  	github.com/hieplam/horus/internal/scripts/runillustration	3.987s
+ok  	github.com/hieplam/horus/internal/scripts/startcomfyui	10.685s
+ok  	github.com/hieplam/horus/internal/scripts/syncworkflows	1.037s
+ok  	github.com/hieplam/horus/internal/scripts/workflow	2.655s
+ok  	github.com/hieplam/horus/internal/server	1.756s
+ok  	github.com/hieplam/horus/internal/settings	0.889s
+exit=0
+$ gofmt -l .
+exit=0
+$ python tests/mcp_contract.py --server-cmd bin\horus.exe mcp      (cut: the first 29 PASS lines)
+PASS  docs/mcp.md lists every error code
+contract: 30 of 30 passed
+exit=0
+$ python tools/goal_check.py --no-ci --server-cmd bin/horus.exe mcp
+PASS  contract - local 30 of 30; CI part skipped (--no-ci)
+PASS  graph - TestUIToAPIGolden passes
+PASS  workflow-cli - parity: 17 of 17 cases equal
+PASS  downloader - 14 tests passed
+PASS  setup-commands - 8 of 8 commands have a passing test
+PASS  builds - 3 of 3 build
+FAIL  real-image - needs --real on the GPU machine
+PASS  no-python - 0 lines left
+goal: 7 of 8 rows passed
+exit=1
+```
+
+`real-image` needs `--real`. G11 passed it on this PC, and step 3 of this section made one more image through `claude -p`. No new image was made in this step.
+
 ### Defects and follow-ups
 
 | Issue | Kind | Goal row | State |
 |---|---|---|---|
-| #38 README says that `horus register` does not set `HORUS_ROOT` | defect, blocks G12 (#19) | `setup-commands` (`horus register`), acceptance bar | open |
+| #38 README says that `horus register` does not set `HORUS_ROOT` | defect, blocked G12 | `setup-commands` (`horus register`), acceptance bar | closed (PR #44) |
+| #43 `check-setup` lost the comfy-cli check, and says "verified" after a size-only check | defect, blocked G12 (points 2 and 3 of #41, moved into the epic) | `setup-commands` | closed (PR #45) |
+| #46 `check-setup -workflow` must do the full SHA-256 check by default | defect, blocked G12 (found by the coordinator) | `setup-commands` | closed (PR #47) |
 | #39 template README names the refused field `theme` | follow-up, not in the epic | none (text older than the port) | open |
 | #40 `INTERNAL` "bug in horus" when the root is not found | follow-up, not in the epic | none (`register` sets `HORUS_ROOT`) | open |
-| #41 `-h` exit codes, "verified" after a size-only check, no comfy-cli check | follow-up, not in the epic | none (style; differences that the port map allows) | open |
+| #41 `-h` exit codes (point 1; points 2 and 3 went to #43) | follow-up, not in the epic | none (style) | open |
 | #42 `docs/mcp.md` progress-token measurement is out of date | follow-up, not in the epic | none (dated measurement) | open |
 
-Ratchet: open defects against the goal rows: 0 at the start, 1 found (#38). G12 merges only when the number is 0 again.
+```
+$ gh issue list --search "6 in:body is:open label:bug" --json number,title
+[]
+```
+
+Ratchet: open defects against the goal rows: 0 at the start, 3 found (#38 by this task, #43 from this task's follow-up #41, #46 by the coordinator), 0 at the end.

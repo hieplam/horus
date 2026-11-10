@@ -384,7 +384,7 @@ exit 1
 
 `python tools/goal_check.py --no-ci` showed `FAIL  graph - missing: ./internal/comfy` and `goal: 1 of 8 rows passed`.
 
-Green (after the rebase on `origin/main` with G6):
+Green (after the rebase on `origin/main` with G6 and G3):
 
 ```
 $ python tools/make_graph_golden.py
@@ -396,14 +396,16 @@ $ python tools/goal_check.py --no-ci
 FAIL  contract - server command not found: horus
 PASS  graph - TestUIToAPIGolden passes
 FAIL  workflow-cli - missing: tests/workflow_parity.py
-FAIL  downloader - missing: ./internal/scripts/downloadmodel
+PASS  downloader - 14 tests passed
 FAIL  setup-commands - 3 of 8 commands have a test; none for checksetup, syncworkflows, newworkflow, register, runillustration
 PASS  builds - 3 of 3 build
 FAIL  real-image - needs --real on the GPU machine
 FAIL  no-python - 2827 lines left; 18 files of Python and PowerShell remain; .mcp.json horus entry is not `horus mcp`
-goal: 2 of 8 rows passed
+goal: 3 of 8 rows passed
 exit 1
 ```
+
+G2 adds the row `graph`. The row `downloader` comes from G3.
 
 ```
 $ go build -o bin/horus.exe ./cmd/horus
@@ -512,4 +514,4 @@ Stub check (mutation runs, each reverted after the run):
 
 `GOOS=linux` and `GOOS=darwin GOARCH=arm64` `go vet ./...` pass, so the start file pair builds on the three systems. `gofmt -l .` prints nothing. `python scripts/lint-public.py`: `lint-public: 0 finding(s)`.
 
-Ratchet: `goal`: 1 → 2 of 8 (`graph`). Contract checks that pass against Go: 11 → 22. The plan asks for at least 11 + 8 = 19.
+Ratchet: `goal`: 1 → 2 of 8 on the base of G2 (`graph`). On `main` with G3 it is 3 of 8. Contract checks that pass against Go: 11 → 22. The plan asks for at least 11 + 8 = 19.

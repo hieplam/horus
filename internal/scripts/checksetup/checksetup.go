@@ -14,9 +14,10 @@
 //     command, and COMFY_BIN when the entry sets it.
 //  6. horus is on the PATH.
 //  7. The horus entry of .mcp.json points at a program that exists.
-//  8. With -workflow: the model files of that workflow are present. Only with
-//     -full are the SHA-256 hashes checked, and only then does the line say
-//     "verified".
+//  8. With -workflow: the model files of that workflow are present, and by
+//     default their SHA-256 hashes are checked (as the script did), and the
+//     line says "verified". With -quick only the sizes are checked, and the
+//     line says so.
 //
 // The script checked the two venvs of the Python era. Checks 3 and 6 are now
 // "found" checks, as the port map (issue #4) says.
@@ -63,8 +64,9 @@ type Options struct {
 	// Workflow is the workflow whose model files are checked. Empty: no check.
 	Workflow string
 	Models   ModelChecker
-	// FullModels is true when Models checks the SHA-256 hashes (-full).
-	FullModels bool
+	// QuickModels is true when Models checks the sizes only (-quick). The
+	// default checks the SHA-256 hashes too.
+	QuickModels bool
 	// Getenv reads the variables of ${VAR} and ${VAR:-default} in .mcp.json.
 	// nil means os.Getenv. USERPROFILE (and HOME) fall back to Home.
 	Getenv func(string) string
@@ -217,10 +219,10 @@ func Check(ctx context.Context, o Options) int {
 		case err != nil:
 			c.write(false, name, "cannot run the model check: "+err.Error())
 		case ok:
-			if o.FullModels {
-				c.write(true, name, "all files present and verified (SHA-256 checked)")
+			if o.QuickModels {
+				c.write(true, name, "all files present, size checked (the SHA-256 is not checked; drop -quick)")
 			} else {
-				c.write(true, name, "all files present, size checked (the SHA-256 is not checked; add -full)")
+				c.write(true, name, "all files present and verified (SHA-256 checked)")
 			}
 		default:
 			c.write(false, name, "see lines above. Fix: horus workflow install "+o.Workflow)
@@ -346,11 +348,11 @@ func resolve(cmd string, look func(string) (string, error)) (string, bool) {
 }
 
 // ExecModels is the real ModelChecker. It runs
-// "<Exe> workflow check <name> -quick -json" with the folders in the
+// "<Exe> workflow check <name> [-quick] -json" with the folders in the
 // environment, and reads the text lines (it drops the HORUS_JSON line).
 type ExecModels struct {
 	Exe        string
-	Full       bool // true: no -quick, so the hashes are checked
+	Quick      bool // true: -quick, so the sizes are checked and the hashes are not
 	ComfyUIDir string
 	ModelsDir  string
 	TextDir    string
@@ -359,7 +361,7 @@ type ExecModels struct {
 // Check runs the subcommand.
 func (m ExecModels) Check(ctx context.Context, workflow string) ([]string, bool, error) {
 	args := []string{"workflow", "check", workflow}
-	if !m.Full {
+	if m.Quick {
 		args = append(args, "-quick")
 	}
 	args = append(args, "-json")
@@ -398,7 +400,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	serverURL := fs.String("server-url", "http://127.0.0.1:8188", "address of the ComfyUI server")
 	venv := fs.String("venv-path", "", "folder of the comfy-mcp venv (default: <home>/.venvs/comfy-mcp)")
 	workflow := fs.String("workflow", "", "also check the model files of workflows/<name>/models.json")
-	full := fs.Bool("full", false, "with -workflow: also check the SHA-256 of each file (the default checks the size only; hashing 11 GB takes minutes)")
+	quick := fs.Bool("quick", false, "with -workflow: check the size of each file only (the default also checks the SHA-256, and hashing 11 GB takes minutes)")
 	modelsDir := fs.String("models-dir", "", "with -workflow: models folder (default: HORUS_MODELS_DIR)")
 	textDir := fs.String("text-encoder-dir", "", "with -workflow: folder of the text encoder on another drive (default: HORUS_TEXT_ENCODER_DIR)")
 	if err := fs.Parse(args); err != nil {
@@ -406,7 +408,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	home, _ := os.UserHomeDir()
 	o := Options{ComfyUIDir: *dir, ServerURL: *serverURL, VenvPath: *venv, RepoRoot: settings.Root(), Home: home,
-		Workflow: *workflow, FullModels: *full, Stdout: stdout}
+		Workflow: *workflow, QuickModels: *quick, Stdout: stdout}
 	if o.ComfyUIDir == "" {
 		o.ComfyUIDir = settings.ComfyDir()
 	}
@@ -419,7 +421,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "horus check-setup:", err)
 			return 1
 		}
-		o.Models = ExecModels{Exe: self, Full: *full, ComfyUIDir: o.ComfyUIDir, ModelsDir: *modelsDir, TextDir: *textDir}
+		o.Models = ExecModels{Exe: self, Quick: *quick, ComfyUIDir: o.ComfyUIDir, ModelsDir: *modelsDir, TextDir: *textDir}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

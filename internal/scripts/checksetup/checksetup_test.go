@@ -283,7 +283,7 @@ func TestModelsLinesAreIndentedAndFailureCounts(t *testing.T) {
 
 	// The quick check reads sizes only, so its line must not say "verified".
 	r = newRig(t)
-	r.opts.Workflow, r.opts.Models = "it-illustration", &fakeModels{ok: true}
+	r.opts.Workflow, r.opts.Models, r.opts.QuickModels = "it-illustration", &fakeModels{ok: true}, true
 	if failed := Check(context.Background(), r.opts); failed != 0 || !strings.Contains(r.out.String(), "PASS  models for 'it-illustration' - all files present, size checked") {
 		t.Fatalf("failed %d:\n%s", failed, r.out)
 	}
@@ -292,7 +292,7 @@ func TestModelsLinesAreIndentedAndFailureCounts(t *testing.T) {
 	}
 
 	r = newRig(t)
-	r.opts.Workflow, r.opts.Models, r.opts.FullModels = "it-illustration", &fakeModels{ok: true}, true
+	r.opts.Workflow, r.opts.Models = "it-illustration", &fakeModels{ok: true}
 	if failed := Check(context.Background(), r.opts); failed != 0 || !strings.Contains(r.out.String(), "PASS  models for 'it-illustration' - all files present and verified (SHA-256 checked)") {
 		t.Fatalf("failed %d:\n%s", failed, r.out)
 	}
@@ -317,14 +317,14 @@ func TestExecModelsStartsTheWorkflowSubcommand(t *testing.T) {
 	}
 	for _, c := range []struct {
 		exit   string
-		full   bool
+		quick  bool
 		wantOK bool
 		args   string
-	}{{"0", false, true, "args workflow check it-illustration -quick -json"}, {"1", true, false, "args workflow check it-illustration -json"}} {
+	}{{"0", true, true, "args workflow check it-illustration -quick -json"}, {"1", false, false, "args workflow check it-illustration -json"}} {
 		rec := filepath.Join(t.TempDir(), "record.txt")
 		t.Setenv("HORUS_FAKE_WORKFLOW", rec)
 		t.Setenv("HORUS_FAKE_EXIT", c.exit)
-		m := ExecModels{Exe: self, Full: c.full, ComfyUIDir: "the-comfy-dir", ModelsDir: "the-models-dir"}
+		m := ExecModels{Exe: self, Quick: c.quick, ComfyUIDir: "the-comfy-dir", ModelsDir: "the-models-dir"}
 		got, ok, err := m.Check(context.Background(), "it-illustration")
 		if err != nil || ok != c.wantOK {
 			t.Fatalf("exit %s: ok=%v err=%v", c.exit, ok, err)
@@ -355,5 +355,39 @@ func TestRunRejectsAnUnknownFlag(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := Run([]string{"-nope"}, &out, &errOut); code != 2 {
 		t.Fatalf("exit %d", code)
+	}
+}
+
+// TestRunModelCheckIsFullByDefault runs the command with the test binary as
+// the child "horus workflow check", and reads the arguments that the child
+// recorded. The default must not pass -quick, and -quick must pass it.
+func TestRunModelCheckIsFullByDefault(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		flags     []string
+		wantQuick bool
+	}{{"default", nil, false}, {"quick flag", []string{"-quick"}, true}} {
+		t.Run(c.name, func(t *testing.T) {
+			rec := filepath.Join(t.TempDir(), "record.txt")
+			t.Setenv("HORUS_FAKE_WORKFLOW", rec)
+			t.Setenv("HORUS_FAKE_EXIT", "0")
+			args := append([]string{"-workflow", "it-illustration", "-comfyui-dir", t.TempDir(), "-server-url", "http://127.0.0.1:1"}, c.flags...)
+			var out, errOut bytes.Buffer
+			Run(args, &out, &errOut)
+			data, err := os.ReadFile(rec)
+			if err != nil {
+				t.Fatalf("the fake program did not run: %v\n%s%s", err, out.String(), errOut.String())
+			}
+			if got := strings.Contains(string(data), " -quick"); got != c.wantQuick {
+				t.Fatalf("-quick passed = %v, want %v; recorded: %s", got, c.wantQuick, data)
+			}
+			wantLine := "all files present and verified (SHA-256 checked)"
+			if c.wantQuick {
+				wantLine = "all files present, size checked (the SHA-256 is not checked; drop -quick)"
+			}
+			if !strings.Contains(out.String(), wantLine) {
+				t.Fatalf("no %q in:\n%s", wantLine, out.String())
+			}
+		})
 	}
 }

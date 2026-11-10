@@ -89,6 +89,7 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G10 | The owner's PC, outside the repo (coordinator's decisions): `%USERPROFILE%\go\bin` is appended to the user Path when it is absent (no other entry changes), and `go install ./cmd/horus` runs from the merged `main`. The two venvs under `%USERPROFILE%\.venvs` stay: `comfy-mcp` is in use, and `horus-mcp` holds the Python with `mcp==2.3.0` that the test tools use on this PC. `.env` is not touched. | `.mcp.json` starts `horus` by name, so without the folder on the Path the owner's horus server stops. |
 | 2026-11-10 | G10 | `tools/goal_check.py` prints `PASS  no-python - 0 lines left`; the plan wrote `0 lines`. The tool is not changed. | The text of the committed tool. The row passes. |
 | 2026-11-10 | G10 | The Go files keep their first comment that names the `.ps1` or `.py` file that they port. | Rule 2 of the spec. The `no-python` row looks for the word `powershell` in Go files, not for `.ps1`. |
+| 2026-11-10 | Issue 34 | `tests/mcp_contract.py` resolves the server program one time, at the start of `run()`: a program with a path separator that is a file becomes an absolute path; a bare name is looked up on the PATH (`shutil.which`); a program that is not found stays as written, so the run fails. The session and the `errors -json` read use the same resolved program. Nothing else in the test changes: no check, no count. | The session started the program with a relative path (the MCP client resolves it against the server process), but `subprocess.run` of the error-code read did not on Windows (`WinError 2`). One resolved program for both removes the difference. The fix stays inside the place that the spec lets the contract test change. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -1271,3 +1272,39 @@ The `no-python` row counts the tracked files, so doing nothing leaves 2,827 line
 Issue #32: `horus register` adds the user-scope entry without `HORUS_ROOT`, so the tools answer `INTERNAL` in a session outside the repo. It blocks G11 and G12. The docs name the limit and give the `claude mcp add ... --env HORUS_ROOT=...` command until the fix (see Decisions).
 
 Ratchet: lines of Python and PowerShell in the product 2,827 → 0. `goal_check.py --no-ci`: 6 → 7 of 8 rows (the row left is `real-image`, which needs `--real`).
+
+## Issue 34
+
+Goal row `contract`: the same count for a relative, an absolute and a PATH server command.
+
+Red (commit `823c94d`, `bin/horus.exe` built from it, repo root of the worktree):
+
+```
+$ python tests/mcp_contract.py --server-cmd bin/horus.exe mcp
+FAIL  docs/mcp.md lists every error code  -- missing: ['<bin/horus.exe errors -json failed: [WinError 2] The system cannot find the file specified>']
+contract: 29 of 30 passed
+```
+
+Green (after the fix):
+
+```
+$ python tests/mcp_contract.py --server-cmd bin/horus.exe mcp
+contract: 30 of 30 passed
+$ python tests/mcp_contract.py --server-cmd bin\horus.exe mcp
+contract: 30 of 30 passed
+$ python tests/mcp_contract.py --server-cmd <absolute path>/bin/horus.exe mcp
+contract: 30 of 30 passed
+$ python tests/mcp_contract.py            (horus from the PATH)
+contract: 30 of 30 passed
+$ python tests/mcp_contract.py --server-cmd bin/nope.exe mcp
+contract: 0 of 30 passed
+```
+
+Stub check: with a program that exists, answers the MCP session, and has no `errors` command, the line fails:
+
+```
+FAIL  docs/mcp.md lists every error code  -- missing: ['<...python.exe errors -json failed: Expecting value: line 1 column 1 (char 0)>']
+contract: 29 of 30 passed
+```
+
+Ratchet: forms of the server command that give 30 of 30: 2 of 3 (absolute, PATH) -> 3 of 3 (plus relative).

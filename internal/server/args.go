@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/big"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -99,6 +100,9 @@ func checkValue(raw json.RawMessage, x field) (any, string) {
 		if n, ok := v.(json.Number); ok {
 			if i, err := n.Int64(); err == nil {
 				return i, ""
+			}
+			if b, ok := new(big.Int).SetString(n.String(), 10); ok {
+				return b, "" // a Python int has no size limit; the tool checks the range
 			}
 			if fl, err := n.Float64(); err == nil && fl == math.Trunc(fl) && math.Abs(fl) < 1<<53 {
 				return int64(fl), ""

@@ -5,21 +5,12 @@ import (
 	"context"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/hieplam/horus/internal/generate"
 )
 
 // ImageResult is the result of generate_image, in the key order of server.py.
-type ImageResult struct {
-	Workflow       string   `json:"workflow"`
-	Path           string   `json:"path"`
-	Bytes          int64    `json:"bytes"`
-	Width          int64    `json:"width"`
-	Height         int64    `json:"height"`
-	Seed           int64    `json:"seed"`
-	Seconds        float64  `json:"seconds"`
-	BackendSeconds *float64 `json:"backend_seconds"`
-	StartedBackend bool     `json:"started_backend"`
-	JobID          string   `json:"job_id"`
-}
+type ImageResult = generate.Result
 
 func generateImage() tool {
 	return tool{
@@ -55,8 +46,19 @@ func generateImage() tool {
 			),
 		}),
 		body: func(ctx context.Context, c *call) (any, error) {
-			// Next: generate.generate_image (task G2), with c.report for progress.
-			return nil, notPorted("generate_image", "the image job", "G2")
+			res, err := generate.Generate(ctx, generate.Request{
+				Workflow:  c.args.str("workflow"),
+				Subject:   c.args.str("subject"),
+				Seed:      c.args["seed"],
+				Width:     c.args["width"],
+				Height:    c.args["height"],
+				OutPath:   c.args.strPtr("out_path"),
+				Overwrite: c.args.boolean("overwrite"),
+			}, generate.Options{Report: generate.Report(c.report)})
+			if err != nil {
+				return nil, err
+			}
+			return res, nil
 		},
 	}
 }

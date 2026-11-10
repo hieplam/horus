@@ -21,6 +21,9 @@
 *.webp
 !workflows/*/examples/*.png
 
+# Go build output
+bin/
+
 # Local scratch space and logs
 .scratch/
 *.log

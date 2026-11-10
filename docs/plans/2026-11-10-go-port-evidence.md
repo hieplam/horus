@@ -34,6 +34,15 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G3 | The free space comes from a second set of OS files: `freespace_windows.go` (`GetDiskFreeSpaceExW`), `freespace_unix.go` (`darwin \|\| linux`, `syscall.Statfs`) and `freespace_other.go` (no value, so a warning, as the script did for a network path). They use only the standard library, so `go.mod` does not change. The check reads the nearest folder that exists, not the drive root. | Go has no portable call for free space, so Go forces this OS code. The spec names only the process tree as OS code; this is one more place. |
 | 2026-11-10 | G3 | Three checks that the script did not have: an address with a user part (`https://user@host/`) is refused, because `net/http` sends the user part as a `Basic` Authorization header; the downloader checks again that the destination is absent just before the rename, because `os.Rename` replaces a file; and it reads at most one byte more than the expected size from an answer. | Rule 6 of the spec (no credential to another host) and "never overwrite a file that it did not write". `Move-Item` refused an existing file; `os.Rename` does not. |
 | 2026-11-10 | G3 | The stub check found that Go's `net/http` itself drops the Authorization header on a redirect to a host that is not the first host or a subdomain of it. So the redirect test also passes without the own `CheckRedirect` rule. The own rule stays, because it also drops the header on a redirect to plain `http` and to a host that is not `huggingface.co`. The stub "always send the token" fails `TestTokenGoesOnlyToHuggingFaceHosts`. | Evidence for the Stub check, recorded so that nobody reads the redirect test as proof of the own rule alone. |
+| 2026-11-10 | G2 | The golden file of the graph comes from the Python `ui_to_api` through `tools/make_graph_golden.py`. `TestUIToAPIGolden` compares the JSON values, and also the JSON text, so the node order and the input order are checked too. Task G10 deletes the tool together with the Python package. | The plan names the tool and the file. The text compare is stronger than "the two JSON values are equal" and does not weaken the row. |
+| 2026-11-10 | G2 | Autostart runs the same binary as `horus start-comfyui -server-url <url>`, with the time limit of `comfy.py` (420 s). The tail is the last 8 lines of stdout, then stderr. A line with "was not found" gives `BACKEND_NOT_INSTALLED`. | The flag is the Go-style name of `-ServerUrl` that task G6 uses. A run of the real binary with an empty ComfyUI folder gives `BACKEND_NOT_INSTALLED` (G2 section). |
+| 2026-11-10 | G2 | `internal/comfy/start_windows.go` and `start_unix.go` (`//go:build darwin \|\| linux`) are a second OS file pair. On Windows the child gets `CREATE_NO_WINDOW`, as `creationflags` in `comfy.py`. `WaitDelay` of 10 s stops a child that keeps the pipes open from blocking the call. | The spec allows OS code for starting a process. The pair of task G5 is in `internal/models`, a package that `internal/comfy` does not import. |
+| 2026-11-10 | G2 | `internal/server/args.go`: an integer argument outside the `int64` range is kept as a big integer. So a seed from 2^63 to 2^64-1 works, and a seed of 2^64 or more gets `INVALID_ARGUMENT` with `field=seed`, as in Python. `ImageResult.seed` is a `uint64`. | A Python `int` has no size limit. The G1 parser refused these values with a schema error. |
+| 2026-11-10 | G2 | A cancelled call (an MCP cancel) returns the error of the context and removes the job from ComfyUI (`/interrupt` or a queue delete), as `CancelledError` does in Python. A cancel during `POST /prompt` leaves the job, as in Python. | Port of the `except asyncio.CancelledError` block. |
+| 2026-11-10 | G2 | `TestNotPortedToolsAnswerInternal` no longer calls `generate_image`, because the tool is ported. `tool_generate_image_test.go` tests the tool through MCP, with and without a `progressToken`. | The test checks tools that are not ported. Its premise is false for `generate_image` now. |
+| 2026-11-10 | G2 | The wait loop has package variables for the poll interval (2 s), the report interval (10 s) and the absent limit (30 s). The Go tests set them to milliseconds. The first poll reports at once, as in Python, where `last_report` starts at 0. | Tests with a fake ComfyUI must not wait 30 s. |
+| 2026-11-10 | G2 | Known difference, not fixed: `out_path` goes through `filepath.Clean`, which also removes `..`. `pathlib.Path` keeps `..`. Both name the same file. | Not forced by Go, but the file is the same and the contract test compares `Path` values. |
+| 2026-11-10 | G2 | Known difference, not fixed: the keys of `details` are in sorted order, because `details` is a Go map. Python keeps the insertion order. | Callers read `details` by key. G1 has the same rule for every error. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -350,3 +359,157 @@ Stub check (mutation runs, each reverted after the run):
 `python scripts/lint-public.py`: `lint-public: 0 finding(s)`. `gofmt -l .` prints nothing. `go test ./...` passes.
 
 Ratchet: `goal`: 1 → 2 of 8 rows (`downloader`). Downloader cases that pass: 0 → 10 of 10.
+
+## G2
+
+Red (before building, in the worktree on `origin/main` at `6d8553f`):
+
+```
+$ go test ./internal/comfy -run TestUIToAPIGolden
+# ./internal/comfy
+stat <worktree>\internal\comfy: directory not found
+FAIL	./internal/comfy [setup failed]
+FAIL
+exit 1
+```
+
+```
+$ go build -o bin/horus.exe ./cmd/horus
+$ python tests/mcp_contract.py --server-cmd <worktree>/bin/horus.exe mcp
+FAIL  generate_image writes a PNG at out_path and returns its path and seed  -- {"ok": false, "result": null, "error": {"code": "INTERNAL", "message": "generate_image is not ported to Go yet: the imag...
+FAIL  backend down and autostart off -> BACKEND_UNAVAILABLE, action_by=human  -- {"ok": false, "result": null, "error": {"code": "INTERNAL", "message": "generate_image is not ported to Go yet: the ima...
+contract: 11 of 30 passed
+exit 1
+```
+
+`python tools/goal_check.py --no-ci` showed `FAIL  graph - missing: ./internal/comfy` and `goal: 1 of 8 rows passed`.
+
+Green (after the rebase on `origin/main` with G6):
+
+```
+$ python tools/make_graph_golden.py
+wrote tests/fixtures/ui_to_api.golden.json: 10 nodes
+```
+
+```
+$ python tools/goal_check.py --no-ci
+FAIL  contract - server command not found: horus
+PASS  graph - TestUIToAPIGolden passes
+FAIL  workflow-cli - missing: tests/workflow_parity.py
+FAIL  downloader - missing: ./internal/scripts/downloadmodel
+FAIL  setup-commands - 3 of 8 commands have a test; none for checksetup, syncworkflows, newworkflow, register, runillustration
+PASS  builds - 3 of 3 build
+FAIL  real-image - needs --real on the GPU machine
+FAIL  no-python - 2827 lines left; 18 files of Python and PowerShell remain; .mcp.json horus entry is not `horus mcp`
+goal: 2 of 8 rows passed
+exit 1
+```
+
+```
+$ go build -o bin/horus.exe ./cmd/horus
+$ python tests/mcp_contract.py --server-cmd <worktree>/bin/horus.exe mcp   (lines cut at 110 characters)
+PASS  server identifies as horus and has instructions
+PASS  tools/list has exactly the 5 tools
+PASS  every tool has an outputSchema with ok, result, error
+PASS  uninstall_workflow is marked destructive, list_workflows read-only
+FAIL  list_workflows shows installed and partially_installed styles  -- {"ok": false, "result": null, "error": {"co
+FAIL  describe_workflow gives subject rules, examples and 3 present files  -- {"ok": false, "result": null, "error
+PASS  list_workflows and describe_workflow carry no theme or look
+PASS  describe_workflow hides the ComfyUI graph (no node class names)
+PASS  unknown workflow -> WORKFLOW_NOT_FOUND with the known names, isError
+PASS  generate_image writes a PNG at out_path and returns its path and seed
+PASS  horus sends the subject to the model as written (0 characters added)
+PASS  seed 7 reaches the sampler of the graph
+PASS  generate_image sends progress notifications
+PASS  existing out_path -> OUTPUT_EXISTS
+PASS  width 1000 -> INVALID_ARGUMENT field=width, action_by=caller
+PASS  too short subject -> INVALID_ARGUMENT field=subject with the rules
+PASS  style without model files -> WORKFLOW_NOT_INSTALLED naming the file
+PASS  GPU out of memory -> OUT_OF_MEMORY, retryable, action_by=caller
+PASS  a job over the time limit -> GENERATION_TIMEOUT, and horus cancels it on the backend
+FAIL  install of an installed style -> ok, already_installed  -- {"ok": false, "result": null, "error": {"code": "
+FAIL  install without accept_license -> LICENSE_CONFIRMATION_REQUIRED, action_by=human, with size  -- {"ok": false
+FAIL  uninstall without confirm -> CONFIRMATION_REQUIRED, plan: 1 to delete, 2 shared kept; nothing deleted  -- {"
+FAIL  uninstall with confirm deletes the 1 unshared file and keeps the 2 shared files  -- {"ok": false, "result": 
+FAIL  uninstall with remove_shared deletes the 2 shared files  -- {"ok": false, "result": null, "error": {"code": 
+FAIL  after uninstall, list_workflows shows both styles not_installed  -- {}
+PASS  errors are the same envelope in structuredContent and in text
+PASS  backend down and autostart off -> BACKEND_UNAVAILABLE, action_by=human
+PASS  it-illustration: manifest has no theme and no caption style file
+PASS  it-illustration: the graph holds no style words
+PASS  docs/mcp.md lists every error code
+contract: 22 of 30 passed
+exit 1
+```
+
+- All 10 checks from "generate_image writes a PNG" to "a job over the time limit" pass.
+- "style without model files -> WORKFLOW_NOT_INSTALLED" does not need G5. The missing-model check of `generate_image` finds the file.
+- "backend down and autostart off" passes.
+- The 8 checks that fail are the install, uninstall and install-state checks of task G5.
+
+```
+$ go test -count=1 -v ./internal/comfy ./internal/generate   (only the result lines)
+--- PASS: TestJobErrors (0.00s)
+--- PASS: TestRejectedGraphError (0.00s)
+--- PASS: TestExecutionSeconds (0.00s)
+--- PASS: TestClientJobCalls (0.01s)
+--- PASS: TestSubmitHTTPErrorWithoutJSON (0.00s)
+--- PASS: TestSubmitWithoutPromptID (0.00s)
+--- PASS: TestBackendDown (0.00s)
+--- PASS: TestEnsureUpAutostartOff (0.00s)
+--- PASS: TestEnsureUpWhenUpStartsNothing (0.00s)
+--- PASS: TestEnsureUpStartFails (0.52s)
+--- PASS: TestEnsureUpStartsTheServer (0.02s)
+--- PASS: TestStartCommandIsHorusStartComfyUI (0.00s)
+--- PASS: TestUIToAPIGolden (0.00s)
+--- PASS: TestUIToAPIRules (0.00s)
+--- PASS: TestUIToAPIMissingNodePack (0.00s)
+--- PASS: TestMissingModelFiles (0.00s)
+--- PASS: TestComboOptions (0.00s)
+--- PASS: TestPyDumps (0.00s)
+ok  	github.com/hieplam/horus/internal/comfy
+--- PASS: TestGenerateWritesThePNG (0.06s)
+--- PASS: TestDefaultPathAndSeed (0.04s)
+--- PASS: TestArgumentChecks (0.05s)
+--- PASS: TestWorkflowNotInstalled (0.04s)
+--- PASS: TestNodeCountMismatch (0.03s)
+--- PASS: TestOutOfMemory (0.04s)
+--- PASS: TestNoImage (0.04s)
+--- PASS: TestTimeoutCancelsTheJob (0.35s)
+--- PASS: TestJobLeftTheQueue (0.14s)
+--- PASS: TestCancelledCallCancelsTheJob (0.03s)
+--- PASS: TestBackendDownAutostartOff (0.03s)
+--- PASS: TestPySuffixAndQuote (0.00s)
+ok  	github.com/hieplam/horus/internal/generate
+```
+
+- `TestJobErrors` has one case for each mapped job error:
+  - interrupted gives `CANCELLED`;
+  - `torch.OutOfMemoryError`, "out of memory", "Out Of Memory" with spaces and "allocation on device" give `OUT_OF_MEMORY`;
+  - "CUDA driver version is insufficient" gives `GENERATION_FAILED`, not retryable, with the driver `next_step`;
+  - any other failure gives `GENERATION_FAILED`, retryable.
+- `TestUIToAPIRules` compares the Go output with the output of the Python `ui_to_api` for the same small graph: a Note node, a seed with `randomize`, a linked widget input, a node without values.
+- The tests use a fake ComfyUI on an ephemeral port (`internal/comfy/comfytest`) and temporary folders. They never start the real ComfyUI.
+- `TestCancelledCallCancelsTheJob` failed at least 4 times in 30 runs before the fix. The test cancelled the call during `POST /prompt`, before the wait loop. The client also gave `BACKEND_UNAVAILABLE` instead of the context error. Root cause fix: the test cancels after the first poll of `/history`, and a cancelled call returns the context error. After the fix, 100 of 100 runs pass, and `go test -count=10 ./internal/...` passes.
+
+Autostart through the real binary: `HORUS_AUTOSTART=1`, an empty ComfyUI folder and a free port. An MCP client calls `generate_image` of `bin/horus.exe mcp`:
+
+```
+{
+ "code": "BACKEND_NOT_INSTALLED",
+ "action_by": "human",
+ "message": "horus could not start ComfyUI at http://127.0.0.1:<port>",
+ "start_output_tail": [
+  "horus start-comfyui: ComfyUI was not found in <empty dir>. Run horus install-comfyui first, or pass -comfyui-dir."
+ ]
+}
+```
+
+Stub check (mutation runs, each reverted after the run):
+
+- `UIToAPI` that returns an empty graph: `TestUIToAPIGolden` fails with `ui_to_api differs from the golden file` and `got:  {}`.
+- `Generate` that returns `ok` without writing the file: `TestGenerateWritesThePNG` fails with `no PNG at out_path: open ...\images\queue.png: The system cannot find the file specified.` `TestGenerateImageTool` (through MCP) fails with `no PNG`. Both tests read the first 8 bytes of the file.
+
+`GOOS=linux` and `GOOS=darwin GOARCH=arm64` `go vet ./...` pass, so the start file pair builds on the three systems. `gofmt -l .` prints nothing. `python scripts/lint-public.py`: `lint-public: 0 finding(s)`.
+
+Ratchet: `goal`: 1 → 2 of 8 (`graph`). Contract checks that pass against Go: 11 → 22. The plan asks for at least 11 + 8 = 19.

@@ -85,6 +85,10 @@ func (t tool) handler() mcp.ToolHandler {
 			return argsError(t.name, problems), nil
 		}
 		logf("INFO", "call %s progress_token=%v", t.name, pyNone(progressToken(req)))
+		if e := workflowsDirError(); e != nil {
+			logf("INFO", "call %s failed: %s", t.name, e)
+			return failResult(e), nil
+		}
 		c := &call{args: a, req: req, report: reporter(req)}
 		return guard(ctx, t.name, func(ctx context.Context) (any, error) { return t.body(ctx, c) }), nil
 	}

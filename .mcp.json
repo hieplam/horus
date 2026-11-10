@@ -13,12 +13,8 @@
     },
     "horus": {
       "type": "stdio",
-      "command": "${USERPROFILE}\\.venvs\\horus-mcp\\Scripts\\horus-mcp.exe",
-      "args": [],
-      "env": {
-        "PYTHONUTF8": "1",
-        "PYTHONIOENCODING": "utf-8"
-      }
+      "command": "horus",
+      "args": ["mcp"]
     }
   }
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Contract test of the horus MCP server. No GPU, no network, no real model files.
 
-    <horus venv python> tests/mcp_contract.py [--server-cmd <exe> ...]
+    python tests/mcp_contract.py [--server-cmd <exe> ...]      (Python 3.12 with mcp==2.3.0)
 
 The test starts the server over stdio, like an agent harness does, and talks to
 it with the official MCP client. A fake ComfyUI (a small HTTP server in this
@@ -10,8 +10,9 @@ it-illustration workflow, tiny stand-in model files, and a second workflow
 whose files are absent.
 
 It prints one PASS or FAIL line per check and "contract: N of M passed".
-Exit code 0 only when all checks pass. The default server command is the
-horus-mcp.exe next to the running Python (the horus venv).
+Exit code 0 only when all checks pass. The default server command is
+`horus mcp`, with `horus` found on the PATH. The list of error codes comes from
+`<server program> errors -json`.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import json
 import os
 import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 import threading
@@ -183,7 +185,11 @@ async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Pa
 
     neutral_checks(c)
 
-    from horus.errors import ERRORS  # the doc table must list every code
+    try:  # the doc table must list every code; the server program prints the code table
+        out = subprocess.run([server_cmd[0], "errors", "-json"], capture_output=True, timeout=60).stdout
+        ERRORS = list(json.loads(out)) or ["<no code in errors -json>"]
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        ERRORS = [f"<{server_cmd[0]} errors -json failed: {exc}>"]
     doc = (ROOT / "docs" / "mcp.md").read_text(encoding="utf-8") if (ROOT / "docs" / "mcp.md").is_file() else ""
     missing = [code for code in ERRORS if f"`{code}`" not in doc]
     c.check("docs/mcp.md lists every error code", not missing, f"missing: {missing}")
@@ -351,7 +357,7 @@ HTTPD: ThreadingHTTPServer
 def main() -> int:
     global HTTPD
     ap = argparse.ArgumentParser()
-    ap.add_argument("--server-cmd", nargs="+", default=[str(Path(sys.executable).parent / "horus-mcp.exe")])
+    ap.add_argument("--server-cmd", nargs="+", default=["horus", "mcp"])
     a = ap.parse_args()
     sys.path.insert(0, str(ROOT))
     c = Checks()

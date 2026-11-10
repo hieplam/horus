@@ -84,9 +84,3 @@ func guard(ctx context.Context, name string, body func(context.Context) (any, er
 	logf("ERROR", "call %s crashed\n%v", name, err)
 	return failResult(herr.New("INTERNAL", err.Error(), map[string]any{"tool": name}))
 }
-
-// notPorted is the INTERNAL error of a tool part that is not ported to Go yet.
-func notPorted(tool, part, task string) error {
-	return herr.New("INTERNAL", fmt.Sprintf("%s is not ported to Go yet: %s comes in task %s", tool, part, task),
-		map[string]any{"tool": tool, "task": task})
-}

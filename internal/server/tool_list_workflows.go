@@ -8,6 +8,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hieplam/horus/internal/catalog"
+	"github.com/hieplam/horus/internal/comfy"
+	"github.com/hieplam/horus/internal/models"
 )
 
 // WorkflowSummary is one row of list_workflows, in the key order of server.py.
@@ -55,11 +57,45 @@ func listWorkflows() tool {
 			),
 		}),
 		body: func(ctx context.Context, c *call) (any, error) {
-			if _, err := catalog.All(); err != nil {
+			flows, err := catalog.All()
+			if err != nil {
 				return nil, err
 			}
-			// Next: models.list_status (task G5) and Comfy().is_up (task G2).
-			return nil, notPorted("list_workflows", "the install state of each workflow", "G5")
+			status, err := models.ListStatus(ctx)
+			if err != nil {
+				return nil, err
+			}
+			running, err := comfy.New("").IsUp(ctx)
+			if err != nil {
+				return nil, err
+			}
+			rows := []WorkflowSummary{}
+			for _, w := range flows {
+				s, err := catalog.SummaryOf(w)
+				if err != nil {
+					return nil, err
+				}
+				var row *models.Row
+				if r, ok := status[w.Name]; ok {
+					row = &r
+				}
+				size := int64(0)
+				if row != nil {
+					size = row.Bytes
+				}
+				if size == 0 { // Python: row["bytes"] or the size of models.json
+					lic, err := w.License()
+					if err != nil {
+						return nil, err
+					}
+					size = lic.DownloadBytes
+				}
+				rows = append(rows, WorkflowSummary{
+					Name: s.Name, Title: s.Title, Summary: s.Summary, GoodFor: s.GoodFor, NotGoodFor: s.NotGoodFor,
+					Output: s.Output, TypicalSeconds: s.TypicalSeconds, InstallState: models.InstallState(row), DownloadBytes: size,
+				})
+			}
+			return ListResult{Workflows: rows, BackendRunning: running}, nil
 		},
 	}
 }

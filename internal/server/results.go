@@ -2,6 +2,8 @@
 // horus/server.py.
 package server
 
+import "github.com/hieplam/horus/internal/models"
+
 // InstallFile is one model file of a workflow and its state. The keys are in
 // the order of InstallFile of server.py.
 type InstallFile struct {
@@ -11,4 +13,25 @@ type InstallFile struct {
 	State  string  `json:"state"`
 	Path   *string `json:"path"`
 	Detail *string `json:"detail"`
+}
+
+// fileRows is _file_rows of server.py: the items of one kind whose status is
+// in states, as InstallFile rows.
+func fileRows(items []models.Item, kind string, states map[string]string) []InstallFile {
+	rows := []InstallFile{}
+	for _, i := range items {
+		state, ok := states[i.Status]
+		if i.Kind != kind || !ok {
+			continue
+		}
+		row := InstallFile{Role: i.Role, File: i.File, Bytes: max(0, i.Bytes), State: state}
+		if i.Path != "" {
+			row.Path = ptr(i.Path)
+		}
+		if i.Detail != "" {
+			row.Detail = ptr(i.Detail)
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }

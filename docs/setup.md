@@ -173,7 +173,7 @@ Also set the `HORUS_*` paths in this file if you chose other drives.
 ```
 horus workflow install it-illustration
 horus sync-workflows
-horus check-setup -workflow it-illustration -full
+horus check-setup -workflow it-illustration
 ```
 
 If the text encoder must go to another drive, add `-text-encoder-dir E:\AI\models\text_encoders`
@@ -184,7 +184,7 @@ to the first command. Add `-models-dir` to move all model folders.
 - The first command reads `workflows\it-illustration\models.json`. It downloads each model file to a `.part` file, checks the size and SHA-256 hash, and renames it only when the hash matches. It skips a file that is already correct. It never overwrites a file that differs.
 - When a model folder is outside ComfyUI, the command adds it to `extra_model_paths.yaml`. It makes a backup first. **Restart ComfyUI after this change:** stop the old server, then run `horus start-comfyui`.
 - The second command copies the workflow into ComfyUI as `horus-it-illustration.json`. You see it in the Workflows pane of the ComfyUI page.
-- The third command is the smoke test (a quick check that everything is in place). It prints one `PASS` or `FAIL` line for each check. It exits with code 0 only if all checks pass. With `-full` it needs a few minutes, because it hashes 11 GB. Without `-full` it checks the file sizes only.
+- The third command is the smoke test (a quick check that everything is in place). It prints one `PASS` or `FAIL` line for each check (ComfyUI folder, ComfyUI server, comfy-mcp, comfy-cli, `.mcp.json`, horus). It exits with code 0 only if all checks pass. With `-workflow` it also checks each model file, and that needs a few minutes, because it hashes 11 GB. With `-quick` it checks the file sizes only.
 
 To check only, without a download, run `horus workflow check it-illustration`.
 See [manage workflows](#manage-workflows-list-install-check-remove) for the other actions.
@@ -272,9 +272,9 @@ The first image can take several minutes, because ComfyUI loads 11 GB of models.
 ## Check an existing machine at any time
 
 ```
-horus check-setup                                      # ComfyUI, the comfy-mcp venv, horus on the PATH and .mcp.json
-horus check-setup -workflow it-illustration            # also the size of each model file
-horus check-setup -workflow it-illustration -full      # also the SHA-256 of each model file
+horus check-setup                                      # ComfyUI, comfy-mcp, comfy-cli, horus on the PATH and .mcp.json
+horus check-setup -workflow it-illustration            # also the size and the SHA-256 of each model file
+horus check-setup -workflow it-illustration -quick     # also the size of each model file only
 ```
 
 ## Manage workflows: list, install, check, remove

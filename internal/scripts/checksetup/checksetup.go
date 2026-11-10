@@ -8,12 +8,18 @@
 //  1. ComfyUI is installed in -comfyui-dir.
 //  2. The ComfyUI server answers at -server-url.
 //  3. comfy-mcp is found: in the venv of install-comfy-mcp, or on the PATH.
-//  4. The comfy-mcp entry of .mcp.json points at a program that exists.
-//  5. horus is on the PATH.
-//  6. The horus entry of .mcp.json points at a program that exists.
-//  7. With -workflow: the model files of that workflow are present.
+//  4. comfy-cli (the program "comfy") is found: where COMFY_BIN of the
+//     comfy-mcp entry points, or else next to comfy-mcp.
+//  5. The comfy-mcp entry of .mcp.json points at programs that exist: its
+//     command, and COMFY_BIN when the entry sets it.
+//  6. horus is on the PATH.
+//  7. The horus entry of .mcp.json points at a program that exists.
+//  8. With -workflow: the model files of that workflow are present, and by
+//     default their SHA-256 hashes are checked (as the script did), and the
+//     line says "verified". With -quick only the sizes are checked, and the
+//     line says so.
 //
-// The script checked the two venvs of the Python era. Checks 3 and 5 are now
+// The script checked the two venvs of the Python era. Checks 3 and 6 are now
 // "found" checks, as the port map (issue #4) says.
 package checksetup
 
@@ -58,6 +64,12 @@ type Options struct {
 	// Workflow is the workflow whose model files are checked. Empty: no check.
 	Workflow string
 	Models   ModelChecker
+	// QuickModels is true when Models checks the sizes only (-quick). The
+	// default checks the SHA-256 hashes too.
+	QuickModels bool
+	// Getenv reads the variables of ${VAR} and ${VAR:-default} in .mcp.json.
+	// nil means os.Getenv. USERPROFILE (and HOME) fall back to Home.
+	Getenv func(string) string
 	// LookPath finds a program on the PATH. nil means exec.LookPath.
 	LookPath func(string) (string, error)
 	Stdout   io.Writer
@@ -126,45 +138,77 @@ func Check(ctx context.Context, o Options) int {
 	}
 
 	// 3. comfy-mcp found.
+	mcpProg := ""
 	venvMCP := filepath.Join(venvBin(o.VenvPath), exe("comfy-mcp"))
-	if isFile(venvMCP) {
+	fromVenv := isFile(venvMCP)
+	if fromVenv {
+		mcpProg = venvMCP
 		c.write(true, "comfy-mcp environment", venvMCP)
 	} else if p, err := look("comfy-mcp"); err == nil {
+		mcpProg = p
 		c.write(true, "comfy-mcp environment", p)
 	} else {
 		c.write(false, "comfy-mcp environment", fmt.Sprintf("comfy-mcp not found in %s or on the PATH. Fix: horus install-comfy-mcp", venvBin(o.VenvPath)))
 	}
 
-	// 4 and 6 read .mcp.json.
+	// 4 and 7 read .mcp.json.
 	mcpJSON := filepath.Join(o.RepoRoot, ".mcp.json")
-	entry := func(name string) (string, error) { return mcpCommand(mcpJSON, name, o.Home) }
+	getenv := o.envFunc()
+	entry := func(name string) (mcpEntry, error) { return readEntry(mcpJSON, name, getenv) }
+	comfyEntry, comfyErr := entry("comfy-mcp")
 
-	// 4. The comfy-mcp entry of .mcp.json.
-	if cmd, err := entry("comfy-mcp"); err != nil {
-		c.write(false, ".mcp.json", fmt.Sprintf("cannot read comfy-mcp entry in %s : %v", mcpJSON, err))
-	} else if p, ok := resolve(cmd, look); ok {
-		c.write(true, ".mcp.json", "command points at "+p)
-	} else {
-		c.write(false, ".mcp.json", fmt.Sprintf("command is '%s' and does not exist. Fix: horus install-comfy-mcp, or edit .mcp.json.", cmd))
+	// 4. comfy-cli found: COMFY_BIN of the entry, else next to comfy-mcp.
+	// The comfy MCP server starts comfy-cli, so a missing program fails there.
+	switch {
+	case comfyErr == nil && comfyEntry.ComfyBin != "":
+		if p, ok := resolve(comfyEntry.ComfyBin, look); ok {
+			c.write(true, "comfy-cli", p)
+		} else {
+			c.write(false, "comfy-cli", fmt.Sprintf("COMFY_BIN of .mcp.json is '%s' and does not exist. Fix: horus install-comfy-mcp, or edit .mcp.json.", comfyEntry.ComfyBin))
+		}
+	case mcpProg == "":
+		c.write(false, "comfy-cli", "comfy-mcp is missing, so comfy-cli cannot be found. Fix: horus install-comfy-mcp")
+	default:
+		next := filepath.Join(filepath.Dir(mcpProg), exe("comfy"))
+		if isFile(next) {
+			c.write(true, "comfy-cli", next)
+		} else if p, err := look("comfy"); err == nil && !fromVenv {
+			c.write(true, "comfy-cli", p)
+		} else {
+			c.write(false, "comfy-cli", fmt.Sprintf("%s not found next to comfy-mcp. Fix: horus install-comfy-mcp", exe("comfy")))
+		}
 	}
 
-	// 5. horus is on the PATH.
+	// 5. The comfy-mcp entry of .mcp.json.
+	if comfyErr != nil {
+		c.write(false, ".mcp.json", fmt.Sprintf("cannot read comfy-mcp entry in %s : %v", mcpJSON, comfyErr))
+	} else if p, ok := resolve(comfyEntry.Command, look); !ok {
+		c.write(false, ".mcp.json", fmt.Sprintf("command is '%s' and does not exist. Fix: horus install-comfy-mcp, or edit .mcp.json.", comfyEntry.Command))
+	} else {
+		detail := "command points at " + p
+		if comfyEntry.ComfyBin != "" {
+			detail += ", COMFY_BIN at " + comfyEntry.ComfyBin
+		}
+		c.write(true, ".mcp.json", detail)
+	}
+
+	// 6. horus is on the PATH.
 	if p, err := look("horus"); err == nil {
 		c.write(true, "horus on PATH", p)
 	} else {
 		c.write(false, "horus on PATH", "horus not found on the PATH. Fix: put the folder of the horus program on the PATH.")
 	}
 
-	// 6. The horus entry of .mcp.json.
-	if cmd, err := entry("horus"); err != nil {
+	// 7. The horus entry of .mcp.json.
+	if e, err := entry("horus"); err != nil {
 		c.write(false, ".mcp.json horus", fmt.Sprintf("cannot read horus entry in %s : %v", mcpJSON, err))
-	} else if p, ok := resolve(cmd, look); ok {
+	} else if p, ok := resolve(e.Command, look); ok {
 		c.write(true, ".mcp.json horus", "command points at "+p)
 	} else {
-		c.write(false, ".mcp.json horus", fmt.Sprintf("command is '%s' and does not exist. Fix: put horus on the PATH, or edit .mcp.json.", cmd))
+		c.write(false, ".mcp.json horus", fmt.Sprintf("command is '%s' and does not exist. Fix: put horus on the PATH, or edit .mcp.json.", e.Command))
 	}
 
-	// 7. Models of one workflow.
+	// 8. Models of one workflow.
 	if o.Workflow != "" {
 		lines, ok, err := o.Models.Check(ctx, o.Workflow)
 		for _, l := range lines {
@@ -175,7 +219,11 @@ func Check(ctx context.Context, o Options) int {
 		case err != nil:
 			c.write(false, name, "cannot run the model check: "+err.Error())
 		case ok:
-			c.write(true, name, "all files present and verified")
+			if o.QuickModels {
+				c.write(true, name, "all files present, size checked (the SHA-256 is not checked; drop -quick)")
+			} else {
+				c.write(true, name, "all files present and verified (SHA-256 checked)")
+			}
 		default:
 			c.write(false, name, "see lines above. Fix: horus workflow install "+o.Workflow)
 		}
@@ -215,26 +263,75 @@ func systemStats(ctx context.Context, base string) (string, error) {
 	return v.System.Version, nil
 }
 
-// mcpCommand returns the "command" of one server in .mcp.json, with
-// ${USERPROFILE} replaced.
-func mcpCommand(path, name, home string) (string, error) {
+// mcpEntry is the part of one .mcp.json server that the check reads, with
+// ${VAR} and ${VAR:-default} expanded.
+type mcpEntry struct {
+	Command  string
+	ComfyBin string // env.COMFY_BIN, empty when the entry does not set it
+}
+
+func (o Options) envFunc() func(string) string {
+	return func(name string) string {
+		if o.Getenv != nil {
+			if v := o.Getenv(name); v != "" {
+				return v
+			}
+		} else if v := os.Getenv(name); v != "" {
+			return v
+		}
+		if name == "USERPROFILE" || name == "HOME" {
+			return o.Home
+		}
+		return ""
+	}
+}
+
+// expand replaces ${VAR} and ${VAR:-default}. An unset or empty VAR gives its
+// default, or the empty string.
+func expand(s string, getenv func(string) string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(s, "${")
+		if i < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		j := strings.Index(s[i:], "}")
+		if j < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:i])
+		name, def, hasDef := strings.Cut(s[i+2:i+j], ":-")
+		v := getenv(name)
+		if v == "" && hasDef {
+			v = def
+		}
+		b.WriteString(v)
+		s = s[i+j+1:]
+	}
+}
+
+// readEntry returns the command and COMFY_BIN of one server in .mcp.json.
+func readEntry(path, name string, getenv func(string) string) (mcpEntry, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return mcpEntry{}, err
 	}
 	var cfg struct {
 		Servers map[string]struct {
-			Command string `json:"command"`
+			Command string            `json:"command"`
+			Env     map[string]string `json:"env"`
 		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return "", err
+		return mcpEntry{}, err
 	}
 	s, ok := cfg.Servers[name]
 	if !ok {
-		return "", fmt.Errorf("no %s entry", name)
+		return mcpEntry{}, fmt.Errorf("no %s entry", name)
 	}
-	return strings.ReplaceAll(s.Command, "${USERPROFILE}", home), nil
+	return mcpEntry{Command: expand(s.Command, getenv), ComfyBin: expand(s.Env["COMFY_BIN"], getenv)}, nil
 }
 
 // resolve finds the program of a command: a path must be a file, a bare name
@@ -251,11 +348,11 @@ func resolve(cmd string, look func(string) (string, error)) (string, bool) {
 }
 
 // ExecModels is the real ModelChecker. It runs
-// "<Exe> workflow check <name> -quick -json" with the folders in the
+// "<Exe> workflow check <name> [-quick] -json" with the folders in the
 // environment, and reads the text lines (it drops the HORUS_JSON line).
 type ExecModels struct {
 	Exe        string
-	Full       bool // true: no -quick, so the hashes are checked
+	Quick      bool // true: -quick, so the sizes are checked and the hashes are not
 	ComfyUIDir string
 	ModelsDir  string
 	TextDir    string
@@ -264,7 +361,7 @@ type ExecModels struct {
 // Check runs the subcommand.
 func (m ExecModels) Check(ctx context.Context, workflow string) ([]string, bool, error) {
 	args := []string{"workflow", "check", workflow}
-	if !m.Full {
+	if m.Quick {
 		args = append(args, "-quick")
 	}
 	args = append(args, "-json")
@@ -303,7 +400,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	serverURL := fs.String("server-url", "http://127.0.0.1:8188", "address of the ComfyUI server")
 	venv := fs.String("venv-path", "", "folder of the comfy-mcp venv (default: <home>/.venvs/comfy-mcp)")
 	workflow := fs.String("workflow", "", "also check the model files of workflows/<name>/models.json")
-	full := fs.Bool("full", false, "with -workflow: also check the SHA-256 of each file (the default checks the size only; hashing 11 GB takes minutes)")
+	quick := fs.Bool("quick", false, "with -workflow: check the size of each file only (the default also checks the SHA-256, and hashing 11 GB takes minutes)")
 	modelsDir := fs.String("models-dir", "", "with -workflow: models folder (default: HORUS_MODELS_DIR)")
 	textDir := fs.String("text-encoder-dir", "", "with -workflow: folder of the text encoder on another drive (default: HORUS_TEXT_ENCODER_DIR)")
 	if err := fs.Parse(args); err != nil {
@@ -311,7 +408,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	home, _ := os.UserHomeDir()
 	o := Options{ComfyUIDir: *dir, ServerURL: *serverURL, VenvPath: *venv, RepoRoot: settings.Root(), Home: home,
-		Workflow: *workflow, Stdout: stdout}
+		Workflow: *workflow, QuickModels: *quick, Stdout: stdout}
 	if o.ComfyUIDir == "" {
 		o.ComfyUIDir = settings.ComfyDir()
 	}
@@ -324,7 +421,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "horus check-setup:", err)
 			return 1
 		}
-		o.Models = ExecModels{Exe: self, Full: *full, ComfyUIDir: o.ComfyUIDir, ModelsDir: *modelsDir, TextDir: *textDir}
+		o.Models = ExecModels{Exe: self, Quick: *quick, ComfyUIDir: o.ComfyUIDir, ModelsDir: *modelsDir, TextDir: *textDir}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

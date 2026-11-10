@@ -195,7 +195,6 @@ func TestNotPortedToolsAnswerInternal(t *testing.T) {
 		"describe_workflow":  {"workflow": "it-illustration"},
 		"install_workflow":   {"workflow": "it-illustration"},
 		"uninstall_workflow": {"workflow": "it-illustration"},
-		"generate_image":     {"workflow": "it-illustration", "subject": "a box"},
 	}
 	for name, args := range calls {
 		res := callTool(t, cs, name, args)

@@ -1,0 +1,110 @@
+{
+ "1145655848684232": {
+  "class_type": "UNETLoader",
+  "inputs": {
+   "unet_name": "flux3-image-klein-int8-convrot.safetensors",
+   "weight_dtype": "default"
+  }
+ },
+ "1303296545618025": {
+  "class_type": "ModelAttentionBackend",
+  "inputs": {
+   "model": [
+    "1145655848684232",
+    0
+   ],
+   "attention": "pytorch attention"
+  }
+ },
+ "2943881201999604": {
+  "class_type": "CLIPLoader",
+  "inputs": {
+   "clip_name": "qwen3vl_4b_int8_convrot.safetensors",
+   "type": "flux3",
+   "device": "default"
+  }
+ },
+ "1003919775051822": {
+  "class_type": "VAELoader",
+  "inputs": {
+   "vae_name": "flux2-vae.safetensors"
+  }
+ },
+ "2752976026169904": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "clip": [
+    "2943881201999604",
+    0
+   ],
+   "text": "A small red apple on a wooden table by a window, in soft morning light."
+  }
+ },
+ "579953344854396": {
+  "class_type": "ConditioningZeroOut",
+  "inputs": {
+   "conditioning": [
+    "2752976026169904",
+    0
+   ]
+  }
+ },
+ "3955927623628478": {
+  "class_type": "EmptyFlux2LatentImage",
+  "inputs": {
+   "width": 1536,
+   "height": 1024,
+   "batch_size": 1
+  }
+ },
+ "3394534790677934": {
+  "class_type": "KSampler",
+  "inputs": {
+   "model": [
+    "1303296545618025",
+    0
+   ],
+   "positive": [
+    "2752976026169904",
+    0
+   ],
+   "negative": [
+    "579953344854396",
+    0
+   ],
+   "latent_image": [
+    "3955927623628478",
+    0
+   ],
+   "seed": 424242,
+   "steps": 15,
+   "cfg": 1,
+   "sampler_name": "er_sde",
+   "scheduler": "simple",
+   "denoise": 1
+  }
+ },
+ "1085814466336247": {
+  "class_type": "VAEDecode",
+  "inputs": {
+   "samples": [
+    "3394534790677934",
+    0
+   ],
+   "vae": [
+    "1003919775051822",
+    0
+   ]
+  }
+ },
+ "126941226278325": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "1085814466336247",
+    0
+   ],
+   "filename_prefix": "it-illustration"
+  }
+ }
+}

@@ -1391,7 +1391,8 @@ exit 0
 
 | File | Bytes | Size | SHA-256 | Seed | Seconds |
 |---|---|---|---|---|---|
-| `<repo>\.scratch\g11eal-image-seed7-20261110-185211.png` | 2,421,991 | 1536 x 1024 | `9f8fbe697dc813d1e8ca17a7152e651fd7682df008790f51e8c217e21bee6080` | 7 | 216 |
+| `<repo>\.scratch\g11
+eal-image-seed7-20261110-185211.png` | 2,421,991 | 1536 x 1024 | `9f8fbe697dc813d1e8ca17a7152e651fd7682df008790f51e8c217e21bee6080` | 7 | 216 |
 
 Subject of the contract test: "On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. On the right, a sky-blue server box takes them off the belt."
 
@@ -1554,3 +1555,46 @@ goal: 7 of 8 rows passed   (real-image needs --real: expected)
 ```
 
 Stub check: the tests assert the line `FAIL  comfy-cli - ` and the text `size checked`, so a check that always passes, or a model line that always says "verified", fails them.
+
+## Issue 38
+
+Red, before the edit, on `origin/main` (`git show origin/main:README.md | sed -n 94,100p`). The issue's own Red command
+(`git grep -n "does not" | grep -i "set yet"`) prints nothing, because "does not" and "set yet" are on two lines. The
+working Red:
+
+```
+$ git show origin/main:README.md | grep -n "does not\|set yet"
+81:Claude Code reads `.mcp.json` by itself, but it does not build or install the
+98:this repo also needs the variable `HORUS_ROOT`, which `horus register` does not
+99:set yet (setup step 5 link, quoted without the link syntax).
+```
+
+Line 81 is about `.mcp.json` and is not a hit. Lines 98 and 99 are the stale statement.
+
+Green, after the edit. The new sentence on the branch `fix/readme-register`:
+
+```
+horus register also sets
+the variable `HORUS_ROOT` to the repo folder. You do not set it by hand
+```
+
+```
+$ grep -n "set yet" README.md | wc -l
+0
+$ grep -n "HORUS_ROOT" README.md
+98:the variable `HORUS_ROOT` to the repo folder. You do not set it by hand
+$ grep -n "does not\|set yet" README.md | grep -i horus   (no output)
+$ python scripts/lint-public.py
+lint-public: 0 finding(s)
+exit 0
+```
+
+Other `horus register` statements checked against `internal/scripts/register/register.go`: `docs/mcp.md:33` and
+`docs/setup.md:252` (run inside the repo, `-root`, error when no repo) match the code. No contradiction remains
+outside `docs/specs` and `docs/plans`.
+
+Stub check: deleting the section also gives no `set yet` hit, so the Green also requires the `HORUS_ROOT` sentence,
+and the heading "Give other agents an image tool" is kept.
+
+Ratchet: stale statements about `horus register` in `README.md`: 1 -> 0 (line 98 of the old text, plus its
+continuation on line 99).

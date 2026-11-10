@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/hieplam/horus/internal/settings"
 )
 
 // The test binary is also the fake claude program: when HORUS_FAKE_CLAUDE is
@@ -72,12 +74,26 @@ func record(t *testing.T, env map[string]string) (string, func() string) {
 	}
 }
 
+// repo makes a folder that looks like the repo (it has workflows/).
+func repo(t *testing.T) string {
+	t.Helper()
+	d, err := filepath.Abs(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(d, "workflows"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 func TestRegisterAddsTheServerInUserScope(t *testing.T) {
 	_, claude := fakeClaude(t)
 	_, read := record(t, nil)
+	root := repo(t)
 	ask := t.TempDir()
 	var out bytes.Buffer
-	err := Register(context.Background(), Options{Claude: claude, HorusPath: "/the/path/horus", AskDir: ask, Stdout: &out, Stderr: io.Discard})
+	err := Register(context.Background(), Options{Claude: claude, HorusPath: "/the/path/horus", Root: root, AskDir: ask, Stdout: &out, Stderr: io.Discard})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +102,7 @@ func TestRegisterAddsTheServerInUserScope(t *testing.T) {
 	if !strings.Contains(got, "args mcp get horus\n") {
 		t.Fatalf("no question to claude:\n%s", got)
 	}
-	if !strings.Contains(got, "args mcp add --scope user horus -- /the/path/horus mcp\n") {
+	if !strings.Contains(got, "args mcp add --scope user horus -e HORUS_ROOT="+root+" -- /the/path/horus mcp\n") {
 		t.Fatalf("no add command:\n%s", got)
 	}
 	if !strings.HasPrefix(got, "dir ") || !strings.Contains(strings.SplitN(got, "\n", 2)[0], filepath.Base(ask)) {
@@ -101,7 +117,7 @@ func TestRegisterSkipsWhenClaudeKnowsTheServer(t *testing.T) {
 	_, claude := fakeClaude(t)
 	_, read := record(t, map[string]string{"HORUS_FAKE_KNOWN": "1"})
 	var out bytes.Buffer
-	if err := Register(context.Background(), Options{Claude: claude, HorusPath: "/p/horus", AskDir: t.TempDir(), Stdout: &out}); err != nil {
+	if err := Register(context.Background(), Options{Claude: claude, HorusPath: "/p/horus", Root: repo(t), AskDir: t.TempDir(), Stdout: &out}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(read(), "mcp add") {
@@ -116,7 +132,7 @@ func TestRegisterReportsAFailedAdd(t *testing.T) {
 	_, claude := fakeClaude(t)
 	record(t, map[string]string{"HORUS_FAKE_ADD_EXIT": "3"})
 	var out bytes.Buffer
-	err := Register(context.Background(), Options{Claude: claude, HorusPath: "/p/horus", AskDir: t.TempDir(), Stdout: &out})
+	err := Register(context.Background(), Options{Claude: claude, HorusPath: "/p/horus", Root: repo(t), AskDir: t.TempDir(), Stdout: &out})
 	if err == nil || err.Error() != "claude mcp add failed (exit code 3)." {
 		t.Fatalf("err: %v", err)
 	}
@@ -131,11 +147,12 @@ func TestRunFindsClaudeOnThePath(t *testing.T) {
 	dir, _ := fakeClaude(t)
 	t.Setenv("PATH", dir)
 	_, read := record(t, nil)
+	root := repo(t)
 	var out, errOut bytes.Buffer
-	if code := Run([]string{"-horus-path", "/x/horus"}, &out, &errOut); code != 0 {
+	if code := Run([]string{"-horus-path", "/x/horus", "-root", root}, &out, &errOut); code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut.String())
 	}
-	if !strings.Contains(read(), "args mcp add --scope user horus -- /x/horus mcp\n") {
+	if !strings.Contains(read(), "args mcp add --scope user horus -e HORUS_ROOT="+root+" -- /x/horus mcp\n") {
 		t.Fatalf("record:\n%s", read())
 	}
 }
@@ -145,5 +162,50 @@ func TestRunWithoutClaude(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := Run(nil, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "The claude command was not found.") {
 		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+}
+
+func TestRegisterRefusesARootWithoutWorkflows(t *testing.T) {
+	_, claude := fakeClaude(t)
+	_, read := record(t, nil)
+	err := Register(context.Background(), Options{Claude: claude, HorusPath: "/p/horus", Root: t.TempDir(), AskDir: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "has no workflows folder") {
+		t.Fatalf("err: %v", err)
+	}
+	if read() != "" {
+		t.Fatalf("called claude with a bad root: %s", read())
+	}
+}
+
+func TestRunWithoutARepoFails(t *testing.T) {
+	dir, _ := fakeClaude(t)
+	t.Setenv("PATH", dir)
+	_, read := record(t, nil)
+	t.Setenv("HORUS_ROOT", t.TempDir()) // a folder without workflows/
+	settings.Reset()
+	defer settings.Reset()
+	var out, errOut bytes.Buffer
+	if code := Run([]string{"-horus-path", "/x/horus"}, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "has no workflows folder") {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	if read() != "" {
+		t.Fatalf("called claude: %s", read())
+	}
+}
+
+func TestRunTakesRootFromTheSettings(t *testing.T) {
+	dir, _ := fakeClaude(t)
+	t.Setenv("PATH", dir)
+	_, read := record(t, nil)
+	root := repo(t)
+	t.Setenv("HORUS_ROOT", root)
+	settings.Reset()
+	defer settings.Reset()
+	var out, errOut bytes.Buffer
+	if code := Run([]string{"-horus-path", "/x/horus"}, &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(read(), "horus -e HORUS_ROOT="+root+" -- /x/horus mcp\n") {
+		t.Fatalf("record: %s", read())
 	}
 }

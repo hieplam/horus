@@ -234,24 +234,22 @@ horus register
 ```
 
 **What it makes.** An entry `horus` in your Claude Code user settings (user scope).
-It runs `claude mcp add --scope user horus -- <path of horus> mcp`. Without it, only
-a session in this repo folder sees `horus`, through `.mcp.json` (project scope). An
-agent in any folder then has the tools `list_workflows`, `describe_workflow`,
-`install_workflow`, `uninstall_workflow` and `generate_image`. Check it with
-`claude mcp get horus` from any folder: it shows `Connected`. See [`mcp.md`](mcp.md).
+It runs `claude mcp add --scope user horus -e HORUS_ROOT=<repo root> -- <path of horus> mcp`.
+`<repo root>` is the absolute path of this repo. Without the entry, only a session in
+this repo folder sees `horus`, through `.mcp.json` (project scope). An agent in any
+folder then has the tools `list_workflows`, `describe_workflow`, `install_workflow`,
+`uninstall_workflow` and `generate_image`. Check it with `claude mcp get horus` from
+any folder: it shows `Connected` and `HORUS_ROOT`. See [`mcp.md`](mcp.md).
 
-**Limit.** `horus` finds the repo through the current folder. A session in another
-folder starts `horus mcp` in that folder, so the server does not find the
-workflows, and the tools answer `INTERNAL`. `horus register` does not set the repo
-folder yet (issue [#32](https://github.com/hieplam/horus/issues/32)). Until that
-fix, add the entry with the variable `HORUS_ROOT` (the root folder of this repo)
-instead of `horus register`:
+**Flags.** Run `horus register` inside this repo. It takes two flags:
 
-```
-claude mcp add --scope user horus --env HORUS_ROOT=<root folder of this repo> -- <path of horus> mcp
-```
+- `-root <folder>`: the repo folder (it must have `workflows/`) to pass as `HORUS_ROOT`.
+  Default: the repo found from the current folder.
+- `-horus-path <path>`: the `horus` program that Claude Code starts. Default: the
+  program that runs `horus register`.
 
-`<path of horus>` is `%USERPROFILE%\go\bin\horus.exe` after step 0 on Windows.
+When no repo is found and no `-root` is given, or when the folder has no `workflows/`,
+`horus register` stops with an error and registers nothing.
 
 **If it fails.** `The claude command was not found`: install Claude Code, or add the
 stdio server `horus` with the argument `mcp` to your agent by hand. `SKIP: Claude Code

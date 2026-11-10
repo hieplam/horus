@@ -28,6 +28,7 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G6 | `install-comfy-mcp` also runs on macOS and Linux. It uses `python<version>` as the launcher and `bin/` in the venv there, and `py.exe -<version>` and `Scripts\` on Windows. The plan makes only `install-comfyui` and `start-comfyui` Windows-only. | The plan, step 3. |
 | 2026-11-10 | G6 | The tests use the test binary as the fake `7z`, the fake `python.exe` and the fake Python launcher (`TestMain` with an environment variable). They run on Windows, macOS and Linux. The fake `python.exe` of `start-comfyui` waits 60 s and the test kills it by the process id from its record. | The coordinator asked for fakes that work on all three CI systems. |
 | 2026-11-10 | G3 | The flags of `horus download-model`: `-url`, `-destination`, `-expected-bytes`, `-sha256`, `-token-env-var` (default `HF_TOKEN`), `-max-attempts` (default 4). A flag that does not parse exits 2, as every horus command does. A missing or wrong value prints a `FAIL:` line and exits 1, as the script did. | Rule 3 of the spec (Go style flags). Exit 2 for a parse error is the convention of `cmd/horus`. |
+| 2026-11-10 | G8 | The CI `contract` job is strict: it runs the contract test without `|| true` and ends with `grep -q "contract: 30 of 30 passed" contract.log`, the same rule as `python-baseline`. The grep has no `^` or `$` anchor. | The Windows runner can write CR before the line end. `python-baseline` already uses this form on the same system. |
 | 2026-11-10 | G3 | Allowed difference: the curl text is gone. The line `Attempt N of M did not finish (curl exit 22, ...)` is now `Attempt N of M did not finish (the server returned error: 401, ...)`, so the text `error: 401` and `error: 403` that `_download_error` in `horus/models.py` reads stays in the item detail. The hint line `curl exit 22 means ...` is now `The server answered with an error. HTTP 401 = ... HTTP 403 = ...`; it still names both codes, so it is still no evidence of either. | Rule 3 of the spec: no `curl.exe`. Task G4 must keep `Attempt ` and `FAIL:` lines in the detail of a `FAILED` item. |
 | 2026-11-10 | G3 | The Go API for task G4: `downloadmodel.Download(ctx, Options) (Result, error)`. The error is an `*Error` with a `Kind`: `KindUnauthorized` (401), `KindForbidden` (403), `KindDiskFull`, `KindConflict`, `KindBadHash`, `KindFailed`. `Result.Skipped` is true for the `SKIP` case. `downloadmodel.Main` is the command. | The task asks for a small API that G4 calls. The four outcomes of the spec are values, and the text output stays the same as well. |
 | 2026-11-10 | G3 | The retry loop of the script is kept as it was: 4 attempts, a wait of 5 s times the attempt number, also after HTTP 401 and 403. | The old code is right. A retry after 401 does no harm. |
@@ -919,3 +920,34 @@ G1 said that two checks passed for a weak reason. They now pass with real result
 `python scripts/lint-public.py`: `lint-public: 0 finding(s)`. `gofmt -l .` prints nothing. `go test ./...` passes. `GOOS=linux` and `GOOS=darwin` `go vet ./...` pass.
 
 Ratchet: contract checks against Go: 22 → 30 of 30 (+8; see Decisions). `goal`: 5 → 5 of 8 rows. The row `contract` also needs the CI jobs on both systems (task G8).
+
+## G8
+
+Baseline: the contract test against Go prints `contract: 30 of 30 passed` on this PC. The `contract` job of `ci.yml` is not strict: it ends with `|| true` and a `grep "contract: "` that passes on any count.
+
+Red not applicable: `G2` and `G5` already reached 30. The logs of the newest run on `main` (run 42799283672, commit `4982496`, merge of PR 29), both jobs green:
+
+```
+$ gh run view 42799283672 --job 129772350576 --log | grep "contract: "     (contract windows-latest)
+contract windows-latest  Contract test against the Go binary  2026-11-10T10:28:27.7871992Z contract: 30 of 30 passed
+$ gh run view 42799283672 --job 129772350640 --log | grep "contract: "     (contract macos-latest)
+contract macos-latest  Contract test against the Go binary  2026-11-10T10:28:43.7749360Z contract: 30 of 30 passed
+```
+
+Proof that the strict rule can fail. The old step lines on a log with 29 pass, the new rule fails:
+
+```
+$ printf 'PASS  a
+contract: 29 of 30 passed
+' > c29.log
+$ grep "contract: " c29.log; echo "old rule exit $?"
+contract: 29 of 30 passed
+old rule exit 0
+$ grep -q "contract: 30 of 30 passed" c29.log; echo "strict rule exit $?"
+strict rule exit 1
+$ : > empty.log; grep -q "contract: 30 of 30 passed" empty.log; echo "empty log exit $?"
+empty log exit 1
+$ printf 'contract: 30 of 30 passed
+' > c30.log; grep -q "contract: 30 of 30 passed" c30.log; echo "30 log exit $?"
+30 log exit 0
+```

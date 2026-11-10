@@ -105,6 +105,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	force := fs.Bool("force", false, "replace a pane copy that differs from the repo copy; the old copy is kept as .bak")
 	wfDir := fs.String("workflows-dir", "", "the workflows folder (default: HORUS_WORKFLOWS_DIR, then <repo>/workflows)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	o := Options{ComfyUIDir: *dir, WorkflowsDir: *wfDir, Force: *force, Stdout: stdout}

@@ -17,6 +17,7 @@ package runillustration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -146,6 +147,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	style := fs.String("style-file", "", "optional JSON {prefix, suffix} that you own; default: no style")
 	timeout := fs.Int("timeout", 1800, "seconds to wait for the job")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	fail := func(err error) int {

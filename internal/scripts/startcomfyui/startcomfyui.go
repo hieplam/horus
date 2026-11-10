@@ -45,6 +45,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	serverURL := fs.String("server-url", "http://127.0.0.1:8188", "address that the server must answer on; the port is taken from it")
 	timeout := fs.Int("timeout-seconds", 300, "how long to wait for the server; the first start can take a few minutes")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if goos != "windows" {

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -16,6 +17,9 @@ func runErrors(args []string) int {
 	fs := flag.NewFlagSet("horus errors", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the table as one JSON object: code -> retryable, action_by, next_step")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if *asJSON {

@@ -45,6 +45,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	venv := fs.String("venv-path", "", "folder of the virtual environment (default: <home>/.venvs/comfy-mcp)")
 	pyVer := fs.String("python-version", "3.12", "Python version for the Python Launcher (py.exe), or python<version> elsewhere")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	o := Options{VenvPath: *venv, PythonVersion: *pyVer, Stdout: stdout, Stderr: stderr}

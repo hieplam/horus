@@ -87,6 +87,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	rootFlag := fs.String("root", "", "the horus repo folder (with workflows/) to pass as HORUS_ROOT (default: the repo found from the current folder)")
 	horus := fs.String("horus-path", "", "path of the horus program to register (default: this program)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	root := *rootFlag

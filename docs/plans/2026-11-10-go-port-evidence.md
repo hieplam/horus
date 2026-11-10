@@ -46,9 +46,9 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G2 | Known difference, not fixed: `out_path` goes through `filepath.Clean`, which also removes `..`. `pathlib.Path` keeps `..`. Both name the same file. | Not forced by Go, but the file is the same and the contract test compares `Path` values. |
 | 2026-11-10 | G2 | Known difference, not fixed: the keys of `details` are in sorted order, because `details` is a Go map. Python keeps the insertion order. | Callers read `details` by key. G1 has the same rule for every error. |
 | 2026-11-10 | G7 | `check-setup` calls the model check through an interface `ModelChecker`. The real one runs `<this binary> workflow check <name> -quick -json` as a child process (the process boundary of the spec). Issue #11 (task G4) was not merged when G7 was built, so no model-file rule is copied. The folders go to the child in the variables `HORUS_COMFYUI_DIR`, `HORUS_MODELS_DIR` and `HORUS_TEXT_ENCODER_DIR`. The check drops the `HORUS_JSON` line and prints the other lines with 6 spaces in front, as the script did. The tests use a fake and the test binary as the child. | The coordinator named this design. Task G4 owns the model-file rules. |
-| 2026-11-10 | G7 | `check-setup -workflow` checks the size only (`-quick`). The new flag `-full` removes `-quick`, so the SHA-256 is checked too. The script always hashed. | The coordinator named `-quick`. Hashing 11 GB takes minutes, so the fast check is the default and the old behaviour is one flag away. |
+| 2026-11-10 | G7 | CORRECTED by issue 46: `check-setup -workflow` checks the size and the SHA-256 by default, as the script did. The new flag `-quick` asks for the size-only check. (G7 first made size-only the default and added `-full`. The spec does not allow that difference.) | Standing rule: the old code is right. The default must not be weaker than the script. |
 | 2026-11-10 | G7 | `check-setup` has 6 checks, and 1 more with `-workflow`: ComfyUI folder, ComfyUI server, comfy-mcp environment (found in the venv or on the PATH), `.mcp.json` comfy-mcp entry, `horus on PATH`, `.mcp.json horus` entry. An entry passes when its command is an existing file, or a name found on the PATH. The script also required that the command equals the venv path; Go does not, because the entry of the Go era is the bare name `horus`. The flag `-horus-venv-path` is gone. The flag `-models-json` is gone, because `horus workflow check` has no such flag. | Plan step 2 and issue #4 (port map). |
-| 2026-11-10 | G7 | Flags in Go style: `-comfyui-dir`, `-server-url`, `-venv-path`, `-workflow`, `-full`, `-models-dir`, `-text-encoder-dir` (check-setup); `-comfyui-dir`, `-force`, `-workflows-dir` (sync-workflows); `-name`, `-description`, `-model-family`, `-workflows-dir` (new-workflow); `-horus-path` (register); `-subject`, `-subject-file`, `-out`, `-seed`, `-width`, `-height`, `-url`, `-workflow`, `-style-file`, `-timeout` (run-illustration). A flag error exits 2. A failure prints `horus <command>: <message>` to stderr and exits 1, except `run-illustration`, which prints `{"ok":false,"error":...}` to stderr as the script did. | Rule 3 of the spec and the decision of G6. |
+| 2026-11-10 | G7 | Flags in Go style: `-comfyui-dir`, `-server-url`, `-venv-path`, `-workflow`, `-quick`, `-models-dir`, `-text-encoder-dir` (check-setup); `-comfyui-dir`, `-force`, `-workflows-dir` (sync-workflows); `-name`, `-description`, `-model-family`, `-workflows-dir` (new-workflow); `-horus-path` (register); `-subject`, `-subject-file`, `-out`, `-seed`, `-width`, `-height`, `-url`, `-workflow`, `-style-file`, `-timeout` (run-illustration). A flag error exits 2. A failure prints `horus <command>: <message>` to stderr and exits 1, except `run-illustration`, which prints `{"ok":false,"error":...}` to stderr as the script did. | Rule 3 of the spec and the decision of G6. |
 | 2026-11-10 | G7 | `run-illustration` calls `generate.Generate`. `-workflow` takes a workflow name (default `it-illustration`) and, since issue #27, also the path of a `workflow.json`. `-steps` exists again (issue #27). The JSON line has `ok`, `prompt_id` (the job id), `out`, `seed`, `steps`, `width`, `height`, `execution_seconds` and `comfy_output` (issue #27 put `steps` and `comfy_output` back). The width and the height default to the manifest (1536 x 1024 for `it-illustration`), and the rules of the manifest apply. An existing `-out` file is replaced, as in the script. The call can start ComfyUI when it does not answer (the autostart of `internal/comfy`; `HORUS_AUTOSTART=0` turns it off). | The coordinator said that `run-illustration` must use `internal/generate` and not copy its logic. The plan asks for "the path and the seed". |
 | 2026-11-10 | #27 | `run-illustration` has `-steps`, a `-workflow` path and the keys `steps` and `comfy_output` again. The hook in `internal/generate` is the optional field `Request.Steps` (a pointer; `generate_image` never sets it). `Result` has two fields with the json tag `-` (`Steps`, `ComfyOutput`), so the tool result does not change. The step count is read from the one `KSampler` node; a workflow without one reports 0, and `-steps` on it is an error. A `-workflow` value with a path separator or the suffix `.json` must end in `workflow.json`. Its folder name is the workflow name, and the parent folder becomes `HORUS_WORKFLOWS_DIR` for this process. | The old script is right (standing rule of the epic), and the spec does not allow the three differences. |
 | 2026-11-10 | G7 | `register` runs `claude mcp get horus` in the temporary folder first, as the script did, and skips the add with `SKIP:` when Claude Code knows the server. Then it runs `claude mcp add --scope user horus -- <path of this binary> mcp`. The flag `-horus-path` overrides the path. In `cmd/horus` the package is imported as `registercmd`, because the function `register` of `main.go` has the same name. | Port of the `-Register` part, and the plan, step 3. |
@@ -84,7 +84,7 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G10 | `tools/make_server_golden.py` and `tools/make_graph_golden.py` are deleted with the Python package. The Go tests read the committed golden files only; `go test -count=1 ./...` passes after the deletion (18 packages `ok`). `internal/herr/testdata/errors.golden.json` keeps the text `scripts/start-comfyui.ps1`, because it is the output of the old `horus/errors.py`; `TestCodesMatchPython` applies the allowed replacement of G1. | The G1 and G2 decisions: the golden files stay, the tools go. |
 | 2026-11-10 | G10 | `pyproject.toml` is deleted. Only the `python-baseline` job used it (`pip install -e .`). The other CI jobs and the docs install `tests/requirements.txt` (`mcp==2.3.0`). `.gitignore` does not change: `__pycache__/` and `*.pyc` still match the files of the test tools, and `*.egg-info/` stays. | The coordinator's list. |
 | 2026-11-10 | G10 | The `horus` entry of `.mcp.json` is `{"type": "stdio", "command": "horus", "args": ["mcp"]}`, without `env`. The `comfy-mcp` entry does not change. | Plan step 1: no Python environment variables. The comfy-mcp entry is Phase 3 of issue #4. |
-| 2026-11-10 | G10 | `docs/setup.md` gets a step 0 "get the horus program": install Go, `go install ./cmd/horus`, and the Go bin folder on the PATH (with the PowerShell command for the user Path on Windows, and the profile line on macOS and Linux). It names `install-comfyui` and `start-comfyui` as Windows-only, and says that on macOS and Linux the user installs and starts ComfyUI and adds the comfy-mcp server by hand. Step 4 runs `horus check-setup -workflow it-illustration -full`, so the smoke test still hashes the files as the script did (G7 made size-only the default). Every command line of the docs was taken from `horus <command> -h` of the built binary. | The coordinator's points 1 and 2. `-full` keeps the old behaviour of the smoke test. |
+| 2026-11-10 | G10 | `docs/setup.md` gets a step 0 "get the horus program": install Go, `go install ./cmd/horus`, and the Go bin folder on the PATH (with the PowerShell command for the user Path on Windows, and the profile line on macOS and Linux). It names `install-comfyui` and `start-comfyui` as Windows-only, and says that on macOS and Linux the user installs and starts ComfyUI and adds the comfy-mcp server by hand. Step 4 runs `horus check-setup -workflow it-illustration`, so the smoke test hashes the files as the script did (corrected by issue 46: it first said `-full`, which G7 had added; `-full` is gone). Every command line of the docs was taken from `horus <command> -h` of the built binary. | The coordinator's points 1 and 2. `-full` keeps the old behaviour of the smoke test. |
 | 2026-11-10 | G10 | Found issue #32: `horus register` adds the user-scope entry without `HORUS_ROOT`. A session outside the repo starts `horus mcp` in its own folder, the Go root rule finds no `workflows/`, and `list_workflows` answers `INTERNAL: horus workflow list failed` (measured). The Python entry served the repo from every folder, because `horus/settings.py` takes the folder of the package. #32 blocks G11 and G12. Until the fix, `docs/setup.md` and `docs/mcp.md` name the limit and give the command `claude mcp add --scope user horus --env HORUS_ROOT=<root folder of this repo> -- <path of horus> mcp`. | Standing rule: the old code is right. The fix is in `internal/scripts/register`, outside this task. |
 | 2026-11-10 | G10 | On the owner's PC (after the merge), the user-scope entry `horus` is replaced with the command of the row above (with `HORUS_ROOT` set to the main checkout), not with plain `horus register`. | The coordinator asked for `horus register`. Plain `register` gives an entry that answers `INTERNAL` in every folder outside the repo (issue #32), and the old entry worked there. The old code is right. |
 | 2026-11-10 | G10 | The owner's PC, outside the repo (coordinator's decisions): `%USERPROFILE%\go\bin` is appended to the user Path when it is absent (no other entry changes), and `go install ./cmd/horus` runs from the merged `main`. The two venvs under `%USERPROFILE%\.venvs` stay: `comfy-mcp` is in use, and `horus-mcp` holds the Python with `mcp==2.3.0` that the test tools use on this PC. `.env` is not touched. | `.mcp.json` starts `horus` by name, so without the folder on the Path the owner's horus server stops. |
@@ -94,7 +94,8 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G11 | The amber-gold colour of the envelopes (the subject says sun-yellow) is accepted. | The objects, the count and the positions match. Amber is the model's reading of yellow, and no port code chooses it. The model's honest output wins. |
 | 2026-11-10 | Issue 43 | The old script checked 4 things that the Go command had lost or weakened: `comfy.exe` in the venv, `COMFY_BIN` in `.mcp.json`, and an exact path match of both `.mcp.json` entries with the venv. The Go command now has a `comfy-cli` line (COMFY_BIN of the entry, else `comfy` next to comfy-mcp, else on the PATH when comfy-mcp came from the PATH) and the `.mcp.json` line checks the command and COMFY_BIN. | The old code is right (standing rule). The exact path match is not ported: the spec (issue #4 port map) replaces the venv by a program found on the PATH, and `.mcp.json` in Phase 3 uses a bare command. The check asks that each program exists, which is what makes the MCP server start. |
 | 2026-11-10 | Issue 43 | `.mcp.json` values are expanded for `${VAR}` and `${VAR:-default}`, not only `${USERPROFILE}`. `USERPROFILE` and `HOME` fall back to the home folder. | The repo `.mcp.json` uses both forms (`COMFY_LOCAL_URL`). The old script expanded only `${USERPROFILE}`; the wider rule is allowed, because a `${VAR:-default}` that stays unexpanded is never a file. |
-| 2026-11-10 | Issue 43 | The model line says `verified (SHA-256 checked)` only with `-full`. Without it the line says `size checked (the SHA-256 is not checked; add -full)`. | The old script always ran the full check (it called `install-workflow-models.ps1 -CheckOnly`, which hashes) and said `verified`. The Go quick check reads sizes only, so the word must not stay. The default of `-quick` is allowed by the spec (it is in `docs/setup.md`). |
+| 2026-11-10 | Issue 43 | CORRECTED by issue 46 (the condition is turned around): the model line says `verified (SHA-256 checked)` by default. With `-quick` it says `size checked (the SHA-256 is not checked; drop -quick)`. | The old script always ran the full check (it called `install-workflow-models.ps1 -CheckOnly`, which hashes) and said `verified`. The Go quick check reads sizes only, so the word must not stay. The claim that the spec allows a size-only default was wrong: issue 46 removed it. |
+| 2026-11-10 | Issue 46 | `-full` is removed, not kept as a no-op flag. `-quick` is the new flag, and `check-setup -workflow <name> -full` now exits 2 (unknown flag). The Go field names follow: `Options.QuickModels`, `ExecModels.Quick`. | `-full` was never in a release, so no user depends on it. A flag that is parsed and does nothing would hide mistakes. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -1501,7 +1502,7 @@ Checks of the old script next to the Go command (before -> after):
 | 3. `comfy-mcp.exe` AND `comfy.exe` in the venv | only comfy-mcp (venv or PATH) | `comfy-mcp environment` plus the new line `comfy-cli` |
 | 4. `.mcp.json` command AND `COMFY_BIN` | only the command | `.mcp.json` checks the command and COMFY_BIN, with `${VAR}` and `${VAR:-default}` expanded |
 | 5. horus venv and its entry | gone (decision G7: `horus` on the PATH) | same |
-| 6. models, "verified" | "verified" after a size-only check | "verified" only with `-full` |
+| 6. models, "verified" | "verified" after a size-only check | "verified" by default (SHA-256 checked); with `-quick` the line says size checked (corrected by issue 46) |
 
 Ratchet: checks of the old script that the Go command lacks: 1 (comfy-cli; with COMFY_BIN a second part of check 4) -> 0.
 
@@ -1598,3 +1599,41 @@ and the heading "Give other agents an image tool" is kept.
 
 Ratchet: stale statements about `horus register` in `README.md`: 1 -> 0 (line 98 of the old text, plus its
 continuation on line 99).
+
+## Issue 46
+
+Goal row `setup-commands`: the default model check of `horus check-setup` is the full check of the old script (size and SHA-256), as `scripts/check-setup.ps1` ran `install-workflow-models.ps1 -CheckOnly`. Decisions are in the Decisions section (rows G7, G10, issue 43 corrected, issue 46).
+
+Ratchet: defaults of `check-setup` that are weaker than the old script: 1 -> 0.
+
+### Red (new test against the code of origin/main)
+
+```
+$ go test -count=1 -run TestRunModelCheckIsFullByDefault ./internal/scripts/checksetup
+--- FAIL: TestRunModelCheckIsFullByDefault (0.51s)
+    --- FAIL: TestRunModelCheckIsFullByDefault/default (0.51s)
+        checksetup_test.go:382: -quick passed = true, want false; recorded: args workflow check it-illustration -quick -json
+            comfyui <temp dir>
+            models
+(the second subtest also fails: "flag provided but not defined: -quick")
+```
+
+### Green
+
+```
+$ go test -count=1 -v -run 'TestRunModelCheckIsFullByDefault|TestExecModelsStarts|TestModelsLines' ./internal/scripts/checksetup; go test -count=1 ./internal/scripts/checksetup
+--- PASS: TestModelsLinesAreIndentedAndFailureCounts (0.05s)
+--- PASS: TestExecModelsStartsTheWorkflowSubcommand (0.62s)
+--- PASS: TestRunModelCheckIsFullByDefault (0.08s)
+    --- PASS: TestRunModelCheckIsFullByDefault/default (0.04s)
+    --- PASS: TestRunModelCheckIsFullByDefault/quick_flag (0.04s)
+PASS
+ok  	github.com/hieplam/horus/internal/scripts/checksetup	2.283s
+ok  	github.com/hieplam/horus/internal/scripts/checksetup	2.194s
+$ grep -rn "check-setup.*-full" README.md AGENTS.md docs/*.md workflows
+(no output)
+$ python tools/goal_check.py --no-ci --server-cmd bin/horus.exe mcp
+PASS  setup-commands - 8 of 8 commands have a passing test
+```
+
+Stub check: the test reads the arguments that the fake child program recorded, so a flag that is parsed and not used fails it. `-quick` must put `-quick` in the record, and the default must not.

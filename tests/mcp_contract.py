@@ -171,7 +171,16 @@ def env_of(res) -> dict:
     return res.structured_content or json.loads(res.content[0].text)
 
 
+def resolve_program(program: str) -> str:
+    """A path that exists becomes an absolute path; a bare name is looked up on the PATH.
+    A program that is not found stays as written, so the run fails."""
+    if os.sep in program or "/" in program:
+        return str(Path(program).resolve()) if Path(program).is_file() else program
+    return shutil.which(program) or program
+
+
 async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Path, c: Checks) -> None:
+    server_cmd = [resolve_program(server_cmd[0]), *server_cmd[1:]]  # one program for the session and for `errors -json`
     env = {
         "HORUS_WORKFLOWS_DIR": sandbox["workflows"], "HORUS_COMFYUI_DIR": sandbox["comfy"],
         "HORUS_MODELS_DIR": sandbox["models"], "HORUS_TEXT_ENCODER_DIR": str(Path(sandbox["models"]) / "text_encoders"),

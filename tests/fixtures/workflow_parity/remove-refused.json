@@ -57,7 +57,7 @@
  ],
  "after": {
   "files": [
-   "comfy/ComfyUI/main.py 8 ddc00976caf4",
+   "comfy/ComfyUI/main.py 7 d13e881e48bd",
    "comfy/ComfyUI/models/vae/flux2-vae.safetensors 39 bb7391916753"
   ],
   "extra_model_paths.yaml": null

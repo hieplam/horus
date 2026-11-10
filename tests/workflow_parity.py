@@ -10,8 +10,8 @@ one or more steps of the workflow command with -json.
 
 For each step the tool keeps the exit code, the result (the HORUS_JSON line, or
 the JSON list of `list -json`) and the other output lines. After the last step
-it keeps the files of the sandbox's ComfyUI folder and the text of
-extra_model_paths.yaml. Paths are normalised: the sandbox folder becomes
+it keeps the files of the sandbox's ComfyUI folder (size and SHA-256, with
+CRLF counted as LF) and the text of extra_model_paths.yaml. Paths are normalised: the sandbox folder becomes
 <sandbox> and every backslash becomes a slash, so the golden files hold no user
 path and no OS separator.
 
@@ -264,7 +264,9 @@ def disk_state(tmp: Path, sb: dict) -> dict:
     for p in sorted(comfy.rglob("*")):
         if p.is_file():
             rel = normalise(str(p.relative_to(tmp)), tmp)
-            files.append(f"{re.sub(r'.bak-[0-9-]+$', '.bak-<time>', rel)} {p.stat().st_size} {hashlib.sha256(p.read_bytes()).hexdigest()[:12]}")
+            # make_sandbox writes main.py in text mode: CRLF on Windows, LF elsewhere. Count LF line ends.
+            data = p.read_bytes().replace(b"\r\n", b"\n")
+            files.append(f"{re.sub(r'.bak-[0-9-]+$', '.bak-<time>', rel)} {len(data)} {hashlib.sha256(data).hexdigest()[:12]}")
     yaml = comfy / "ComfyUI" / "extra_model_paths.yaml"
     return {"files": files, "extra_model_paths.yaml": normalise(yaml.read_text(encoding="utf-8"), tmp) if yaml.is_file() else None}
 

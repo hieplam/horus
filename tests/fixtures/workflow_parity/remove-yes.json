@@ -56,7 +56,7 @@
  ],
  "after": {
   "files": [
-   "comfy/ComfyUI/main.py 8 ddc00976caf4",
+   "comfy/ComfyUI/main.py 7 d13e881e48bd",
    "comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors 62 8f564ff8ece9",
    "comfy/ComfyUI/models/vae/flux2-vae.safetensors 38 84f1855a2759"
   ],

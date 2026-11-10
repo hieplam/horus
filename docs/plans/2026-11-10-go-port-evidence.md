@@ -55,6 +55,7 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G4 | `remove -yes` also deletes a read-only file: Go removes the write protection and deletes again. | `Remove-Item -Force` deletes a read-only file; `os.Remove` on Windows does not. |
 | 2026-11-10 | G4 | Known difference, not fixed: the text of an operating system error (the detail of `DELETE_FAILED`) and of a JSON error in `models.json` or `workflow.json` is the Go text, not the .NET text. The JSON escapes are also different (Go writes `<` for `<`, the script wrote `'` for `'`); the parsed values are equal. | Go forces its own error texts. No caller reads these texts; `horus/models.py` reads only the status. |
 | 2026-11-10 | G4 | The Go comments name `workflow.ps1` or .NET, never the shell by name. | The `no-python` row of `tools/goal_check.py` fails for every Go file that contains the word `powershell`. |
+| 2026-11-10 | G4 | The disk record of a parity case counts CRLF as LF before it takes the size and the SHA-256 of a file. | The first CI run on `macos-latest` gave `parity: 1 of 17 cases equal`. Every difference was one line, `comfy/ComfyUI/main.py 8 ddc00976caf4` (golden) against `comfy/ComfyUI/main.py 7 d13e881e48bd` (macOS): `make_sandbox` of the contract test writes `main.py` in text mode, so Windows writes CRLF. horus does not write that file. The model stand-ins and `extra_model_paths.yaml` have no CRLF. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -666,3 +667,5 @@ Stub check (mutation runs, each reverted after the run):
 Ratchet: `goal`: 2 → 3 of 8 rows (`workflow-cli`). Parity: 0 → 17 of 17 cases equal (the plan asks for 10 of 10).
 
 After the merge of `origin/main` with G2 (`7096ebd`), on this PC: `go test ./...` passes, `python tests/workflow_parity.py --live` prints `parity: 17 of 17 cases equal` (exit 0), and `python tools/goal_check.py --no-ci` prints `PASS  graph`, `PASS  workflow-cli`, `PASS  downloader`, `PASS  builds` and `goal: 4 of 8 rows passed`.
+
+CI on `macos-latest`, the default run (Go against the golden files): the first run gave `parity: 1 of 17 cases equal`, with the `main.py` line as the only difference (see Decisions). After the change of the disk record and a new `--record`, on this PC: `python tests/workflow_parity.py` and `python tests/workflow_parity.py --live` both print `parity: 17 of 17 cases equal`.

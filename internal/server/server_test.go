@@ -185,29 +185,6 @@ func TestErrorEnvelope(t *testing.T) {
 	}
 }
 
-// TestNotPortedToolsAnswerInternal checks that each tool part that is not
-// ported yet answers with the INTERNAL envelope and not with a crash.
-func TestNotPortedToolsAnswerInternal(t *testing.T) {
-	useRepoWorkflows(t)
-	cs := connect(t, New(), nil)
-	calls := map[string]map[string]any{
-		"list_workflows":     {},
-		"describe_workflow":  {"workflow": "it-illustration"},
-		"install_workflow":   {"workflow": "it-illustration"},
-		"uninstall_workflow": {"workflow": "it-illustration"},
-	}
-	for name, args := range calls {
-		res := callTool(t, cs, name, args)
-		e, _ := envelopeOf(t, res)["error"].(map[string]any)
-		if !res.IsError || e["code"] != "INTERNAL" || e["action_by"] != "human" {
-			t.Errorf("%s: %v", name, e)
-		}
-		if strings.Contains(res.Content[0].(*mcp.TextContent).Text, "workflow.json") {
-			t.Errorf("%s names the graph file", name)
-		}
-	}
-}
-
 // TestArgumentErrors checks the answer to arguments that fail the schema:
 // isError, no structuredContent, and the field in the text, as pydantic does.
 func TestArgumentErrors(t *testing.T) {

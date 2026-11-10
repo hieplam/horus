@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hieplam/horus/internal/catalog"
+	"github.com/hieplam/horus/internal/models"
 )
 
 // DescribeResult is the result of describe_workflow, in the key order of server.py.
@@ -37,10 +38,19 @@ func describeResult(d catalog.Detail, state string, files []InstallFile) Describ
 	}
 }
 
-// fileStates is _status_rows of server.py: the state of each model file.
-// Task G5 ports it.
-func fileStates(w *catalog.Workflow) ([]InstallFile, error) {
-	return nil, notPorted("describe_workflow", "the state of each model file", "G5")
+// fileStates is _status_rows of server.py: the state of each model file. A
+// failed check (a missing file) is a normal answer here, so it reads the
+// items and not the ok of the result.
+func fileStates(ctx context.Context, w *catalog.Workflow) ([]InstallFile, error) {
+	run, err := models.RunScript(ctx, "check", w.Name, []string{"-quick"}, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var items []models.Item
+	if res := run.Result(); res != nil {
+		items = res.Items
+	}
+	return fileRows(items, "file", map[string]string{"OK": "present", "MISSING": "missing", "BAD_SIZE": "wrong_size"}), nil
 }
 
 func describeWorkflow() tool {
@@ -76,7 +86,7 @@ func describeWorkflow() tool {
 			if err != nil {
 				return nil, err
 			}
-			files, err := fileStates(w)
+			files, err := fileStates(ctx, w)
 			if err != nil {
 				return nil, err
 			}

@@ -7,6 +7,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hieplam/horus/internal/catalog"
+	"github.com/hieplam/horus/internal/comfy"
+	"github.com/hieplam/horus/internal/herr"
+	"github.com/hieplam/horus/internal/models"
 )
 
 // UninstallResult is the result of uninstall_workflow, in the key order of server.py.
@@ -38,11 +41,41 @@ func uninstallWorkflow() tool {
 			"InstallFile": installFileModel,
 		}),
 		body: func(ctx context.Context, c *call) (any, error) {
-			if _, err := catalog.Get(c.args.str("workflow")); err != nil {
+			w, err := catalog.Get(c.args.str("workflow"))
+			if err != nil {
 				return nil, err
 			}
-			// Next: Comfy().free (task G2) and models.remove (task G5).
-			return nil, notPorted("uninstall_workflow", "the removal of the model files", "G5")
+			confirm := c.args.boolean("confirm")
+			if confirm {
+				comfy.New("").Free(ctx) // an open model file cannot be deleted on Windows
+			}
+			res, err := models.Remove(ctx, w, confirm, c.args.boolean("remove_shared"))
+			if err != nil {
+				return nil, err
+			}
+			files := fileRows(res.Items, "file", map[string]string{
+				"DELETED": "deleted", "WOULD_DELETE": "would_delete", "KEPT_SHARED": "kept_shared", "ABSENT": "absent"})
+			if !confirm {
+				would := int64(0)
+				plan := false
+				for _, f := range files {
+					if f.State == "would_delete" {
+						plan = true
+						would += f.Bytes
+					}
+				}
+				if plan {
+					return nil, herr.New("CONFIRMATION_REQUIRED", "nothing was deleted: the user must confirm the plan",
+						map[string]any{"files": files, "would_free_bytes": would})
+				}
+			}
+			freed := int64(0)
+			for _, f := range files {
+				if f.State == "deleted" {
+					freed += f.Bytes
+				}
+			}
+			return UninstallResult{Workflow: w.Name, Files: files, FreedBytes: freed}, nil
 		},
 	}
 }

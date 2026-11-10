@@ -71,6 +71,13 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G5 | The process tree: on Windows `taskkill /PID <pid> /T /F` (from `%SystemRoot%\System32`), then `Process.Kill`, as `Run.cancel` of `models.py` does; the child gets `CREATE_NO_WINDOW`. On macOS and Linux the child gets its own process group (`Setpgid`), and the cancel sends `SIGKILL` to the group. Not a Job Object. | The plan allows `taskkill /T`. It is the method of the old code, and it needs no Windows API calls. |
 | 2026-11-10 | G5 | `TestNotPortedToolsAnswerInternal` is deleted, and the helper `notPorted` with it. No tool part is left that is not ported, so the premise of the test is false. `TestModelToolsOnASandbox` calls the 4 tools through MCP with a real child and checks that `describe_workflow` names no graph file and no node class. | The same reason as the G2 decision about this test. The test is not weakened to pass: its subject is gone. |
 | 2026-11-10 | G5 | The Go tests of `internal/models` and `internal/server` use the test binary as the `horus workflow` child (`models.Exe` is the seam, `TestMain` the fake). In `internal/server` the fake runs the real `workflow.Main` in the child process, except in the `sleep` mode of the cancel test. | The process boundary of the spec: the server calls the workflow code only through a child process. |
+| 2026-11-10 | G9 | `goal_check.py --real` imports the MCP client (`mcp==2.3.0`) only inside the `real-image` row. The other 7 rows stay standard library. The new flag `--real-out <folder>` names the folder of the PNG (default `.scratch/real-image`); the file name is `real-image-seed7-<time>.png`, so a second run never needs `overwrite`. The server gets the environment of the check, so it reads `HORUS_ROOT` and the `.env` of that root, and it may start ComfyUI. The client waits at most 3600 s for the call. | The plan names the subject, the seed and the size, not the folder or the time limit. The server's own limit is `HORUS_GENERATE_TIMEOUT` (1800 s) plus the start of ComfyUI (420 s). |
+| 2026-11-10 | G9 | The checks ran the binary of the worktree (`bin/horus.exe`) with `HORUS_ROOT` set to the main checkout, and `go install ./cmd/horus` put a second copy in `%USERPROFILE%\go\bin`. That folder is not on the owner's PATH, so the first `horus check-setup` showed `FAIL  horus on PATH`. With the folder on the PATH of the shell, all 6 checks pass. The PATH of the owner was not changed. | The safety rules of this task: no change to the owner's configuration. Task G10 switches `.mcp.json` and decides how `horus` gets on the PATH. |
+| 2026-11-10 | G9 | `check-setup` passed `.mcp.json horus`, because the entry still names the Python server and that file exists. The task brief expected a FAIL there; there is none, and `.mcp.json` is not changed in G9. | G7 decision: an entry passes when its command is an existing file. |
+| 2026-11-10 | G9 | `horus sync-workflows` (no `-force`) reported `CONFLICT horus-it-illustration.json` and exit 1. The SHA-256 of the pane copy was the same before and after, so the run changed nothing. The pane copy was not forced. | The safety rules of this task. A conflict is the documented answer of the command, not a defect. |
+| 2026-11-10 | G9 | Known fact, not a defect of the port: when the MCP client of `goal_check.py --real` ended, the ComfyUI that horus had started also stopped. The Python MCP client (`mcp` 2.3.0, `mcp/os/win32/utilities.py`) puts the server in a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and without the breakaway flag, so every child of the server ends with the client. `scripts/start-comfyui.ps1` (`Start-Process`) is in the same Job Object, so the Python server behaves the same. After the `claude -p` run, the ComfyUI that horus started kept running. | Old code is right (standing rule). The `claude -p` run proves that ComfyUI outlives the server for Claude Code, the caller that the product serves. |
+| 2026-11-10 | G9 | The `claude -p` run set `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=1800000` for its process, so the call of about 4 minutes stayed in the foreground. | `docs/mcp.md` ("Long calls"): in headless mode a call that moves to the background loses its result when the run ends. |
+| 2026-11-10 | G9 | The owner's ComfyUI ran with `--reserve-vram 1`; `horus start-comfyui` starts it without that flag, as `start-comfyui.ps1` did. Both images ran on the ComfyUI that horus started. At the end, the task stopped that ComfyUI and started it again with the owner's command line. | The task brief: ComfyUI must run again as it was found. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -951,3 +958,194 @@ $ printf 'contract: 30 of 30 passed
 ' > c30.log; grep -q "contract: 30 of 30 passed" c30.log; echo "30 log exit $?"
 30 log exit 0
 ```
+
+## G9
+
+The owner's PC: Windows 11, NVIDIA GTX 1660 Ti 6 GB, 16 GB RAM, ComfyUI portable 0.44.0. Placeholders: `<repo>` is the main checkout, `<worktree>` is the G9 worktree, `<user>` is the user folder, `<comfyui>` is the ComfyUI portable folder. Python 3.12 with `mcp==2.3.0`. Go 1.27.3. Claude Code 2.1.322.
+
+Baseline (ratchet): real images made by the Go binary: 0. `goal_check.py --real --no-ci`: 6 of 8.
+
+### Step 1: build, and the GPU before the run
+
+```
+$ go build -o bin/horus.exe ./cmd/horus && go install ./cmd/horus
+$ curl -s http://127.0.0.1:8188/queue
+{"queue_running": [], "queue_pending": []}
+$ nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv
+memory.used [MiB], utilization.gpu [%]
+0 MiB, 0 %
+```
+
+### Step 2: check-setup and the full model check
+
+```
+$ HORUS_ROOT=<repo> <worktree>/bin/horus.exe check-setup
+PASS  ComfyUI folder - <comfyui>
+PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+PASS  .mcp.json - command points at <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+FAIL  horus on PATH - horus not found on the PATH. Fix: put the folder of the horus program on the PATH.
+PASS  .mcp.json horus - command points at <user>\.venvs\horus-mcp\Scripts\horus-mcp.exe
+1 check(s) failed.
+exit 1
+$ PATH="<user>/go/bin:$PATH" horus check-setup        (the folder of `go install` on the PATH of this shell only)
+PASS  ComfyUI folder - <comfyui>
+PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+PASS  .mcp.json - command points at <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+PASS  horus on PATH - <user>\go\bin\horus.exe
+PASS  .mcp.json horus - command points at <user>\.venvs\horus-mcp\Scripts\horus-mcp.exe
+All checks passed.
+exit 0
+$ horus workflow list
+it-illustration
+  Text in, image out. The picture is 1536x1024. The model is FLUX 3 Image Klein (int8 build) running in ComfyUI. This is the first horus example.
+  Models: 3 file(s), 11.02 GB (diffusion, text_encoder, vae). Installed: yes (size check).
+
+Install: horus workflow install <name>    Check: horus workflow check <name>
+exit 0
+$ time horus workflow check it-illustration
+Checking workflow 'it-illustration': 3 model file(s).
+OK        diffusion <user>\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors (5827874779 bytes, SHA-256 verified)
+OK        text_encoder <user>\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors (4858559240 bytes, SHA-256 verified)
+OK        vae <user>\ComfyUI-models\vae\flux2-vae.safetensors (336211292 bytes, SHA-256 verified)
+OK        models.json lists all 3 model file(s) that workflow.json loads
+OK        the server has all 10 node classes of workflow.json
+OK        the server lists flux3-image-klein-int8-convrot.safetensors
+OK        the server lists qwen3vl_4b_int8_convrot.safetensors
+OK        the server lists flux2-vae.safetensors
+OK: workflow 'it-illustration' is ready.
+
+real	0m41.762s
+exit 0
+$ horus sync-workflows                                 (no -force)
+CONFLICT horus-it-illustration.json differs from workflows\it-illustration\workflow.json. Compare both, then run again with -force to use the repo copy.
+exit 1
+```
+
+The SHA-256 of the pane copy was `741812b769b3…` before and after `sync-workflows`: the run changed nothing (see Decisions).
+
+### Step 3: stop ComfyUI, then let horus start it
+
+Before the stop, `/queue` had 0 running and 0 pending jobs, and the GPU used 0 MiB. The task stopped only the ComfyUI process of `<comfyui>` (found by its command line), then checked that the port did not answer:
+
+```
+CommandLine : "<comfyui>\python_embeded\python.exe" -s ComfyUI\main.py --windows-standalone-build --listen 127.0.0.1 --port 8188 --reserve-vram 1
+ComfyUI does not answer: stopped
+```
+
+The Green run below started ComfyUI through the autostart (`horus start-comfyui` as a child of `horus mcp`). The server log of that run:
+
+```
+2026-11-10 17:54:36,155 horus INFO call generate_image progress_token=None
+2026-11-10 17:54:36,158 horus INFO progress 0 starting the image backend (ComfyUI); the first start takes 1 to 3 minutes
+2026-11-10 17:55:03,227 horus INFO progress 0 job 07ea9f4b-3826-4b10-9a6e-a94d42857ed7 submitted
+2026-11-10 17:55:03,239 horus INFO progress 27 rendering, 27 s
+2026-11-10 17:55:14,091 horus INFO progress 38 rendering, 38 s
+(19 more progress lines, one every 10 s)
+2026-11-10 17:58:34,292 horus INFO progress 238 rendering, 238 s
+```
+
+`<comfyui>\horus-comfyui.out.log` and `horus-comfyui.err.log` were written by `horus start-comfyui`. ComfyUI answered 27 s after the call. The `claude -p` run started ComfyUI again (`"started_backend": true`), because the Python MCP client ends the process tree of the server (see Decisions).
+
+### Step 4: Red and Green of `tools/goal_check.py --real`
+
+Red, before the check was written (commit `fedb5be`):
+
+```
+$ python tools/goal_check.py --real --no-ci --server-cmd <worktree>/bin/horus.exe mcp
+PASS  contract - local 30 of 30; CI part skipped (--no-ci)
+PASS  graph - TestUIToAPIGolden passes
+PASS  workflow-cli - parity: 17 of 17 cases equal
+PASS  downloader - 14 tests passed
+PASS  setup-commands - 8 of 8 commands have a passing test
+PASS  builds - 3 of 3 build
+FAIL  real-image - the real-image check is not written yet (task G9)
+FAIL  no-python - 2827 lines left; 18 files of Python and PowerShell remain; .mcp.json horus entry is not `horus mcp`
+goal: 6 of 8 rows passed
+```
+
+Two runs of the new check failed in the check's own code, and were fixed in this task: a PNG signature with raw bytes in the source (`SyntaxError`), and `read_timeout_seconds` given as a `timedelta` (`mcp` 2.3.0 needs a number: `TypeError: unsupported operand type(s) for +: 'float' and 'datetime.timedelta'`, shown as `ExceptionGroup: unhandled errors in a TaskGroup`). The row now names the first error inside a task group.
+
+Green (ComfyUI stopped before the run, autostart on):
+
+```
+$ HORUS_ROOT=<repo> python tools/goal_check.py --real --no-ci --real-out <repo>\.scratch\g9 --server-cmd <worktree>\bin\horus.exe mcp
+PASS  contract - local 30 of 30; CI part skipped (--no-ci)
+PASS  graph - TestUIToAPIGolden passes
+PASS  workflow-cli - parity: 17 of 17 cases equal
+PASS  downloader - 14 tests passed
+PASS  setup-commands - 8 of 8 commands have a passing test
+PASS  builds - 3 of 3 build
+PASS  real-image - 1536x1024 <repo>\.scratch\g9\real-image-seed7-20261110-175436.png (seed 7, 246 s)
+FAIL  no-python - 2827 lines left; 18 files of Python and PowerShell remain; .mcp.json horus entry is not `horus mcp`
+goal: 7 of 8 rows passed
+
+real	5m1.575s
+```
+
+`no-python` is the row of tasks G10 and G11.
+
+Stub check. The row reads the width and the height from the IHDR chunk of the PNG. The same row against the fake ComfyUI of `tests/mcp_contract.py` (the Go server answers `ok`, and the file is the 1x1 PNG of the fake):
+
+```
+$ python stub.py <worktree>          (make_sandbox and Handler of tests/mcp_contract.py, HORUS_AUTOSTART=0, then row_real)
+real-image row against the fake ComfyUI: (False, 'the PNG is 1x1, needs 1536x1024 (<temp>\\horus-stub-hgdqb5p9\\out\\real-image-seed7-20261110-180027.png)')
+$ python -c "... png_size(...)"
+fake PNG of the contract test: (1, 1) == REAL_SIZE -> False
+empty file: None
+no file: None
+```
+
+With `HORUS_AUTOSTART=0` and ComfyUI stopped, the row fails with the server's error:
+
+```
+(False, 'generate_image failed: BACKEND_UNAVAILABLE: ComfyUI does not answer at http://127.0.0.1:8188, and HORUS_AUTOSTART is off')
+```
+
+### Step 5: one image from Claude Code in headless mode
+
+The MCP configuration (a temporary file outside the repo) names only the Go binary:
+
+```
+{"mcpServers":{"horus":{"command":"<worktree>\\bin\\horus.exe","args":["mcp"],"env":{"HORUS_ROOT":"<repo>"}}}}
+```
+
+```
+$ CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=1800000 claude -p "<prompt>" --model sonnet --mcp-config <temp>\horus-mcp.json --strict-mcp-config --allowedTools mcp__horus__generate_image --output-format json
+exit 0
+```
+
+The prompt asked for one `generate_image` call: workflow `it-illustration`, seed 11, `out_path` `<repo>\.scratch\g9\claude-p-seed11.png`, the subject of the contract test, wait for the result, print `ok`, `path`, `width`, `height`, `seed` and `seconds`. From the JSON output:
+
+```
+init: mcp_servers [{'name': 'horus', 'status': 'connected', 'source': 'dynamic'}] model claude-sonnet-5-5
+tool_use mcp__horus__generate_image {'workflow': 'it-illustration', 'seed': 11, 'out_path': '<repo>\\.scratch\\g9\\claude-p-seed11.png', 'subject': 'On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. On the right, a sky-blue server box takes them off the belt.'}
+tool_result {"ok":true,"result":{"workflow":"it-illustration","path":"<repo>\\.scratch\\g9\\claude-p-seed11.png","bytes":2543765,"width":1536,"height":1024,"seed":11,"seconds":233.3,"backend_seconds":210.7,"started_backend":true,"job_id":"fa1de67c-e827-41bb-8d20-74aede7eca20"},"error":null}
+is_error = False
+subtype = success
+num_turns = 3
+duration_ms = 238720
+result = {"ok":true,"path":"<repo>\\.scratch\\g9\\claude-p-seed11.png","width":1536,"height":1024,"seed":11,"seconds":233.3}
+```
+
+### Step 6: the two images
+
+The subject of both: "On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. On the right, a sky-blue server box takes them off the belt." Both files are in `<repo>\.scratch\g9\` (ignored by git). An agent opened each file and compared it with the subject.
+
+| File | Caller | Seed | Seconds | Bytes | Width x height | SHA-256 |
+|---|---|---|---|---|---|---|
+| `real-image-seed7-20261110-175436.png` | `goal_check.py --real` (MCP client) | 7 | 246 (the call, with the start of ComfyUI) | 2,421,991 | 1536 x 1024 | `696f74f15e52780aecf9444c44f421cff98caf7aad0b7c95550cb64a285e25f6` |
+| `claude-p-seed11.png` | `claude -p` (Claude Code 2.1.322, Sonnet) | 11 | 233.3 (`seconds`), 210.7 in ComfyUI | 2,543,765 | 1536 x 1024 | `6e39870a82b1d5fd3ed3777f5de7c762ef348a8fbcbb4e71bbaaaee9b93aedc9` |
+
+Verdict, seed 7: **matches the subject.** A mint-green server box is on the left and a sky-blue server box is on the right. Five yellow envelopes lie flat on a purple conveyor belt that runs from the green box to the blue box. Differences: the envelopes are amber-yellow, not a bright sun-yellow, and the belt is a saturated violet, darker than lilac. No object is missing and no position is wrong.
+
+Verdict, seed 11: **matches the subject.** A mint-green server box is on the left, a sky-blue server box is on the right, and four yellow envelopes lie on a lilac conveyor belt between them. The belt colour is nearer to lilac than in the seed 7 image. Difference: the blue box has two labels with letters that make no words ("LIEENNS", "CTAEARING"). The subject asks for no text, so this is a model artefact, not a horus defect.
+
+The pull request has no copy of the images: `gh` cannot attach a file to a pull request, and the repo keeps PNG files only in `workflows/*/examples/`. The table above has the SHA-256 of each file.
+
+### After the run
+
+ComfyUI ran again with the owner's command line (`... --port 8188 --reserve-vram 1`) and answered `ComfyUI 0.44.0`.
+
+Ratchet: real images made by the Go binary 0 → 2. `goal_check.py --real --no-ci`: 6 → 7 of 8 rows.

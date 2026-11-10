@@ -1613,7 +1613,7 @@ $ go test -count=1 -run TestRunModelCheckIsFullByDefault ./internal/scripts/chec
 --- FAIL: TestRunModelCheckIsFullByDefault (0.51s)
     --- FAIL: TestRunModelCheckIsFullByDefault/default (0.51s)
         checksetup_test.go:382: -quick passed = true, want false; recorded: args workflow check it-illustration -quick -json
-            comfyui C:\Users\lamhi\AppData\Local\Temp\TestRunModelCheckIsFullByDefaultdefault3784161605\002
+            comfyui <temp dir>
             models
 (the second subtest also fails: "flag provided but not defined: -quick")
 ```

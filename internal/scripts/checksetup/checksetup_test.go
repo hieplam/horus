@@ -70,6 +70,7 @@ func newRig(t *testing.T) *rig {
 	os.MkdirAll(venvBin(venv), 0o755)
 	mcp := filepath.Join(venvBin(venv), exe("comfy-mcp"))
 	os.WriteFile(mcp, []byte("x"), 0o755)
+	os.WriteFile(filepath.Join(venvBin(venv), exe("comfy")), []byte("x"), 0o755)
 
 	bin := filepath.Join(tmp, "bin")
 	os.MkdirAll(bin, 0o755)
@@ -103,16 +104,124 @@ func TestAllChecksPass(t *testing.T) {
 		t.Fatalf("failed %d:\n%s", failed, r.out)
 	}
 	ls := lines(r)
-	if len(ls) != 7 || ls[6] != "All checks passed." {
+	if len(ls) != 8 || ls[7] != "All checks passed." {
 		t.Fatalf("output:\n%s", r.out)
 	}
-	for _, l := range ls[:6] {
+	for _, l := range ls[:7] {
 		if !strings.HasPrefix(l, "PASS  ") {
 			t.Fatalf("not a PASS line: %q", l)
 		}
 	}
 	if !strings.Contains(ls[1], "(ComfyUI 0.9.9)") {
 		t.Fatalf("server line: %q", ls[1])
+	}
+	if !strings.HasPrefix(ls[3], "PASS  comfy-cli - ") {
+		t.Fatalf("comfy-cli line: %q", ls[3])
+	}
+}
+
+// A venv that has comfy-mcp but no comfy program: the comfy MCP server fails
+// when it calls comfy-cli, so the check must fail by the name "comfy-cli".
+func TestMissingComfyCliFails(t *testing.T) {
+	r := newRig(t)
+	os.Remove(filepath.Join(venvBin(r.opts.VenvPath), exe("comfy")))
+	failed := Check(context.Background(), r.opts)
+	text := r.out.String()
+	if failed != 1 || !strings.Contains(text, "FAIL  comfy-cli - ") || !strings.Contains(text, "1 check(s) failed.") {
+		t.Fatalf("failed=%d:\n%s", failed, text)
+	}
+}
+
+// The repo .mcp.json starts comfy-mcp from a path with ${USERPROFILE} and has
+// COMFY_BIN and ${VAR:-default} in its env. Both must expand.
+func TestMcpJSONExpandsVariablesAndChecksComfyBin(t *testing.T) {
+	r := newRig(t)
+	rel, _ := filepath.Rel(r.opts.Home, venvBin(r.opts.VenvPath))
+	rel = filepath.ToSlash(rel)
+	r.opts.Getenv = func(n string) string {
+		if n == "USERPROFILE" {
+			return r.opts.Home
+		}
+		return ""
+	}
+	write := func(comfyBin string) {
+		cfg, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{
+			"comfy-mcp": map[string]any{"command": "${USERPROFILE}/" + rel + "/" + exe("comfy-mcp"),
+				"env": map[string]any{"COMFY_BIN": comfyBin, "COMFY_LOCAL_URL": "${COMFY_LOCAL_URL:-http://127.0.0.1:8188}"}},
+			"horus": map[string]any{"command": "horus"},
+		}})
+		os.WriteFile(filepath.Join(r.opts.RepoRoot, ".mcp.json"), cfg, 0o644)
+	}
+	write("${USERPROFILE}/" + rel + "/" + exe("comfy"))
+	if failed := Check(context.Background(), r.opts); failed != 0 {
+		t.Fatalf("failed %d:\n%s", failed, r.out)
+	}
+	if !strings.Contains(r.out.String(), "COMFY_BIN at ") {
+		t.Fatalf("no COMFY_BIN in:\n%s", r.out)
+	}
+
+	// COMFY_BIN points at nothing: FAIL by name, even if comfy sits next to comfy-mcp.
+	r.out.Reset()
+	write("${USERPROFILE}/nope/" + exe("comfy"))
+	failed := Check(context.Background(), r.opts)
+	if failed != 1 || !strings.Contains(r.out.String(), "FAIL  comfy-cli - COMFY_BIN of .mcp.json is ") {
+		t.Fatalf("failed=%d:\n%s", failed, r.out)
+	}
+
+	// ${VAR:-default} takes the default for an unset variable and the value for a set one.
+	get := func(n string) string {
+		if n == "SET" {
+			return "value"
+		}
+		return ""
+	}
+	if got := expand("a${SET:-x}/${UNSET:-def}/${UNSET}/${SET}", get); got != "avalue/def//value" {
+		t.Fatalf("expand: %q", got)
+	}
+}
+
+// comfy-mcp on the PATH and a bare command name in .mcp.json (the form of
+// Phase 3 of issue #4): comfy-cli is found next to it, or else on the PATH.
+func TestBareCommandOnThePath(t *testing.T) {
+	r := newRig(t)
+	bin := t.TempDir()
+	mcp := filepath.Join(bin, exe("comfy-mcp"))
+	os.WriteFile(mcp, []byte("x"), 0o755)
+	os.WriteFile(filepath.Join(r.opts.RepoRoot, ".mcp.json"),
+		[]byte(`{"mcpServers":{"comfy-mcp":{"command":"comfy-mcp"},"horus":{"command":"horus"}}}`), 0o644)
+	horus, _ := r.opts.LookPath("horus")
+	r.opts.VenvPath = filepath.Join(t.TempDir(), "no-venv")
+	r.opts.LookPath = func(n string) (string, error) {
+		switch n {
+		case "horus":
+			return horus, nil
+		case "comfy-mcp":
+			return mcp, nil
+		}
+		return "", errors.New("not found")
+	}
+	if failed := Check(context.Background(), r.opts); failed != 1 || !strings.Contains(r.out.String(), "FAIL  comfy-cli - ") {
+		t.Fatalf("no comfy anywhere, failed=%d:\n%s", failed, r.out)
+	}
+	r.out.Reset()
+	comfy := filepath.Join(bin, exe("comfy"))
+	os.WriteFile(comfy, []byte("x"), 0o755)
+	if failed := Check(context.Background(), r.opts); failed != 0 || !strings.Contains(r.out.String(), "PASS  comfy-cli - "+comfy) {
+		t.Fatalf("comfy next to comfy-mcp, failed=%d:\n%s", failed, r.out)
+	}
+	os.Remove(comfy)
+	r.out.Reset()
+	other := filepath.Join(t.TempDir(), exe("comfy"))
+	os.WriteFile(other, []byte("x"), 0o755)
+	look := r.opts.LookPath
+	r.opts.LookPath = func(n string) (string, error) {
+		if n == "comfy" {
+			return other, nil
+		}
+		return look(n)
+	}
+	if failed := Check(context.Background(), r.opts); failed != 0 || !strings.Contains(r.out.String(), "PASS  comfy-cli - "+other) {
+		t.Fatalf("comfy on the PATH, failed=%d:\n%s", failed, r.out)
 	}
 }
 
@@ -172,9 +281,19 @@ func TestModelsLinesAreIndentedAndFailureCounts(t *testing.T) {
 		t.Fatalf("asked: %v", m.asked)
 	}
 
+	// The quick check reads sizes only, so its line must not say "verified".
 	r = newRig(t)
 	r.opts.Workflow, r.opts.Models = "it-illustration", &fakeModels{ok: true}
-	if failed := Check(context.Background(), r.opts); failed != 0 || !strings.Contains(r.out.String(), "PASS  models for 'it-illustration' - all files present and verified") {
+	if failed := Check(context.Background(), r.opts); failed != 0 || !strings.Contains(r.out.String(), "PASS  models for 'it-illustration' - all files present, size checked") {
+		t.Fatalf("failed %d:\n%s", failed, r.out)
+	}
+	if strings.Contains(r.out.String(), "verified") {
+		t.Fatalf("size-only check says verified:\n%s", r.out)
+	}
+
+	r = newRig(t)
+	r.opts.Workflow, r.opts.Models, r.opts.FullModels = "it-illustration", &fakeModels{ok: true}, true
+	if failed := Check(context.Background(), r.opts); failed != 0 || !strings.Contains(r.out.String(), "PASS  models for 'it-illustration' - all files present and verified (SHA-256 checked)") {
 		t.Fatalf("failed %d:\n%s", failed, r.out)
 	}
 }

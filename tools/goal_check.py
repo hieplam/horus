@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 """Goal check of the Go port (epic: port horus to Go, Phase 1).
 
-    python tools/goal_check.py [--no-ci] [--real] [--server-cmd <words...>]
+    python tools/goal_check.py [--no-ci] [--real] [--real-out <folder>] [--server-cmd <words...>]
 
 Checks the 8 goal rows of docs/specs/2026-11-10-go-port.md. It prints one line
 for each row, "PASS  <row> - <detail>" or "FAIL  <row> - <detail>", and then
 "goal: N of 8 rows passed". The exit code is 0 only when N is 8.
 A row whose tool or folder does not exist yet fails with a detail that says
-what is missing. A row never raises. Standard library only.
+what is missing. A row never raises. Standard library only, except --real:
+the real-image row imports the MCP client (mcp==2.3.0) only when it runs.
+
+--real makes one real image on the GPU machine. A MCP client starts the server
+command, calls generate_image for it-illustration with the subject of the
+contract test and seed 7 at the default size, and reads the width and the
+height from the PNG header. The server reads its settings from the
+environment and the .env file of its repo root (HORUS_ROOT), and it can start
+ComfyUI. One image takes 3 to 8 minutes, longer after a cold start.
 """
 
 from __future__ import annotations
@@ -17,8 +25,10 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,6 +37,14 @@ SETUP_COMMANDS = ["installcomfyui", "startcomfyui", "installcomfymcp", "checkset
                   "syncworkflows", "newworkflow", "register", "runillustration"]
 BUILD_TARGETS = [("windows", "amd64"), ("darwin", "arm64"), ("linux", "amd64")]
 CI_OSES = ["windows-latest", "macos-latest"]
+REAL_SUBJECT = ("On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. "
+                "On the right, a sky-blue server box takes them off the belt.")  # SUBJECT of tests/mcp_contract.py
+REAL_SEED = 7
+REAL_SIZE = (1536, 1024)  # the default size of workflows/it-illustration/manifest.json
+REAL_TIMEOUT = 3600  # seconds; the server's own limit is HORUS_GENERATE_TIMEOUT (1800 s) plus the start of ComfyUI
+PNG_SIGNATURE = b"PNG
+
+"
 ROWS = ["contract", "graph", "workflow-cli", "downloader", "setup-commands", "builds", "real-image", "no-python"]
 
 
@@ -174,10 +192,69 @@ def row_builds(a: argparse.Namespace) -> tuple[bool, str]:
     return True, "3 of 3 build"
 
 
+def png_size(path: Path) -> tuple[int, int] | None:
+    """Width and height from the IHDR chunk of a PNG file, or None when the file is not a PNG."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+    except OSError:
+        return None
+    if len(head) < 24 or head[:8] != PNG_SIGNATURE or head[12:16] != b"IHDR":
+        return None
+    return struct.unpack(">II", head[16:24])
+
+
+async def real_call(cmd: list[str], out: Path) -> dict:
+    """Start the server with the MCP client and call generate_image one time. Returns the envelope."""
+    from datetime import timedelta
+
+    from mcp import ClientSession, StdioServerParameters  # only --real needs the MCP client
+    from mcp.client.stdio import stdio_client
+
+    params = StdioServerParameters(command=cmd[0], args=cmd[1:], env=dict(os.environ))
+    args = {"workflow": "it-illustration", "subject": REAL_SUBJECT, "seed": REAL_SEED, "out_path": str(out)}
+    with open(out.with_suffix(".stderr.log"), "w", encoding="utf-8") as errlog:
+        async with stdio_client(params, errlog=errlog) as (read, write):
+            async with ClientSession(read, write) as s:
+                await s.initialize()
+                res = await s.call_tool("generate_image", args, read_timeout_seconds=timedelta(seconds=REAL_TIMEOUT))
+    if res.structured_content:
+        return res.structured_content
+    text = res.content[0].text if res.content else ""
+    try:
+        return json.loads(text)
+    except ValueError:
+        return {"ok": False, "error": {"code": "NOT_JSON", "message": text[:200]}}
+
+
 def row_real(a: argparse.Namespace) -> tuple[bool, str]:
     if not a.real:
         return False, "needs --real on the GPU machine"
-    return False, "the real-image check is not written yet (task G9)"
+    try:
+        import asyncio
+
+        import mcp  # noqa: F401
+    except ImportError:
+        return False, "the MCP client is not installed (pip install mcp==2.3.0)"
+    cmd = a.server_cmd or ["horus", "mcp"]
+    if not shutil.which(cmd[0]) and not Path(cmd[0]).is_file():
+        return False, f"server command not found: {cmd[0]}"
+    folder = Path(a.real_out).resolve() if a.real_out else ROOT / ".scratch" / "real-image"
+    folder.mkdir(parents=True, exist_ok=True)
+    out = folder / f"real-image-seed{REAL_SEED}-{time.strftime('%Y%m%d-%H%M%S')}.png"
+    t0 = time.monotonic()
+    env = asyncio.run(real_call(cmd, out))
+    took = time.monotonic() - t0
+    if not env.get("ok"):
+        err = env.get("error") or {}
+        return False, f"generate_image failed: {err.get('code')}: {str(err.get('message'))[:160]}"
+    path = Path((env.get("result") or {}).get("path") or "")
+    size = png_size(path) if path.name else None
+    if size is None:
+        return False, f"generate_image returned ok, but {path} is not a PNG file"
+    if size != REAL_SIZE:
+        return False, f"the PNG is {size[0]}x{size[1]}, needs {REAL_SIZE[0]}x{REAL_SIZE[1]} ({path})"
+    return True, f"{size[0]}x{size[1]} {path} (seed {REAL_SEED}, {took:.0f} s)"
 
 
 def row_no_python(a: argparse.Namespace) -> tuple[bool, str]:
@@ -223,6 +300,7 @@ def main() -> int:
     ap.add_argument("--server-cmd", nargs="+", help="server command of the contract row (default: horus mcp)")
     ap.add_argument("--no-ci", action="store_true", help="leave out the CI part of the contract row")
     ap.add_argument("--real", action="store_true", help="run the real-image row (GPU machine only)")
+    ap.add_argument("--real-out", help="folder for the PNG of the real-image row (default: .scratch/real-image)")
     a = ap.parse_args()
     passed = 0
     for row in ROWS:

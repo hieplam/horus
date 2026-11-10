@@ -13,7 +13,9 @@ can call when it needs an image.
 
 - **More example workflows.** Each one has a `models.json`, a verified run and
   example images. Candidates: a photo-style workflow and an image-to-image edit.
-- **Linux and macOS setup.** The scripts are PowerShell only today.
+- **macOS and Linux setup.** `horus` builds and runs on Windows, macOS and Linux.
+  `horus install-comfyui` and `horus start-comfyui` are Windows-only today
+  (Phase 3 of [issue #4](https://github.com/hieplam/horus/issues/4)).
 - **Video.** Short text-to-video and image-to-video clips on consumer GPUs.
 
 ## Now: v0.1, horus as an MCP server

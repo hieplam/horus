@@ -13,26 +13,30 @@ Terms:
 
 ```mermaid
 flowchart LR
-  agent[Any agent, any repo] -->|MCP over stdio| horus[horus-mcp]
+  agent[Any agent, any repo] -->|MCP over stdio| horus[horus mcp]
   horus -->|reads| wf[workflows/*/manifest.json]
   horus -->|HTTP 127.0.0.1:8188| comfy[ComfyUI]
-  horus -->|install, remove| ps[scripts/workflow.ps1]
+  horus -->|install, remove: child process| wfcmd[horus workflow]
   comfy -->|loads| models[(Model files)]
 ```
 
 ## Install and connect
 
-```powershell
-.\scripts\install-horus-mcp.ps1 -Register
+```
+go install ./cmd/horus
+horus register
 ```
 
-- The script makes the venv `%USERPROFILE%\.venvs\horus-mcp` and installs this repo into it (editable, `mcp==2.3.0`).
-- `-Register` runs `claude mcp add --scope user horus -- <venv>\Scripts\horus-mcp.exe`. Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
-- In this repo, `.mcp.json` also names the server, so an agent here finds it without `-Register`.
-- Another harness (Codex, an IDE) needs one stdio server entry: command `<venv>\Scripts\horus-mcp.exe`, no arguments.
+- `go install` builds the program `horus` into the Go bin folder (`%USERPROFILE%\go\bin` on Windows, `$HOME/go/bin` on macOS and Linux). That folder must be on the PATH: see step 0 of [`setup.md`](setup.md#step-0-get-the-horus-program). After a `git pull`, run `go install ./cmd/horus` again.
+- In this repo, `.mcp.json` names the server as the command `horus` with the argument `mcp`, so an agent here finds it without `horus register`.
+- `horus register` runs `claude mcp add --scope user horus -- <path of horus> mcp`. Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
+- Limit: a session outside this repo needs the variable `HORUS_ROOT` (the root folder of this repo), and `horus register` does not set it yet (issue [#32](https://github.com/hieplam/horus/issues/32)). Without it the tools answer `INTERNAL`. Until the fix, add the entry by hand: `claude mcp add --scope user horus --env HORUS_ROOT=<root folder of this repo> -- <path of horus> mcp`.
+- Another harness (Codex, an IDE) needs one stdio server entry: command `horus` (or its full path), argument `mcp`, and `HORUS_ROOT` when it starts outside this repo.
 
-The server needs ComfyUI and the setup of [`setup.md`](setup.md). When ComfyUI
-does not answer, `generate_image` starts it with `scripts/start-comfyui.ps1`.
+The server finds the repo through `HORUS_ROOT`, then the nearest folder at or
+above the current folder that has a `workflows` folder, then the folder of the
+program. It needs ComfyUI and the setup of [`setup.md`](setup.md). When ComfyUI
+does not answer, `generate_image` starts it with `horus start-comfyui`.
 
 ## The tools
 
@@ -81,7 +85,7 @@ A caller decides from three fields:
 
 ## Error codes
 
-The single source is `horus/errors.py`. The contract test fails when this table misses a code.
+The single source is the Go package `internal/herr`. `horus errors` prints the table, and `horus errors -json` prints it as JSON. The contract test reads `horus errors -json` and fails when this table misses a code.
 
 | Code | Retryable | Action by | Next step |
 |---|---|---|---|
@@ -91,7 +95,7 @@ The single source is `horus/errors.py`. The contract test fails when this table 
 | `LICENSE_CONFIRMATION_REQUIRED` | no | human | Show the license and the download size to the user. When the user agrees, call `install_workflow` again with `accept_license=true`. |
 | `CONFIRMATION_REQUIRED` | no | human | Show the plan in `details.files` to the user. When the user agrees, call again with `confirm=true`. |
 | `OUTPUT_EXISTS` | no | caller | Pass another `out_path`, or pass `overwrite=true`. |
-| `BACKEND_UNAVAILABLE` | yes | human | ComfyUI does not answer and horus could not start it. The user runs `scripts/start-comfyui.ps1` and reads [`setup.md`](setup.md). |
+| `BACKEND_UNAVAILABLE` | yes | human | ComfyUI does not answer and horus could not start it. The user runs `horus start-comfyui` and reads [`setup.md`](setup.md). |
 | `BACKEND_NOT_INSTALLED` | no | human | The user sets up horus on this PC: [`setup.md`](setup.md). |
 | `BACKEND_RESTART_REQUIRED` | yes | human | ComfyUI must restart to see new model files. The user restarts it, then the caller calls again. |
 | `NODE_PACK_MISSING` | no | human | ComfyUI lacks a custom node pack that the workflow needs (`details.missing`). The user installs it. |
@@ -119,7 +123,7 @@ https://code.claude.com/docs/en/mcp.md):
 - A call in the main conversation that runs longer than 2 minutes moves to a background task. The agent gets a task id at once, continues with other work, and gets the result as a notification. `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS` changes the 2 minutes.
 - The default tool-call time limit is about 28 hours (`MCP_TOOL_TIMEOUT`).
 - A stdio call that sends no result and no progress for 30 minutes is stopped (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`). horus sends a progress notification every 10 s while it waits for an image, and every 5 s while it downloads. A progress notification needs a `progressToken` from the caller.
-- Measured 2026-11-06: headless Claude Code 2.1.318 (`claude -p`) sent no `progressToken` in `tools/call` (the server logs `progress_token=None`). So it gets no progress, and an install that runs longer than 30 minutes can hit the idle limit. Set `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0` for a long install, or run `scripts/workflow.ps1 install <name>` once by hand. An interactive session is not measured.
+- Measured 2026-11-06: headless Claude Code 2.1.318 (`claude -p`) sent no `progressToken` in `tools/call` (the server logs `progress_token=None`). So it gets no progress, and an install that runs longer than 30 minutes can hit the idle limit. Set `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0` for a long install, or run `horus workflow install <name>` once by hand. An interactive session is not measured.
 - In `claude -p` (headless), a backgrounded call loses its result when the run ends. A headless caller must wait for the call.
 
 Because of the automatic background move, a synchronous tool does not block a
@@ -150,6 +154,7 @@ Each setting is an environment variable or a line in `.env`. The environment win
 
 | Setting | Default | What it does |
 |---|---|---|
+| `HORUS_ROOT` | the nearest folder at or above the current folder that has `workflows`, then the folder of the program | The repo root, where horus reads `workflows/` and `.env`. Set it when the server starts outside this repo. Only the environment sets it, not `.env`. |
 | `HORUS_COMFYUI_URL` | `http://127.0.0.1:8188` | The ComfyUI address. |
 | `HORUS_COMFYUI_DIR` | `%USERPROFILE%\ComfyUI_windows_portable` | The ComfyUI portable folder. |
 | `HORUS_OUTPUT_DIR` | `.scratch/outputs` in this repo | Where a PNG goes when the call has no `out_path`. |
@@ -158,15 +163,29 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | `HORUS_WORKFLOWS_DIR` | `workflows` in this repo | Another workflows folder (tests use it). |
 | `HORUS_LOG_FILE` | none | Also write the server log to this file. Each call logs its tool name and its `progressToken`. |
 
-The server never reads `HF_TOKEN`. `scripts/download-model.ps1` reads it and
-sends it only to `huggingface.co`.
+The server never reads `HF_TOKEN`. Only the download code (`horus download-model`,
+which `horus workflow install` calls) reads it, and sends it only to `huggingface.co` hosts.
 
 ## Test the server
 
-```powershell
-& "$env:USERPROFILE\.venvs\horus-mcp\Scripts\python.exe" tests\mcp_contract.py
+The test tools are Python programs for developers. `horus` itself needs no Python.
+Make a Python virtual environment (venv) with Python 3.12 and the MCP client, one time:
+
+```
+py -3.12 -m venv .scratch\test-venv
+.scratch\test-venv\Scripts\python -m pip install -r tests\requirements.txt
 ```
 
+On macOS and Linux, use `python3.12 -m venv .scratch/test-venv` and
+`.scratch/test-venv/bin/python`. Then, with `horus` on the PATH (step 0 of
+[`setup.md`](setup.md#step-0-get-the-horus-program)):
+
+```
+.scratch\test-venv\Scripts\python tests\mcp_contract.py
+.scratch\test-venv\Scripts\python tests\mcp_contract.py --server-cmd bin\horus.exe mcp
+```
+
+The first command tests `horus mcp` from the PATH. The second tests another build.
 The contract test starts the server over stdio with the official MCP client.
 A fake ComfyUI in the test process answers, so it needs no GPU and no network.
 It checks the tools, the schemas, the envelope, each main error code, the

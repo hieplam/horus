@@ -19,7 +19,7 @@ result.
 | ComfyUI | The program that runs image models on your GPU. A job is a graph of nodes, called a workflow. |
 | comfy MCP server | A local process that gives an agent tools such as `validate_workflow` and `run_workflow`. MCP (Model Context Protocol) is the standard way an agent calls tools. |
 | horus MCP server | The image tool for other agents: `list_workflows`, `describe_workflow`, `install_workflow`, `uninstall_workflow`, `generate_image`. The caller names a workflow and a subject and gets a PNG path. horus adds no style: the caller writes the look in the subject. It never sees ComfyUI. See [`docs/mcp.md`](docs/mcp.md). |
-| This repo | The rules, scripts, workflows and saved prompts. The agent reads it. You run its scripts. |
+| This repo | The rules, the Go code of the `horus` program, the workflows and the saved prompts. The agent reads it. You run `horus`. |
 | Model files | Gigabytes of weights on disk. Never in git. Each file is checked by SHA-256. |
 
 ```mermaid
@@ -29,16 +29,16 @@ flowchart LR
   agent -->|tool calls| mcp[comfy MCP server]
   mcp -->|HTTP :8188| comfy[ComfyUI]
   comfy -->|loads| models[(Model files)]
-  repo -->|scripts download and verify| models
+  repo -->|horus commands download and verify| models
 ```
 
 ## Start here
 
-1. **Set up the machine:** [`docs/setup.md`](docs/setup.md). Six steps, from
-   an empty PC to a test image. Every script is safe to run again.
+1. **Set up the machine:** [`docs/setup.md`](docs/setup.md). Seven steps, from
+   an empty PC to a test image. Every command is safe to run again.
 2. **Make your first image:** [`workflows/it-illustration`](workflows/it-illustration/README.md).
    Ask the agent for "an illustration of a message queue", or run
-   `python scripts/run-illustration.py --subject "..."` without an agent.
+   `horus run-illustration -subject "..."` without an agent.
 3. **Make your own style:** [`docs/style-to-workflow.md`](docs/style-to-workflow.md).
    How the agent goes from one sentence to a tested, saved workflow.
 
@@ -50,20 +50,22 @@ Claude Code starts each MCP server itself, as a child program (a stdio server).
 You only install the programs. The full setup, with ComfyUI and the models, is
 [`docs/setup.md`](docs/setup.md).
 
-1. Install Python 3.12 with the Python Launcher, and Claude Code.
-2. Clone this repo and open PowerShell in its root folder.
-3. Install both server programs. Each script makes its own venv in `%USERPROFILE%\.venvs`.
+1. Install Go 1.27.3 or newer, Python 3.12 with the Python Launcher, and Claude Code.
+2. Clone this repo and open a terminal in its root folder.
+3. Build `horus`, then install the comfy MCP server. `go install` puts `horus` in
+   `%USERPROFILE%\go\bin` (`$HOME/go/bin` on macOS and Linux). That folder must be
+   on the PATH, because `.mcp.json` starts `horus` by name
+   ([how](docs/setup.md#step-0-get-the-horus-program)).
 
-   ```powershell
-   Set-ExecutionPolicy -Scope Process Bypass
-   .\scripts\install-comfy-mcp.ps1
-   .\scripts\install-horus-mcp.ps1 -Register
+   ```
+   go install ./cmd/horus
+   horus install-comfy-mcp
    ```
 
 4. Check the machine. Every line must show `PASS`.
 
-   ```powershell
-   .\scripts\check-setup.ps1
+   ```
+   horus check-setup
    ```
 
 5. Start `claude` in this folder. Approve the project servers `comfy-mcp` and `horus`.
@@ -74,17 +76,17 @@ You only install the programs. The full setup, with ComfyUI and the models, is
 | Entry | Where | Which sessions see it |
 |---|---|---|
 | `.mcp.json` (project scope) | this repo, in git | sessions started in this folder, after you approve |
-| `claude mcp add --scope user` (user scope), made by `-Register` | your Claude Code user settings | sessions in every folder |
+| `claude mcp add --scope user` (user scope), made by `horus register` | your Claude Code user settings | sessions in every folder |
 
-Claude Code reads `.mcp.json` by itself, but it does not run the install scripts.
-If you skip step 3, `/mcp` shows the server as failed. An agent in this repo
-reads [`AGENTS.md`](AGENTS.md), which tells it to run `check-setup.ps1` and the
-install script.
+Claude Code reads `.mcp.json` by itself, but it does not build or install the
+programs. If you skip step 3, `/mcp` shows the server as failed. An agent in this
+repo reads [`AGENTS.md`](AGENTS.md), which tells it to run `horus check-setup` and
+the install command that a FAIL line names.
 
 ## Give other agents an image tool
 
-```powershell
-.\scripts\install-horus-mcp.ps1 -Register
+```
+horus register
 ```
 
 After this, an agent in any folder of your PC (for example a video project
@@ -92,12 +94,14 @@ that needs pictures) has the horus tools. It calls `list_workflows`, reads the
 rules of a style with `describe_workflow`, and calls `generate_image`. The call
 waits until the PNG is on disk and returns its path. Errors have a code, a
 `next_step` and `action_by`, so the agent knows if it must retry, change its
-call or ask you. Details: [`docs/mcp.md`](docs/mcp.md).
+call or ask you. Details: [`docs/mcp.md`](docs/mcp.md). Limit: a session outside
+this repo also needs the variable `HORUS_ROOT`, which `horus register` does not
+set yet ([setup step 5](docs/setup.md#optional-the-image-tool-for-agents-in-other-folders)).
 
 ## What you need
 
 - Windows 10 or 11, NVIDIA GPU with 6 GB VRAM or more, 16 GB RAM, about 20 GB free disk.
-- Git, Python 3.12, and a free Hugging Face account.
+- Git, Go 1.27.3 or newer, Python 3.12 (for the comfy MCP server), and a free Hugging Face account.
 - An AI agent CLI: [Claude Code](https://claude.com/claude-code) or Codex.
 
 ## Docs
@@ -116,8 +120,7 @@ call or ask you. Details: [`docs/mcp.md`](docs/mcp.md).
 ## Workflows
 
 List them, install the files of one, or remove them with
-[`scripts/workflow.ps1`](scripts/workflow.ps1) (`list`, `install <name>`,
-`check <name>`, `remove <name>`). See [manage workflows](docs/setup.md#manage-workflows-list-install-check-remove).
+`horus workflow` (`list`, `install <name>`, `check <name>`, `remove <name>`). See [manage workflows](docs/setup.md#manage-workflows-list-install-check-remove).
 
 | Workflow | Does | Model family |
 |---|---|---|

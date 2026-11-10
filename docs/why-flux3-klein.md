@@ -53,17 +53,17 @@ These findings come from a GTX 1660 Ti class card (Turing architecture) with 6 G
 
 | Finding | Effect | What we did |
 |---|---|---|
-| comfy-cli prints Unicode characters to a console with a legacy code page | `UnicodeEncodeError: 'charmap' codec` | Set `PYTHONUTF8=1` for the MCP server and the scripts. |
+| comfy-cli prints Unicode characters to a console with a legacy code page | `UnicodeEncodeError: 'charmap' codec` | Set `PYTHONUTF8=1` for the comfy MCP server. |
 | comfy-cli gives each node a long random ID | Slot addresses look like `2752976026169904.text` | The README lists the addresses. The runner finds nodes by class. |
 | `comfy workflow apply` builds a graph from a recipe and checks model names against the live server | You can build a graph without hand edits, but only after the models exist | `recipe.json` in the workflow folder. |
 | The official template wraps the graph in a subgraph and includes the 9B upsampler | The server rejects a graph whose model file is missing | A flat 10-node graph without the upsampler. |
 | The gated Hugging Face repository hides SHA-256 values without a token | No official hash before login | Read the hashes from the API with a token, then pin them in `models.json`. |
-| Hugging Face answers 401 (bad token) or 403 (license not accepted) | The two answers need two different user actions | The install script names the right action. |
-| `Invoke-WebRequest` in Windows PowerShell 5.1 downloads multi-GB files very slowly | The progress bar slows the transfer | The download script uses `curl.exe`. |
-| A PowerShell pipe adds a UTF-8 BOM, and curl reads the BOM as part of an option name | `config file option 'header' is unknown` | Write the curl config to a temporary file without a BOM, and delete it after use. |
+| Hugging Face answers 401 (bad token) or 403 (license not accepted) | The two answers need two different user actions | `horus workflow install` names the right action (`HF_TOKEN_INVALID` or `LICENSE_NOT_ACCEPTED` in the MCP server). |
+| `Invoke-WebRequest` in Windows PowerShell 5.1 downloads multi-GB files very slowly | The progress bar slows the transfer | The old download script used `curl.exe`. `horus download-model` uses the HTTP client of Go and has no progress bar. |
+| A PowerShell pipe adds a UTF-8 BOM, and curl reads the BOM as part of an option name | `config file option 'header' is unknown` | The old download script wrote the curl config to a temporary file without a BOM. `horus` calls no curl and no PowerShell, so this trap is gone. |
 | curl progress output on stderr becomes an error when `ErrorActionPreference` is `Stop` | The download stopped at once | Use `--no-progress-meter`. |
 | Git Bash rewrites paths that start with a drive letter inside comma lists | Arguments broke | Set `MSYS_NO_PATHCONV=1` for such calls. |
-| The start script does not save the ComfyUI console | No log file to read | `GET /internal/logs/raw` returns the in-memory log. |
+| The start script does not save the ComfyUI console | No log file to read | `horus start-comfyui` writes `horus-comfyui.out.log` and `horus-comfyui.err.log` in the ComfyUI folder. `GET /internal/logs/raw` returns the in-memory log. |
 
 ## 4. Prompt findings
 

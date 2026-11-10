@@ -2,22 +2,23 @@
 
 You are an agent (Claude Code, Codex, or similar) that drives a local ComfyUI
 for a user. The user describes an outcome. You do the work through the comfy
-MCP tools and the scripts in this repo. The user does not need to know ComfyUI.
+MCP tools and the `horus` program of this repo. The user does not need to know ComfyUI.
 
 ## Read before you act
 
 | Task | Read |
 |---|---|
 | Set up or repair a machine | [`docs/setup.md`](docs/setup.md) |
-| `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed. Run `scripts\check-setup.ps1`, then the install script that its FAIL line names. Then ask the user to restart `claude`. |
-| List workflows, install or remove the files of one | `scripts\workflow.ps1 list`, then `install <name>`, `check <name>`, `remove <name>` ([how](docs/setup.md#manage-workflows-list-install-check-remove)) |
+| `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed, or `horus` is not on the PATH. Run `horus check-setup`, then the command that its FAIL line names (`go install ./cmd/horus` for `horus`, [step 0 of setup](docs/setup.md#step-0-get-the-horus-program)). Then ask the user to restart `claude`. |
+| List workflows, install or remove the files of one | `horus workflow list`, then `install <name>`, `check <name>`, `remove <name>` ([how](docs/setup.md#manage-workflows-list-install-check-remove)) |
 | Make an image with an existing workflow | `workflows/<name>/README.md` |
 | A new style, a new model, a new workflow | [`docs/style-to-workflow.md`](docs/style-to-workflow.md) |
 | A run fails | [`docs/running-workflows.md`](docs/running-workflows.md) |
 | Which model pairs with which | [`docs/models.md`](docs/models.md) |
 | Why this model, and GPU traps | [`docs/why-flux3-klein.md`](docs/why-flux3-klein.md) |
 | A term you must explain to the user | [`docs/concepts.md`](docs/concepts.md) |
-| Change the horus MCP server, its tools or its errors | [`docs/mcp.md`](docs/mcp.md), then run `tests/mcp_contract.py` |
+| Change the horus MCP server, its tools or its errors | [`docs/mcp.md`](docs/mcp.md), then run `go test ./...` and `tests/mcp_contract.py` |
+| The flags of a `horus` command | `horus <command> -h` |
 | Offer a workflow to other agents | Add `workflows/<name>/manifest.json` ([fields](docs/mcp.md#add-a-workflow-to-the-server)) |
 
 For a tech or IT illustration, use
@@ -71,14 +72,18 @@ README.md                         entry point for people
 AGENTS.md                         this file
 ROADMAP.md                        what comes next (horus as an MCP server)
 docs/                             setup, style-to-workflow, concepts, running, models
-scripts/                          PowerShell setup scripts, run-illustration.py, lint-public.py
-horus/                            the horus MCP server (Python package; server.py needs mcp, the rest only the stdlib)
-tests/                            mcp_contract.py: the contract test of the MCP server (fake ComfyUI, no GPU)
+cmd/horus/                        the horus program: one file for each subcommand (mcp, workflow, check-setup, ...)
+internal/                         the Go packages of horus (server, herr, catalog, comfy, generate, models, settings, scripts/<command>)
+scripts/                          lint-public.py (a Python check before a pull request)
+tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), workflow_parity.py, requirements.txt
+tools/                            goal_check.py: the goal check of the Go port
 workflows/<name>/                 manifest.json, workflow.json, models.json, README.md, examples/
 workflows/_template/README.md     template for a new workflow README
 prompts/<family>/<name>.md        one saved prompt each, with its result
 ```
 
 Before you open a pull request, run `python scripts/lint-public.py`. It must
-exit 0. This repo is public. A change to `horus/`, `scripts/workflow.ps1` or a
-`manifest.json` also needs `tests/mcp_contract.py` to end with all checks passed.
+exit 0. This repo is public. Also run `gofmt -l .` (it must print nothing) and
+`go test ./...`. A change to `cmd/horus/`, `internal/` or a `manifest.json` also
+needs `tests/mcp_contract.py` to end with all checks passed. The test tools need
+Python 3.12 with `pip install -r tests/requirements.txt` ([how](docs/mcp.md#test-the-server)).

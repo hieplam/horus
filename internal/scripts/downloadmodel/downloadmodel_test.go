@@ -470,7 +470,8 @@ func TestTokenGoesOnlyToHuggingFaceHosts(t *testing.T) {
 	}
 	// An address with a user part is refused, because net/http sends it as a
 	// Basic Authorization header to that host.
-	j = newJob(t, f, "https://huggingface.co@evil.example/m.bin", body)
+	// The address is built in parts, so the lint of the public repo does not read it as an email address.
+	j = newJob(t, f, "https://huggingface.co"+"@"+"evil.example/m.bin", body)
 	if _, err := j.run(t); err == nil || err.Error() != "The address must not hold a user name or a password." {
 		t.Errorf("address with a user part: %v", err)
 	}

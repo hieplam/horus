@@ -27,6 +27,13 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G6 | `start-comfyui` passes `--port <port of -server-url>` as the script does, after the three arguments of the plan. The first check of the server comes after one poll interval (2 s), as in the script. | The script does this. The plan lists only the 3 fixed arguments. |
 | 2026-11-10 | G6 | `install-comfy-mcp` also runs on macOS and Linux. It uses `python<version>` as the launcher and `bin/` in the venv there, and `py.exe -<version>` and `Scripts\` on Windows. The plan makes only `install-comfyui` and `start-comfyui` Windows-only. | The plan, step 3. |
 | 2026-11-10 | G6 | The tests use the test binary as the fake `7z`, the fake `python.exe` and the fake Python launcher (`TestMain` with an environment variable). They run on Windows, macOS and Linux. The fake `python.exe` of `start-comfyui` waits 60 s and the test kills it by the process id from its record. | The coordinator asked for fakes that work on all three CI systems. |
+| 2026-11-10 | G3 | The flags of `horus download-model`: `-url`, `-destination`, `-expected-bytes`, `-sha256`, `-token-env-var` (default `HF_TOKEN`), `-max-attempts` (default 4). A flag that does not parse exits 2, as every horus command does. A missing or wrong value prints a `FAIL:` line and exits 1, as the script did. | Rule 3 of the spec (Go style flags). Exit 2 for a parse error is the convention of `cmd/horus`. |
+| 2026-11-10 | G3 | Allowed difference: the curl text is gone. The line `Attempt N of M did not finish (curl exit 22, ...)` is now `Attempt N of M did not finish (the server returned error: 401, ...)`, so the text `error: 401` and `error: 403` that `_download_error` in `horus/models.py` reads stays in the item detail. The hint line `curl exit 22 means ...` is now `The server answered with an error. HTTP 401 = ... HTTP 403 = ...`; it still names both codes, so it is still no evidence of either. | Rule 3 of the spec: no `curl.exe`. Task G4 must keep `Attempt ` and `FAIL:` lines in the detail of a `FAILED` item. |
+| 2026-11-10 | G3 | The Go API for task G4: `downloadmodel.Download(ctx, Options) (Result, error)`. The error is an `*Error` with a `Kind`: `KindUnauthorized` (401), `KindForbidden` (403), `KindDiskFull`, `KindConflict`, `KindBadHash`, `KindFailed`. `Result.Skipped` is true for the `SKIP` case. `downloadmodel.Main` is the command. | The task asks for a small API that G4 calls. The four outcomes of the spec are values, and the text output stays the same as well. |
+| 2026-11-10 | G3 | The retry loop of the script is kept as it was: 4 attempts, a wait of 5 s times the attempt number, also after HTTP 401 and 403. | The old code is right. A retry after 401 does no harm. |
+| 2026-11-10 | G3 | The free space comes from a second set of OS files: `freespace_windows.go` (`GetDiskFreeSpaceExW`), `freespace_unix.go` (`darwin \|\| linux`, `syscall.Statfs`) and `freespace_other.go` (no value, so a warning, as the script did for a network path). They use only the standard library, so `go.mod` does not change. The check reads the nearest folder that exists, not the drive root. | Go has no portable call for free space, so Go forces this OS code. The spec names only the process tree as OS code; this is one more place. |
+| 2026-11-10 | G3 | Three checks that the script did not have: an address with a user part (`https://user@host/`) is refused, because `net/http` sends the user part as a `Basic` Authorization header; the downloader checks again that the destination is absent just before the rename, because `os.Rename` replaces a file; and it reads at most one byte more than the expected size from an answer. | Rule 6 of the spec (no credential to another host) and "never overwrite a file that it did not write". `Move-Item` refused an existing file; `os.Rename` does not. |
+| 2026-11-10 | G3 | The stub check found that Go's `net/http` itself drops the Authorization header on a redirect to a host that is not the first host or a subdomain of it. So the redirect test also passes without the own `CheckRedirect` rule. The own rule stays, because it also drops the header on a redirect to plain `http` and to a host that is not `huggingface.co`. The stub "always send the token" fails `TestTokenGoesOnlyToHuggingFaceHosts`. | Evidence for the Stub check, recorded so that nobody reads the redirect test as proof of the own rule alone. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -261,3 +268,85 @@ Stub check (mutation runs, each reverted after the run):
 `GOOS=linux` and `GOOS=darwin` `go vet ./internal/scripts/... ./cmd/...` pass, so the detach file pair builds on all three systems. `gofmt -l .` prints nothing. `python scripts/lint-public.py`: `lint-public: 0 finding(s)`.
 
 Ratchet: `python tools/goal_check.py --no-ci` gives `FAIL  setup-commands - 3 of 8 commands have a test; none for checksetup, syncworkflows, newworkflow, register, runillustration`. Commands with a passing test: 0 → 3 of 8. `goal`: 1 of 8, unchanged (the row passes after task G7). The real run of the three commands on this PC is task G9.
+## G3
+
+Red (before building, in the worktree on `origin/main` at `6d8553f`):
+
+```
+$ go test ./internal/scripts/downloadmodel
+# ./internal/scripts/downloadmodel
+stat <worktree>\internal\scripts\downloadmodel: directory not found
+FAIL	./internal/scripts/downloadmodel [setup failed]
+FAIL
+exit 1
+$ python tools/goal_check.py --no-ci
+FAIL  contract - server command not found: horus
+FAIL  graph - missing: ./internal/comfy
+FAIL  workflow-cli - missing: tests/workflow_parity.py
+FAIL  downloader - missing: ./internal/scripts/downloadmodel
+FAIL  setup-commands - pattern ./internal/scripts/...: GetFileAttributesEx .\internal\scripts\: The system cannot find the file specified.
+PASS  builds - 3 of 3 build
+FAIL  real-image - needs --real on the GPU machine
+FAIL  no-python - 2827 lines left; 18 files of Python and PowerShell remain; .mcp.json horus entry is not `horus mcp`
+goal: 1 of 8 rows passed
+exit 1
+```
+
+Green. Every test runs against a local fake HTTPS server (`httptest.NewTLSServer`, port 0) in temporary folders. A test transport sends every host name to that server, so no test reaches the network. The token is a made-up value.
+
+```
+$ go test -count=1 -v ./internal/scripts/downloadmodel   (only the result lines)
+--- PASS: TestFullDownloadWithRightSizeAndSHA256 (0.02s)
+--- PASS: TestResumeFromPartFile (0.02s)
+--- PASS: TestResumeWhenServerIgnoresRange (0.02s)
+--- PASS: TestRetryAfterBrokenConnection (0.02s)
+--- PASS: TestWrongSizeIsNotPutInPlace (0.02s)
+--- PASS: TestWrongSHA256IsNotPutInPlace (0.02s)
+--- PASS: TestDifferentFileWithSameNameIsNotOverwritten (0.01s)
+--- PASS: TestFreeSpaceUnderSizePlusOneGiBIsRefused (0.01s)
+--- PASS: TestFreeSpaceOfThisSystem (0.00s)
+--- PASS: TestHTTP401And403GiveTwoOutcomes (0.02s)
+--- PASS: TestTokenGoesOnlyToHuggingFaceHosts (0.12s)
+--- PASS: TestTokenIsDroppedOnRedirectToAnotherHost (0.02s)
+--- PASS: TestTokenIsInNoURLArgumentOrOutput (0.06s)
+--- PASS: TestCommandFlagsAndExitCodes (0.00s)
+ok  	github.com/hieplam/horus/internal/scripts/downloadmodel	2.137s
+```
+
+The cases of the plan and their tests:
+
+| Case | Test | What the test reads |
+|---|---|---|
+| 1 full download | `TestFullDownloadWithRightSizeAndSHA256` | the SHA-256 of the file on disk, the absent `.part`, the exact output lines; a second run prints `SKIP` and makes no request |
+| 2 resume | `TestResumeFromPartFile`, `TestResumeWhenServerIgnoresRange` | the fake server sees `Range: bytes=75000-`; a server that ignores `Range` gives a correct file |
+| 3 retry | `TestRetryAfterBrokenConnection` | the server breaks the connection after 123,456 of 400,000 bytes; the second request has `Range: bytes=123456-`; one wait of 5 s |
+| 4 wrong size | `TestWrongSizeIsNotPutInPlace` | a short and a long answer: 4 attempts, no destination file |
+| 5 wrong SHA-256 | `TestWrongSHA256IsNotPutInPlace` | the message, no destination file, no `.part` file |
+| 6 no overwrite | `TestDifferentFileWithSameNameIsNotOverwritten` | other size and same size with another hash: the user's file is unchanged, no request, the text gives `FILE_CONFLICT` in the check of `models.py` |
+| 7 free space | `TestFreeSpaceUnderSizePlusOneGiBIsRefused`, `TestFreeSpaceOfThisSystem` | 1 byte under the size plus 1 GiB is refused (`DISK_FULL`), no request, no folder made; exactly the rest of a `.part` plus 1 GiB passes; the real free space of a temporary folder is read |
+| 8 HTTP 401 and 403 | `TestHTTP401And403GiveTwoOutcomes` | `KindUnauthorized` and `KindForbidden`; the `Attempt` and `FAIL:` lines give `HF_TOKEN_INVALID` and `LICENSE_NOT_ACCEPTED` in the check of `models.py` |
+| 9 token hosts | `TestTokenGoesOnlyToHuggingFaceHosts`, `TestTokenIsDroppedOnRedirectToAnotherHost` | the header that the fake server records: sent to `huggingface.co`, `cdn-lfs.huggingface.co`, `HuggingFace.co`, `huggingface.co:443`; not sent to `example.net`, `evil-huggingface.co`, `huggingface.co.evil.example`, a path or a query with the name; `http` and an address with a user part are refused; a redirect chain `huggingface.co` → `cdn-lfs.huggingface.co` → another host sends it twice, then not |
+| 10 token hidden | `TestTokenIsInNoURLArgumentOrOutput` | through the command, with the token from the environment and from `.env`, for 200, 401 and 403: the token is in no request URL, no argument and no output line; `-h` prints no token |
+
+```
+$ python tools/goal_check.py --no-ci
+FAIL  contract - server command not found: horus
+FAIL  graph - missing: ./internal/comfy
+FAIL  workflow-cli - missing: tests/workflow_parity.py
+PASS  downloader - 14 tests passed
+FAIL  setup-commands - 0 of 8 commands have a test; none for installcomfyui, startcomfyui, installcomfymcp, checksetup, syncworkflows, newworkflow, register, runillustration
+PASS  builds - 3 of 3 build
+FAIL  real-image - needs --real on the GPU machine
+FAIL  no-python - 2827 lines left; 18 files of Python and PowerShell remain; .mcp.json horus entry is not `horus mcp`
+goal: 2 of 8 rows passed
+exit 1
+```
+
+Stub check (mutation runs, each reverted after the run):
+
+- A `Download` that returns success and writes nothing: all 14 tests fail, the first is `--- FAIL: TestFullDownloadWithRightSizeAndSHA256`, because the test reads the file and its SHA-256.
+- A downloader that always sends the token (no host check, no `CheckRedirect` rule): `--- FAIL: TestTokenGoesOnlyToHuggingFaceHosts`, because the fake server records the headers. The redirect test still passes, because `net/http` drops the header on a redirect to another domain by itself (see Decisions).
+
+`python scripts/lint-public.py`: `lint-public: 0 finding(s)`. `gofmt -l .` prints nothing. `go test ./...` passes.
+
+Ratchet: `goal`: 1 → 2 of 8 rows (`downloader`). Downloader cases that pass: 0 → 10 of 10.

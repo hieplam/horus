@@ -1,0 +1,4 @@
+# gofmt wants LF. A Windows checkout with core.autocrlf must not turn Go files into CRLF.
+*.go text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf

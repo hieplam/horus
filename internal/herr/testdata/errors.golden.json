@@ -1,0 +1,128 @@
+[
+ {
+  "action_by": "caller",
+  "code": "INVALID_ARGUMENT",
+  "next_step": "Fix the argument named in details.field, then call again.",
+  "retryable": false
+ },
+ {
+  "action_by": "caller",
+  "code": "WORKFLOW_NOT_FOUND",
+  "next_step": "Call list_workflows and use one of the names in details.known.",
+  "retryable": false
+ },
+ {
+  "action_by": "caller",
+  "code": "WORKFLOW_NOT_INSTALLED",
+  "next_step": "Call install_workflow for this workflow, then call generate_image again.",
+  "retryable": false
+ },
+ {
+  "action_by": "human",
+  "code": "LICENSE_CONFIRMATION_REQUIRED",
+  "next_step": "Show the license and the download size to the user. When the user agrees, call install_workflow again with accept_license=true.",
+  "retryable": false
+ },
+ {
+  "action_by": "human",
+  "code": "CONFIRMATION_REQUIRED",
+  "next_step": "Show the plan in details.files to the user. When the user agrees, call again with confirm=true.",
+  "retryable": false
+ },
+ {
+  "action_by": "caller",
+  "code": "OUTPUT_EXISTS",
+  "next_step": "Pass another out_path, or pass overwrite=true.",
+  "retryable": false
+ },
+ {
+  "action_by": "human",
+  "code": "BACKEND_UNAVAILABLE",
+  "next_step": "The local image backend (ComfyUI) does not answer and horus could not start it. Ask the user to run scripts/start-comfyui.ps1 in the horus repo and read docs/setup.md.",
+  "retryable": true
+ },
+ {
+  "action_by": "human",
+  "code": "BACKEND_NOT_INSTALLED",
+  "next_step": "Ask the user to set up horus on this machine: docs/setup.md in the horus repo.",
+  "retryable": false
+ },
+ {
+  "action_by": "human",
+  "code": "BACKEND_RESTART_REQUIRED",
+  "next_step": "The image backend must restart to see new model files. Ask the user to restart ComfyUI, then call again.",
+  "retryable": true
+ },
+ {
+  "action_by": "human",
+  "code": "NODE_PACK_MISSING",
+  "next_step": "The backend lacks a node pack that this workflow needs. Ask the user to install it (see details.missing).",
+  "retryable": false
+ },
+ {
+  "action_by": "human",
+  "code": "HF_TOKEN_INVALID",
+  "next_step": "The Hugging Face token is missing or wrong. Ask the user to put a valid Read token in HF_TOKEN in the .env file of the horus repo.",
+  "retryable": false
+ },
+ {
+  "action_by": "human",
+  "code": "LICENSE_NOT_ACCEPTED",
+  "next_step": "The Hugging Face account has not accepted the model license. Ask the user to open details.license_url, accept the license, then call again.",
+  "retryable": false
+ },
+ {
+  "action_by": "human",
+  "code": "DISK_FULL",
+  "next_step": "Not enough free disk space. Ask the user to free the space in details, then call again.",
+  "retryable": false
+ },
+ {
+  "action_by": "human",
+  "code": "FILE_CONFLICT",
+  "next_step": "A different file with the same name is on disk. horus never overwrites it. Ask the user to move or delete details.path.",
+  "retryable": false
+ },
+ {
+  "action_by": "human",
+  "code": "FILE_IN_USE",
+  "next_step": "A model file is open in the image backend and Windows does not let horus delete it. Ask the user to stop ComfyUI, then call again.",
+  "retryable": true
+ },
+ {
+  "action_by": "retry",
+  "code": "DOWNLOAD_FAILED",
+  "next_step": "Call install_workflow again. It resumes the partial download.",
+  "retryable": true
+ },
+ {
+  "action_by": "caller",
+  "code": "OUT_OF_MEMORY",
+  "next_step": "Call again. If it fails again, use a smaller width and height.",
+  "retryable": true
+ },
+ {
+  "action_by": "retry",
+  "code": "GENERATION_FAILED",
+  "next_step": "Call generate_image again with the same arguments. If it fails twice, report details.backend_message to the user.",
+  "retryable": true
+ },
+ {
+  "action_by": "retry",
+  "code": "GENERATION_TIMEOUT",
+  "next_step": "The job took longer than the time limit and horus cancelled it. Call again when the machine is less busy.",
+  "retryable": true
+ },
+ {
+  "action_by": "retry",
+  "code": "CANCELLED",
+  "next_step": "The job was cancelled on the backend. Call again if you still need the image.",
+  "retryable": true
+ },
+ {
+  "action_by": "human",
+  "code": "INTERNAL",
+  "next_step": "This is a bug in horus. Report details to the user.",
+  "retryable": false
+ }
+]

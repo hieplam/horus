@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TEXT_EXT = {".md", ".ps1", ".py", ".json", ".yaml", ".yml", ".txt", ".sh", ".example", ""}
+TEXT_EXT = {".md", ".ps1", ".py", ".json", ".yaml", ".yml", ".txt", ".sh", ".example", ".go", ".mod", ".toml", ""}
 
 # Placeholders that docs may show on purpose.
 ALLOWED_USERS = {"<you>", "<name>", "<user>", "you", "public", "default"}

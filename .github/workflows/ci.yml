@@ -69,9 +69,8 @@ jobs:
       - name: Contract test against the Go binary
         shell: bash
         run: |
-          # Until task G8 this job prints the count and does not fail on a count under 30.
-          python tests/mcp_contract.py --server-cmd "$GITHUB_WORKSPACE/bin/horus${{ runner.os == 'Windows' && '.exe' || '' }}" mcp | tee contract.log || true
-          grep "contract: " contract.log
+          python tests/mcp_contract.py --server-cmd "$GITHUB_WORKSPACE/bin/horus${{ runner.os == 'Windows' && '.exe' || '' }}" mcp | tee contract.log
+          grep -q "contract: 30 of 30 passed" contract.log
 
   workflow-parity:
     # tests/workflow_parity.py: horus workflow against the golden files of scripts/workflow.ps1.

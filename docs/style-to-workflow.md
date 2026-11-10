@@ -150,22 +150,18 @@ render at full size.
 
 ### 7. Download and verify
 
-Run the download script. It needs the URL, the destination, the expected size,
+Run `horus download-model`. It needs the URL, the destination, the expected size,
 and the expected hash. It never overwrites a file. It checks size and hash
 before it keeps the file.
 
-```powershell
-.\scripts\download-model.ps1 `
-  -Url 'https://publisher.example/path/model.safetensors' `
-  -Destination '<ComfyUI>\models\diffusion_models\model.safetensors' `
-  -ExpectedBytes 1234567890 `
-  -Sha256 '<64 hex characters from the publisher>'
+```
+horus download-model -url https://publisher.example/path/model.safetensors -destination <ComfyUI>\models\diffusion_models\model.safetensors -expected-bytes 1234567890 -sha256 <64 hex characters from the publisher>
 ```
 
-For a gated repository, put the token in an environment variable. Then add
-`-TokenEnvVar NAME_OF_THE_VARIABLE`. Never write the token in a command, a
-prompt, or a committed file. See
-[`scripts/download-model.ps1`](../scripts/download-model.ps1).
+For a gated repository, put the token in an environment variable or in `.env`.
+The default variable is `HF_TOKEN`. For another name, add
+`-token-env-var NAME_OF_THE_VARIABLE`. Never write the token in a command, a
+prompt, or a committed file. `horus download-model -h` shows every flag.
 
 Record the file in `workflows/<name>/models.json`: role, repository path,
 folder, bytes, and SHA-256. Anyone can then download the same files again.
@@ -173,7 +169,7 @@ folder, bytes, and SHA-256. Anyone can then download the same files again.
 ### 8. Make ComfyUI see it
 
 1. Restart ComfyUI so that it rescans the model folders.
-2. Run [`scripts/check-setup.ps1`](../scripts/check-setup.ps1).
+2. Run `horus check-setup`.
 3. Call `search_models` and confirm that each new file appears.
 
 If a file does not appear, it is in the wrong folder. Move it to the correct
@@ -202,13 +198,11 @@ node is missing, `workflow_deps` shows the pack that provides it.
 
 Create the folder and the README from the template:
 
-```powershell
-.\scripts\new-workflow.ps1 -Name postcard-watercolor `
-  -Description "Soft watercolor landscape postcards" `
-  -ModelFamily "FLUX 3 Image Klein"
+```
+horus new-workflow -name postcard-watercolor -description "Soft watercolor landscape postcards" -model-family "FLUX 3 Image Klein"
 ```
 
-The name must be kebab-case. The script refuses to use a folder that already
+The name must be kebab-case. The command refuses to use a folder that already
 exists. Put `workflow.json` and `models.json` in the new folder.
 The README template is [`workflows/_template/README.md`](../workflows/_template/README.md).
 
@@ -265,7 +259,7 @@ result. See the failure table in
 ### 16. Save
 
 1. Put the workflow in `workflows/<name>/`.
-2. Run [`scripts/sync-workflows.ps1`](../scripts/sync-workflows.ps1) so that the ComfyUI Workflows pane shows it.
+2. Run `horus sync-workflows` so that the ComfyUI Workflows pane shows it.
 3. Fill the Evidence section of the workflow README: date, hashes, node count, validation result, `prompt_id`, output file, and run time.
 4. Save the prompt under `prompts/<family>/`, with its result.
 5. Create a branch and open a pull request. Do not push to the main branch.

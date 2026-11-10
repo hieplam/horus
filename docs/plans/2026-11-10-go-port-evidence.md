@@ -78,6 +78,17 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G9 | Known fact, not a defect of the port: when the MCP client of `goal_check.py --real` ended, the ComfyUI that horus had started also stopped. The Python MCP client (`mcp` 2.3.0, `mcp/os/win32/utilities.py`) puts the server in a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and without the breakaway flag, so every child of the server ends with the client. `scripts/start-comfyui.ps1` (`Start-Process`) is in the same Job Object, so the Python server behaves the same. After the `claude -p` run, the ComfyUI that horus started kept running. | Old code is right (standing rule). The `claude -p` run proves that ComfyUI outlives the server for Claude Code, the caller that the product serves. |
 | 2026-11-10 | G9 | The `claude -p` run set `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=1800000` for its process, so the call of about 4 minutes stayed in the foreground. | `docs/mcp.md` ("Long calls"): in headless mode a call that moves to the background loses its result when the run ends. |
 | 2026-11-10 | G9 | The owner's ComfyUI ran with `--reserve-vram 1`; `horus start-comfyui` starts it without that flag, as `start-comfyui.ps1` did. Both images ran on the ComfyUI that horus started. At the end, the task stopped that ComfyUI and started it again with the owner's command line. | The task brief: ComfyUI must run again as it was found. |
+| 2026-11-10 | G10 | `tests/mcp_contract.py` has the two changes of rule 4 of the spec and nothing else: the default `--server-cmd` is `horus mcp` (the name `horus`, found on the PATH), and the list of error codes is the JSON object of `<server program> errors -json` (`server_cmd[0]`). When the program does not run or prints no code, the list holds one placeholder code, so the check "docs/mcp.md lists every error code" fails and never passes on an empty list. The docstring lines that named the venv program say this now. The line `sys.path.insert(0, str(ROOT))` stays, although no `horus` package is left to import. | The coordinator allowed exactly these two changes. An empty list would make the doc check pass with nothing checked (stub check). |
+| 2026-11-10 | G10 | `tests/workflow_parity.py` loses `--record`, `--live`, the table `REWRITE`, `PS_FLAGS` and the branch that ran the script. The golden files already hold the rewritten text (the rewrite ran when they were recorded), so the default mode compares the same values as before: `parity: 17 of 17 cases equal`. `make_sandbox` still comes from `tests/mcp_contract.py`. CI runs one parity command on both systems. | The two modes need the deleted `workflow.ps1` (G4 note). |
+| 2026-11-10 | G10 | `tools/make_server_golden.py` and `tools/make_graph_golden.py` are deleted with the Python package. The Go tests read the committed golden files only; `go test -count=1 ./...` passes after the deletion (18 packages `ok`). `internal/herr/testdata/errors.golden.json` keeps the text `scripts/start-comfyui.ps1`, because it is the output of the old `horus/errors.py`; `TestCodesMatchPython` applies the allowed replacement of G1. | The G1 and G2 decisions: the golden files stay, the tools go. |
+| 2026-11-10 | G10 | `pyproject.toml` is deleted. Only the `python-baseline` job used it (`pip install -e .`). The other CI jobs and the docs install `tests/requirements.txt` (`mcp==2.3.0`). `.gitignore` does not change: `__pycache__/` and `*.pyc` still match the files of the test tools, and `*.egg-info/` stays. | The coordinator's list. |
+| 2026-11-10 | G10 | The `horus` entry of `.mcp.json` is `{"type": "stdio", "command": "horus", "args": ["mcp"]}`, without `env`. The `comfy-mcp` entry does not change. | Plan step 1: no Python environment variables. The comfy-mcp entry is Phase 3 of issue #4. |
+| 2026-11-10 | G10 | `docs/setup.md` gets a step 0 "get the horus program": install Go, `go install ./cmd/horus`, and the Go bin folder on the PATH (with the PowerShell command for the user Path on Windows, and the profile line on macOS and Linux). It names `install-comfyui` and `start-comfyui` as Windows-only, and says that on macOS and Linux the user installs and starts ComfyUI and adds the comfy-mcp server by hand. Step 4 runs `horus check-setup -workflow it-illustration -full`, so the smoke test still hashes the files as the script did (G7 made size-only the default). Every command line of the docs was taken from `horus <command> -h` of the built binary. | The coordinator's points 1 and 2. `-full` keeps the old behaviour of the smoke test. |
+| 2026-11-10 | G10 | Found issue #32: `horus register` adds the user-scope entry without `HORUS_ROOT`. A session outside the repo starts `horus mcp` in its own folder, the Go root rule finds no `workflows/`, and `list_workflows` answers `INTERNAL: horus workflow list failed` (measured). The Python entry served the repo from every folder, because `horus/settings.py` takes the folder of the package. #32 blocks G11 and G12. Until the fix, `docs/setup.md` and `docs/mcp.md` name the limit and give the command `claude mcp add --scope user horus --env HORUS_ROOT=<root folder of this repo> -- <path of horus> mcp`. | Standing rule: the old code is right. The fix is in `internal/scripts/register`, outside this task. |
+| 2026-11-10 | G10 | On the owner's PC (after the merge), the user-scope entry `horus` is replaced with the command of the row above (with `HORUS_ROOT` set to the main checkout), not with plain `horus register`. | The coordinator asked for `horus register`. Plain `register` gives an entry that answers `INTERNAL` in every folder outside the repo (issue #32), and the old entry worked there. The old code is right. |
+| 2026-11-10 | G10 | The owner's PC, outside the repo (coordinator's decisions): `%USERPROFILE%\go\bin` is appended to the user Path when it is absent (no other entry changes), and `go install ./cmd/horus` runs from the merged `main`. The two venvs under `%USERPROFILE%\.venvs` stay: `comfy-mcp` is in use, and `horus-mcp` holds the Python with `mcp==2.3.0` that the test tools use on this PC. `.env` is not touched. | `.mcp.json` starts `horus` by name, so without the folder on the Path the owner's horus server stops. |
+| 2026-11-10 | G10 | `tools/goal_check.py` prints `PASS  no-python - 0 lines left`; the plan wrote `0 lines`. The tool is not changed. | The text of the committed tool. The row passes. |
+| 2026-11-10 | G10 | The Go files keep their first comment that names the `.ps1` or `.py` file that they port. | Rule 2 of the spec. The `no-python` row looks for the word `powershell` in Go files, not for `.ps1`. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -1149,3 +1160,114 @@ The pull request has no copy of the images: `gh` cannot attach a file to a pull 
 ComfyUI ran again with the owner's command line (`... --port 8188 --reserve-vram 1`) and answered `ComfyUI 0.44.0`.
 
 Ratchet: real images made by the Go binary 0 → 2. `goal_check.py --real --no-ci`: 6 → 7 of 8 rows.
+
+## G10
+
+Placeholders: `<worktree>` is the G10 worktree, `<user>` is the user folder. Python 3.12 with `mcp==2.3.0`, Go 1.27.3. `horus` on the PATH is `<user>\go\bin\horus.exe`, made by `go install ./cmd/horus` in `<worktree>`.
+
+Baseline (ratchet): lines of Python and PowerShell in the product: 2,827 (18 files). `goal_check.py --no-ci`: 6 of 8 rows.
+
+### Red (commit `acf68f4`, before the change)
+
+```
+$ python tools/goal_check.py --no-ci
+PASS  contract - local 30 of 30; CI part skipped (--no-ci)
+PASS  graph - TestUIToAPIGolden passes
+PASS  workflow-cli - parity: 17 of 17 cases equal
+PASS  downloader - 14 tests passed
+PASS  setup-commands - 8 of 8 commands have a passing test
+PASS  builds - 3 of 3 build
+FAIL  real-image - needs --real on the GPU machine
+FAIL  no-python - 2827 lines left; 18 files of Python and PowerShell remain; .mcp.json horus entry is not `horus mcp`
+goal: 6 of 8 rows passed
+```
+
+### What was deleted
+
+`horus/` (8 files), `pyproject.toml`, `scripts/*.ps1` (10 files), `scripts/run-illustration.py`, `tools/make_graph_golden.py`, `tools/make_server_golden.py`. The golden files stay. After the deletion:
+
+```
+$ go vet ./... && go test -count=1 ./...
+(18 lines "ok  github.com/hieplam/horus/...", 1 line "[no test files]" for internal/comfy/comfytest, no FAIL)
+```
+
+### Green
+
+```
+$ python tools/goal_check.py --no-ci
+PASS  contract - local 30 of 30; CI part skipped (--no-ci)
+PASS  graph - TestUIToAPIGolden passes
+PASS  workflow-cli - parity: 17 of 17 cases equal
+PASS  downloader - 14 tests passed
+PASS  setup-commands - 8 of 8 commands have a passing test
+PASS  builds - 3 of 3 build
+FAIL  real-image - needs --real on the GPU machine
+PASS  no-python - 0 lines left
+goal: 7 of 8 rows passed
+$ python tests/mcp_contract.py            (no arguments: horus mcp from the PATH)
+...
+PASS  docs/mcp.md lists every error code
+contract: 30 of 30 passed
+$ python tests/workflow_parity.py
+parity: 17 of 17 cases equal
+$ python scripts/lint-public.py
+lint-public: 0 finding(s)
+exit 0
+$ gofmt -l .
+(no output)
+```
+
+`real-image` fails without `--real`, as expected in this task (G9 proved it, G11 runs it again).
+
+The test commands of `docs/mcp.md` ("Test the server"), run as written in PowerShell with a new venv `.scratch\test-venv` (`pip install -r tests\requirements.txt` installed `mcp` 2.3.0):
+
+```
+> .scratch\test-venv\Scripts\python tests\mcp_contract.py
+contract: 30 of 30 passed
+> .scratch\test-venv\Scripts\python tests\mcp_contract.py --server-cmd bin\horus.exe mcp
+contract: 30 of 30 passed
+```
+
+### Stub check
+
+The error codes come from the binary. With the row of `FILE_IN_USE` removed from a copy of `docs/mcp.md` (restored after the run):
+
+```
+$ python tests/mcp_contract.py
+FAIL  docs/mcp.md lists every error code  -- missing: ['FILE_IN_USE']
+contract: 29 of 30 passed
+```
+
+The default server command is `horus` from the PATH, and no Python server is left. With the Go bin folder removed from the PATH of the shell:
+
+```
+$ python tests/mcp_contract.py
+FAIL  the server starts and answers over stdio  -- FileNotFoundError: [WinError 2] The system cannot find the file specified
+contract: 0 of 30 passed
+```
+
+The `no-python` row counts the tracked files, so doing nothing leaves 2,827 lines (Red above).
+
+### Search hits that are left
+
+`git grep -i -e '\.ps1' -e 'horus-mcp' -e 'powershell' -e 'pyproject' -e 'run-illustration\.py' -e '\.venvs'`, without `docs/specs/` and `docs/plans/` (the spec, the plan and this log are history and keep their text):
+
+| Where | Hit | Reason |
+|---|---|---|
+| `.mcp.json` lines 5 and 8 | `.venvs\comfy-mcp` | The `comfy-mcp` entry is Phase 3 of issue #4. It stays as it was. |
+| `docs/setup.md` (step 2 table) | `.venvs\comfy-mcp` | The path of the comfy-mcp venv that `horus install-comfy-mcp` makes. |
+| `docs/setup.md` (step 0) | `PowerShell`, `powershell` | The Windows command that adds the Go bin folder to the user Path. |
+| `docs/why-flux3-klein.md` lines 62 and 63 | `PowerShell` | Two traps that the old download script found. The text says that `horus` calls no curl and no PowerShell. |
+| 32 Go files under `cmd/horus/` and `internal/` (2 of them are the `herr` files of the next row) | `scripts/<name>.ps1`, `download-model.ps1`, `workflow.ps1`, `scripts/run-illustration.py` | Rule 2 of the spec: each Go file names the file that it ports. Comments that compare with the old behaviour (`{0:N2}`, the casts of `workflow.ps1`) name it too. |
+| `internal/herr/herr.go`, `internal/herr/herr_test.go` | `.ps1` | The allowed difference of G1 (a `next_step` that named a `.ps1` script names the `horus` subcommand), and the test that no `next_step` names a `.ps1` script. |
+| `internal/herr/testdata/errors.golden.json` | `scripts/start-comfyui.ps1` | The golden file holds the output of the old `horus/errors.py`. |
+| `internal/scripts/checksetup/checksetup.go`, `internal/scripts/installcomfymcp/installcomfymcp.go` | `.venvs` | The default folder of the comfy-mcp venv. |
+| `scripts/lint-public.py` | `.ps1` | The list of text suffixes that the lint reads. It is harmless and checks a `.ps1` file that someone adds. |
+| `tests/workflow_parity.py` | `workflow.ps1` | The docstring says where the golden files came from. |
+| `tools/goal_check.py` | `.ps1`, `powershell` | The `no-python` row itself. |
+
+### Found
+
+Issue #32: `horus register` adds the user-scope entry without `HORUS_ROOT`, so the tools answer `INTERNAL` in a session outside the repo. It blocks G11 and G12. The docs name the limit and give the `claude mcp add ... --env HORUS_ROOT=...` command until the fix (see Decisions).
+
+Ratchet: lines of Python and PowerShell in the product 2,827 → 0. `goal_check.py --no-ci`: 6 → 7 of 8 rows (the row left is `real-image`, which needs `--real`).

@@ -67,8 +67,8 @@ See [running workflows](../../docs/running-workflows.md).
 
 Write the command that makes one image without an agent, or write "none".
 
-```powershell
-# TBD
+```
+TBD
 ```
 
 ## Evidence

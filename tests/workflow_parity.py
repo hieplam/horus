@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Parity test of `horus workflow` against scripts/workflow.ps1. No GPU, no network.
+"""Parity test of `horus workflow` against the golden files of the old script. No GPU, no network.
 
-    python tests/workflow_parity.py [--record | --live] [--horus <path>] [--case <name>]
+    python tests/workflow_parity.py [--horus <path>] [--case <name>]
 
 Each case builds a fresh sandbox (make_sandbox of tests/mcp_contract.py: a
 temporary folder with a copy of the workflows and tiny stand-in model files),
@@ -15,17 +15,18 @@ CRLF counted as LF) and the text of extra_model_paths.yaml. Paths are normalised
 <sandbox> and every backslash becomes a slash, so the golden files hold no user
 path and no OS separator.
 
-Modes:
-  default   run `horus workflow` and compare with the golden files.
-  --record  run workflow.ps1 and write the golden files (Windows only).
-  --live    also run workflow.ps1 and check that the golden files are still true.
+The tool runs `horus workflow` and compares it with the golden files in
+tests/fixtures/workflow_parity. The golden files were recorded from the old
+script workflow.ps1 before task G10 deleted it (git history has the script and
+the --record mode of this tool).
 
 It prints EQUAL or DIFFERENT for each case, then "parity: N of M cases equal".
 Exit code 0 only when all cases are equal. N counts only cases that it compared.
 
-Allowed differences (rule 3 of the spec): the messages of workflow.ps1 name
-.ps1 scripts and PowerShell flags. The table REWRITE turns them into the horus
-subcommand and the Go flag before the comparison. Nothing else is rewritten.
+Allowed differences (rule 3 of the spec): the messages of the old script named
+its own scripts and flags. When the golden files were recorded, those names were
+rewritten to the horus subcommand and the Go flag (for example `-Yes` became
+`-yes`). Nothing else was rewritten.
 """
 
 from __future__ import annotations
@@ -54,20 +55,7 @@ FIXTURE = json.loads((ROOT / "tests" / "fixtures" / "object_info.json").read_tex
 MARK = "HORUS_JSON "
 GO_DIRS = [r"C:\Program Files\Go\bin", "/usr/local/go/bin"]
 
-# PowerShell text -> horus text. Rule 3 of the spec: a message that named a .ps1
-# script names the horus subcommand, and flags take Go style.
-REWRITE = [
-    (".\\scripts\\workflow.ps1", "horus workflow"),
-    (".\\scripts\\start-comfyui.ps1", "horus start-comfyui"),
-    (".\\scripts\\install-comfyui.ps1", "horus install-comfyui"),
-    ("-ComfyUIDir", "-comfyui-dir"),
-    ("-Force", "-force"),
-    ("-Yes", "-yes"),
-    ("-Only", "-only"),
-]
-
-# The flags of a step, in the form of each program.
-PS_FLAGS = {"quick": "-Quick", "yes": "-Yes", "force": "-Force", "only": "-Only"}
+# The flags of a step.
 GO_FLAGS = {"quick": "-quick", "yes": "-yes", "force": "-force", "only": "-only"}
 
 IT, ABSENT = "it-illustration", "absent-style"
@@ -219,23 +207,17 @@ def normalise(text: str, tmp: Path) -> str:
     return re.sub(r"\.bak-\d{8}-\d{6}", ".bak-<time>", text)
 
 
-def rewrite(text: str) -> str:
-    for old, new in REWRITE:
-        text = text.replace(old, new)
-    return text
-
-
-def norm_json(value, tmp: Path, ps: bool):
+def norm_json(value, tmp: Path):
     if isinstance(value, str):
-        return normalise(rewrite(value) if ps else value, tmp)
+        return normalise(value, tmp)
     if isinstance(value, list):
-        return [norm_json(v, tmp, ps) for v in value]
+        return [norm_json(v, tmp) for v in value]
     if isinstance(value, dict):
-        return {k: norm_json(v, tmp, ps) for k, v in value.items()}
+        return {k: norm_json(v, tmp) for k, v in value.items()}
     return value
 
 
-def run_step(cmd: list[str], step, env: dict, tmp: Path, ps: bool) -> dict:
+def run_step(cmd: list[str], step, env: dict, tmp: Path) -> dict:
     p = subprocess.run(cmd, cwd=str(tmp), env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=300)
     out = p.stdout.decode("utf-8", "replace")
     lines = [ln.rstrip("\r") for ln in out.split("\n")]
@@ -254,8 +236,8 @@ def run_step(cmd: list[str], step, env: dict, tmp: Path, ps: bool) -> dict:
                 result = json.loads(ln[len(MARK):])
             else:
                 text.append(ln)
-    text = [normalise(rewrite(ln) if ps else ln, tmp) for ln in text]
-    return {"exit": p.returncode, "result": norm_json(result, tmp, ps), "lines": text}
+    text = [normalise(ln, tmp) for ln in text]
+    return {"exit": p.returncode, "result": norm_json(result, tmp), "lines": text}
 
 
 def disk_state(tmp: Path, sb: dict) -> dict:
@@ -271,16 +253,12 @@ def disk_state(tmp: Path, sb: dict) -> dict:
     return {"files": files, "extra_model_paths.yaml": normalise(yaml.read_text(encoding="utf-8"), tmp) if yaml.is_file() else None}
 
 
-def run_case(case, program: str, horus: str | None) -> dict:
+def run_case(case, horus: str) -> dict:
     name, steps, change, server = case
     tmp = Path(tempfile.mkdtemp(prefix="horus-parity-")).resolve()
     fake = None
     try:
         sb = make_sandbox(tmp)
-        if program == "ps":
-            (tmp / "scripts").mkdir()
-            for s in ("workflow.ps1", "download-model.ps1"):
-                shutil.copy2(ROOT / "scripts" / s, tmp / "scripts" / s)  # repo root of the script = sandbox
         if change:
             change(sb)
         info = FIXTURE if server == "fixture" else (None if server == "none" else server())
@@ -288,13 +266,8 @@ def run_case(case, program: str, horus: str | None) -> dict:
         env = child_env(tmp, sb, fake.port)
         results = []
         for step in steps:
-            if program == "ps":
-                cmd = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                       "-File", str(tmp / "scripts" / "workflow.ps1")]
-                cmd += step_args(step, PS_FLAGS, "-Json", "-WorkflowsDir", sb["workflows"])
-            else:
-                cmd = [horus, "workflow"] + step_args(step, GO_FLAGS, "-json", "-workflows-dir", sb["workflows"])
-            results.append(run_step(cmd, step, env, tmp, program == "ps"))
+            cmd = [horus, "workflow"] + step_args(step, GO_FLAGS, "-json", "-workflows-dir", sb["workflows"])
+            results.append(run_step(cmd, step, env, tmp))
         return {"case": name, "steps": [{"args": step_args(s, GO_FLAGS, "-json", "-workflows-dir", "<sandbox>/workflows"),
                                           **r} for s, r in zip(steps, results)],
                 "after": disk_state(tmp, sb)}
@@ -340,9 +313,6 @@ def show_diff(want: dict, got: dict, label: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    mode = ap.add_mutually_exclusive_group()
-    mode.add_argument("--record", action="store_true", help="run workflow.ps1 and write the golden files")
-    mode.add_argument("--live", action="store_true", help="also check the golden files against workflow.ps1")
     ap.add_argument("--horus", help="path of the horus binary (default: go build ./cmd/horus)")
     ap.add_argument("--case", action="append", help="run only this case (several allowed)")
     a = ap.parse_args()
@@ -350,17 +320,6 @@ def main() -> int:
     cases = [c for c in CASES if not a.case or c[0] in a.case]
     if not cases:
         sys.exit(f"workflow_parity: no case named {a.case}")
-    if (a.record or a.live) and os.name != "nt":
-        sys.exit("workflow_parity: --record and --live need Windows (powershell.exe)")
-
-    if a.record:
-        GOLDEN.mkdir(parents=True, exist_ok=True)
-        for c in cases:
-            res = run_case(c, "ps", None)
-            (GOLDEN / f"{c[0]}.json").write_text(dump(res), encoding="utf-8", newline="\n")
-            print(f"RECORDED  {c[0]}")
-        print(f"recorded: {len(cases)} cases")
-        return 0
 
     build_dir = Path(tempfile.mkdtemp(prefix="horus-parity-bin-"))
     try:
@@ -373,19 +332,11 @@ def main() -> int:
                 continue
             want = json.loads(gfile.read_text(encoding="utf-8"))
             compared += 1
-            ok = True
-            if a.live:
-                ps = run_case(c, "ps", None)
-                if ps != want:
-                    ok = False
-                    print(f"DIFFERENT {c[0]}  -- workflow.ps1 no longer gives the golden file")
-                    show_diff(want, ps, "workflow.ps1")
-            got = run_case(c, "go", horus)
+            got = run_case(c, horus)
             if got != want:
-                ok = False
                 print(f"DIFFERENT {c[0]}")
                 show_diff(want, got, "horus workflow")
-            if ok:
+            else:
                 equal += 1
                 print(f"EQUAL     {c[0]}")
         print(f"parity: {equal} of {compared} cases equal")

@@ -23,7 +23,7 @@ Files in this folder:
 | `manifest.json` | The public contract for the horus MCP server: summary, sizes, subject rules, and the graph inputs that horus sets. |
 | `workflow.json` | The graph, in ComfyUI "UI" format. 10 nodes. Do not edit it by hand. |
 | `recipe.json` | A comfy-cli recipe that builds the same graph. |
-| `models.json` | The model files, with size and SHA-256. The install script reads it. |
+| `models.json` | The model files, with size and SHA-256. `horus workflow install` reads it. |
 | `examples/` | Pictures made with this workflow. |
 
 ## Models and pairings
@@ -95,21 +95,19 @@ MCP (Model Context Protocol) is how an agent calls tools. These tools come from 
 
 `run_workflow(wait=True)` has a budget of about 110 s. A model load alone can exceed it, so always use `wait=False`.
 
-## Run it with the script
+## Run it without an agent
 
 ```
-python scripts/run-illustration.py --subject "a message queue between two services" --seed 7 --out out/queue.png
+horus run-illustration -subject "a message queue between two services" -seed 7 -out out/queue.png
 ```
 
-The script needs only the Python standard library. It reads `workflow.json`, converts it to the API format with the node definitions of the running server, sets the caption, seed and file prefix, submits the job, waits and saves the PNG. It prints one JSON line:
+`horus run-illustration` uses the same code as the MCP tool `generate_image`. It reads `workflow.json`, converts it to the API format with the node definitions of the running server, sets the caption, seed and file prefix, submits the job, waits and saves the PNG. When ComfyUI does not answer, it starts ComfyUI (`HORUS_AUTOSTART=0` turns this off). It prints one JSON line:
 
 ```
-{"ok": true, "prompt_id": "...", "out": "out/queue.png", "seed": 7, "steps": 15, "width": 1536, "height": 1024, "execution_seconds": 217.5, "comfy_output": "..."}
+{"ok":true,"prompt_id":"...","out":"out/queue.png","seed":7,"steps":15,"width":1536,"height":1024,"execution_seconds":217.5,"comfy_output":"..."}
 ```
 
-On failure it prints `{"ok": false, "error": "..."}` to stderr and exits with code 1. Options: `--subject-file`, `--steps`, `--width`, `--height`, `--style-file` (an optional JSON `{prefix, suffix}` that you own; default: none), `--url`, `--timeout`. The server URL is `--url`, or the environment variable `HORUS_COMFYUI_URL`, or `http://127.0.0.1:8188`.
-
-From Python, import the function `generate(subject, seed, out, ...)`. It returns a dict with the same keys and raises `IllustrationError` on failure.
+On failure it prints `{"ok":false,"error":...}` to stderr and exits with code 1. Options: `-subject-file`, `-steps`, `-width`, `-height`, `-style-file` (an optional JSON `{prefix, suffix}` that you own; default: none), `-url`, `-timeout`, `-workflow`. The server URL is `-url`, or the environment variable `HORUS_COMFYUI_URL`, or `http://127.0.0.1:8188`. `horus run-illustration -h` shows every option.
 
 ## Rebuild the graph
 

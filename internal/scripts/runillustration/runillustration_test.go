@@ -154,3 +154,89 @@ func TestFlagErrors(t *testing.T) {
 		t.Errorf("absent subject file: exit %d", code)
 	}
 }
+
+// samplerSteps reads the step count of the KSampler node that the fake ComfyUI received.
+func samplerSteps(t *testing.T, f *comfytest.Fake) float64 {
+	t.Helper()
+	for _, n := range f.Job("job-1").Graph {
+		node := n.(map[string]any)
+		if node["class_type"] == "KSampler" {
+			return node["inputs"].(map[string]any)["steps"].(float64)
+		}
+	}
+	t.Fatal("no KSampler node")
+	return 0
+}
+
+func runJSON(t *testing.T, args ...string) map[string]any {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	if code := Run(args, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestSteps(t *testing.T) {
+	f, tmp := setup(t)
+	got := runJSON(t, "-url", f.URL(), "-subject", subject, "-steps", "4", "-out", filepath.Join(tmp, "a.png"))
+	if s := samplerSteps(t, f); s != 4 {
+		t.Fatalf("the graph has steps %v, want 4", s)
+	}
+	if got["steps"] != 4.0 {
+		t.Fatalf("the JSON line has steps %v, want 4", got["steps"])
+	}
+
+	// Without the flag the graph keeps the value of the workflow.
+	f2, tmp2 := setup(t)
+	got2 := runJSON(t, "-url", f2.URL(), "-subject", subject, "-out", filepath.Join(tmp2, "b.png"))
+	own := samplerSteps(t, f2)
+	if own == 4 || got2["steps"] != own {
+		t.Fatalf("graph steps %v, JSON steps %v", own, got2["steps"])
+	}
+}
+
+func TestWorkflowPath(t *testing.T) {
+	f, tmp := setup(t)
+	// A workflow folder outside the workflows folder of the process.
+	other := filepath.Join(tmp, "elsewhere", "it-illustration")
+	os.MkdirAll(other, 0o755)
+	for _, name := range []string{"manifest.json", "workflow.json", "models.json"} {
+		data, err := os.ReadFile(filepath.Join(tmp, "workflows", "it-illustration", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(other, name), data, 0o644)
+	}
+	os.RemoveAll(filepath.Join(tmp, "workflows", "it-illustration"))
+	t.Setenv("HORUS_WORKFLOWS_DIR", filepath.Join(tmp, "workflows"))
+	got := runJSON(t, "-url", f.URL(), "-subject", subject, "-workflow", filepath.Join(other, "workflow.json"),
+		"-out", filepath.Join(tmp, "c.png"))
+	if got["ok"] != true || got["prompt_id"] != "job-1" {
+		t.Fatalf("result: %v", got)
+	}
+	if c := caption(t, f); c != subject {
+		t.Fatalf("caption: %q", c)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"-url", f.URL(), "-subject", subject, "-workflow", filepath.Join(tmp, "absent", "workflow.json")}, &stdout, &stderr); code != 1 {
+		t.Fatalf("absent path: exit %d", code)
+	}
+}
+
+func TestJSONKeys(t *testing.T) {
+	f, tmp := setup(t)
+	got := runJSON(t, "-url", f.URL(), "-subject", subject, "-out", filepath.Join(tmp, "d.png"))
+	for _, k := range []string{"ok", "prompt_id", "out", "seed", "steps", "width", "height", "execution_seconds", "comfy_output"} {
+		if _, ok := got[k]; !ok {
+			t.Errorf("the key %q is missing: %v", k, got)
+		}
+	}
+	if name, _ := got["comfy_output"].(string); !strings.HasSuffix(name, ".png") {
+		t.Errorf("comfy_output %q is not the file that ComfyUI reported", name)
+	}
+}

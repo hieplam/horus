@@ -56,6 +56,10 @@ type Request struct {
 	Height    any
 	OutPath   *string
 	Overwrite bool
+	// Steps overrides the step count of the sampler node for this call. The
+	// tool generate_image never sets it; horus run-illustration does. nil
+	// keeps the value of the workflow.
+	Steps *int64
 }
 
 // Result is the result of generate_image, in the key order of ImageResult of server.py.
@@ -70,6 +74,11 @@ type Result struct {
 	BackendSeconds *float64 `json:"backend_seconds"`
 	StartedBackend bool     `json:"started_backend"`
 	JobID          string   `json:"job_id"`
+
+	// Not part of the tool result (json "-"): the step count that ran and the
+	// file name that ComfyUI reported. horus run-illustration prints them.
+	Steps       int64  `json:"-"`
+	ComfyOutput string `json:"-"`
 }
 
 // checked is the output of Validate.
@@ -359,6 +368,20 @@ func Generate(ctx context.Context, r Request, o Options) (*Result, error) {
 		}
 	}
 
+	// The step count: set it when the caller asked, and read it for the result.
+	// A workflow without a KSampler node has no step count (0).
+	var steps int64
+	if sampler, err := nodeID(api, "KSampler"); err == nil {
+		if r.Steps != nil {
+			if err := api.Node(sampler).Inputs.Set("steps", *r.Steps); err != nil {
+				return nil, err
+			}
+		}
+		_ = api.Node(sampler).Inputs.Decode("steps", &steps)
+	} else if r.Steps != nil {
+		return nil, err
+	}
+
 	promptID, err := c.Submit(ctx, api, uuid4())
 	if err != nil {
 		return nil, err
@@ -404,6 +427,8 @@ func Generate(ctx context.Context, r Request, o Options) (*Result, error) {
 		BackendSeconds: comfy.ExecutionSeconds(entry),
 		StartedBackend: started,
 		JobID:          promptID,
+		Steps:          steps,
+		ComfyOutput:    images[0].Filename,
 	}, nil
 }
 

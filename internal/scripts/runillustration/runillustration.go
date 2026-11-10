@@ -9,7 +9,7 @@
 //
 // On success it prints one JSON line and exits 0:
 //
-//	{"ok":true,"prompt_id":...,"out":...,"seed":...,"width":...,"height":...,"execution_seconds":...}
+//	{"ok":true,"prompt_id":...,"out":...,"seed":...,"steps":...,"width":...,"height":...,"execution_seconds":...,"comfy_output":...}
 //
 // On failure it prints {"ok":false,"error":...} to stderr and exits 1.
 package runillustration
@@ -23,10 +23,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hieplam/horus/internal/comfy"
 	"github.com/hieplam/horus/internal/generate"
+	"github.com/hieplam/horus/internal/settings"
 )
 
 // Options is everything that Illustrate needs.
@@ -37,7 +39,9 @@ type Options struct {
 	Seed     int64
 	Width    any // nil: the default of the manifest
 	Height   any
-	URL      string
+	// Steps overrides the step count of the sampler. nil: the value of the workflow.
+	Steps *int64
+	URL   string
 	// StylePath is a JSON file {prefix, suffix}. Empty: no style.
 	StylePath string
 	Timeout   time.Duration
@@ -49,9 +53,11 @@ type Result struct {
 	PromptID         string   `json:"prompt_id"`
 	Out              string   `json:"out"`
 	Seed             uint64   `json:"seed"`
+	Steps            int64    `json:"steps"`
 	Width            int64    `json:"width"`
 	Height           int64    `json:"height"`
 	ExecutionSeconds *float64 `json:"execution_seconds"`
+	ComfyOutput      string   `json:"comfy_output"`
 }
 
 // buildPrompt is the subject, or the caller's prefix + subject + suffix.
@@ -88,13 +94,40 @@ func Illustrate(ctx context.Context, o Options) (*Result, error) {
 	}
 	res, err := generate.Generate(ctx, generate.Request{
 		Workflow: o.Workflow, Subject: prompt, Seed: o.Seed, Width: o.Width, Height: o.Height,
-		OutPath: &out, Overwrite: true,
+		OutPath: &out, Overwrite: true, Steps: o.Steps,
 	}, generate.Options{Client: comfy.New(o.URL), Timeout: o.Timeout})
 	if err != nil {
 		return nil, err
 	}
-	return &Result{OK: true, PromptID: res.JobID, Out: res.Path, Seed: res.Seed, Width: res.Width,
-		Height: res.Height, ExecutionSeconds: res.BackendSeconds}, nil
+	return &Result{OK: true, PromptID: res.JobID, Out: res.Path, Seed: res.Seed, Steps: res.Steps,
+		Width: res.Width, Height: res.Height, ExecutionSeconds: res.BackendSeconds, ComfyOutput: res.ComfyOutput}, nil
+}
+
+// workflowName turns the value of -workflow into a workflow name. A plain name
+// stays as it is. The path of a workflow.json inside a workflow folder becomes
+// the name of that folder, and the parent of the folder becomes the workflows
+// folder of this process, as the old script ran the file that it was given.
+func workflowName(v string) (string, error) {
+	if !strings.ContainsAny(v, `/\`) && !strings.HasSuffix(strings.ToLower(v), ".json") {
+		return v, nil
+	}
+	abs, err := filepath.Abs(v)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(abs); err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(abs)
+	if filepath.Base(abs) != "workflow.json" {
+		return "", fmt.Errorf("%s: the path must end in workflow.json", v)
+	}
+	parent := filepath.Dir(dir)
+	if filepath.Clean(parent) != filepath.Clean(settings.WorkflowsDir()) {
+		os.Setenv("HORUS_WORKFLOWS_DIR", parent)
+		settings.Reset()
+	}
+	return filepath.Base(dir), nil
 }
 
 // Run is the command horus run-illustration. It returns the exit code.
@@ -108,7 +141,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	width := fs.Int64("width", 0, "width in pixels (default: the width of the manifest)")
 	height := fs.Int64("height", 0, "height in pixels (default: the height of the manifest)")
 	url := fs.String("url", "", "ComfyUI URL (default: HORUS_COMFYUI_URL, then http://127.0.0.1:8188)")
-	workflow := fs.String("workflow", "it-illustration", "name of the workflow under workflows/")
+	steps := fs.Int64("steps", 0, "sampler steps (default: the value in the workflow)")
+	workflow := fs.String("workflow", "it-illustration", "name of a workflow under workflows/, or the path of its workflow.json")
 	style := fs.String("style-file", "", "optional JSON {prefix, suffix} that you own; default: no style")
 	timeout := fs.Int("timeout", 1800, "seconds to wait for the job")
 	if err := fs.Parse(args); err != nil {
@@ -131,8 +165,15 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		text = string(data)
 	}
-	o := Options{Subject: text, Workflow: *workflow, Out: *out, Seed: *seed, URL: *url, StylePath: *style,
+	name, err := workflowName(*workflow)
+	if err != nil {
+		return fail(err)
+	}
+	o := Options{Subject: text, Workflow: name, Out: *out, Seed: *seed, URL: *url, StylePath: *style,
 		Timeout: time.Duration(*timeout) * time.Second}
+	if *steps != 0 {
+		o.Steps = steps
+	}
 	if *width != 0 {
 		o.Width = *width
 	}

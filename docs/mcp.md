@@ -16,9 +16,20 @@ flowchart LR
   agent[Any agent, any repo] -->|MCP over stdio| horus[horus mcp]
   horus -->|reads| wf[workflows/*/manifest.json]
   horus -->|HTTP 127.0.0.1:8188| comfy[ComfyUI]
-  horus -->|install, remove: child process| wfcmd[horus workflow]
-  comfy -->|loads| models[(Model files)]
+  horus -->|list, check, install, remove: child process| wfcmd[horus workflow]
+  horus -.->|ComfyUI does not answer: child process, Windows only| start[horus start-comfyui]
+  start -->|starts| comfy
+  wfcmd -->|download, token only in a header| hf[huggingface.co]
+  wfcmd -->|writes| models[(Model files)]
+  comfy -->|loads| models
 ```
+
+A child process is another copy of the same `horus` program that the server
+starts for one job and waits for. `horus workflow` does all the work on model
+files (where a file lives, the SHA-256 check, the download). The server reads
+only its last output line, `HORUS_JSON {...}`. This keeps `HF_TOKEN` out of the
+server process, and a cancelled install stops the child and leaves the `.part`
+file for the next install to resume.
 
 ## Install and connect
 

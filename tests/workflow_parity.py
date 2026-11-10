@@ -362,7 +362,7 @@ def main() -> int:
 
     build_dir = Path(tempfile.mkdtemp(prefix="horus-parity-bin-"))
     try:
-        horus = a.horus or build_horus(build_dir)
+        horus = str(Path(a.horus).resolve()) if a.horus else build_horus(build_dir)
         equal = compared = 0
         for c in cases:
             gfile = GOLDEN / f"{c[0]}.json"

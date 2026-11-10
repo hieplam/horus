@@ -6,8 +6,12 @@
 // `horus workflow` stays the one implementation of the file rules: where a
 // model file lives, the SHA-256 check, the token handling (the token never
 // passes through horus mcp), the refusal to overwrite or delete a file that
-// differs from models.json. A cancel kills the process tree of the child; the
-// .part file stays, so the next install resumes it.
+// differs from models.json.
+//
+// Only an install stops on a cancel, as in models.py: the end of its context
+// kills the process tree of the child, and the .part file stays, so the next
+// install resumes it. ListStatus, Check and Remove run to the end, as the
+// threads of models.py did; a remove must not stop in the middle.
 package models
 
 import (
@@ -234,7 +238,7 @@ type Row struct {
 
 // ListStatus returns name -> row. A size check only, so it is fast.
 func ListStatus(ctx context.Context) (map[string]Row, error) {
-	run, err := RunScript(ctx, "list", "", nil, nil, nil)
+	run, err := RunScript(context.WithoutCancel(ctx), "list", "", nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +277,7 @@ func Check(ctx context.Context, w *catalog.Workflow, quick bool) (*Result, error
 	if quick {
 		extra = []string{"-quick"}
 	}
-	run, err := RunScript(ctx, "check", w.Name, extra, nil, nil)
+	run, err := RunScript(context.WithoutCancel(ctx), "check", w.Name, extra, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +386,7 @@ func Remove(ctx context.Context, w *catalog.Workflow, confirm, forceShared bool)
 	if forceShared {
 		extra = append(extra, "-force")
 	}
-	run, err := RunScript(ctx, "remove", w.Name, extra, nil, nil)
+	run, err := RunScript(context.WithoutCancel(ctx), "remove", w.Name, extra, nil, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -64,6 +64,12 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G4 | Known difference, not fixed: the text of an operating system error (the detail of `DELETE_FAILED`) and of a JSON error in `models.json` or `workflow.json` is the Go text, not the .NET text. The JSON escapes are also different (Go writes `<` for `<`, the script wrote `'` for `'`); the parsed values are equal. | Go forces its own error texts. No caller reads these texts; `horus/models.py` reads only the status. |
 | 2026-11-10 | G4 | The Go comments name `workflow.ps1` or .NET, never the shell by name. | The `no-python` row of `tools/goal_check.py` fails for every Go file that contains the word `powershell`. |
 | 2026-11-10 | G4 | The disk record of a parity case counts CRLF as LF before it takes the size and the SHA-256 of a file. | The first CI run on `macos-latest` gave `parity: 1 of 17 cases equal`. Every difference was one line, `comfy/ComfyUI/main.py 8 ddc00976caf4` (golden) against `comfy/ComfyUI/main.py 7 d13e881e48bd` (macOS): `make_sandbox` of the contract test writes `main.py` in text mode, so Windows writes CRLF. horus does not write that file. The model stand-ins and `extra_model_paths.yaml` have no CRLF. |
+| 2026-11-10 | G5 | The ratchet of G5 is 22 → 30, so +8 and not +9. The baseline on `origin/main` (`3944492`) was 22, not 21: "style without model files -> WORKFLOW_NOT_INSTALLED naming the file" passes since G2, because `generate_image` finds the missing file in `/object_info`. 30 of 30 is the maximum. | The plan counted that check as a G5 check. The row `contract` asks for 30 of 30, and G5 reaches it. |
+| 2026-11-10 | G5 | Allowed difference (rule 3 of the spec): the `INTERNAL` messages of `internal/models` name the subcommand: `horus workflow <action> printed no result` and `horus workflow list failed`, where `models.py` wrote `workflow.ps1 ...`. | A message that named a `.ps1` script names the `horus` subcommand. |
+| 2026-11-10 | G5 | Only `install_workflow` stops on a cancel, as in `models.py`. The end of its context kills the process tree of the child. `ListStatus`, `Check`, `Remove` and the file states of `describe_workflow` run with `context.WithoutCancel`, so they run to the end, as the threads of `models.py` did. | The old code is right. A `remove -yes` that stops in the middle deletes only some files. |
+| 2026-11-10 | G5 | The process tree: on Windows `taskkill /PID <pid> /T /F` (from `%SystemRoot%\System32`), then `Process.Kill`, as `Run.cancel` of `models.py` does; the child gets `CREATE_NO_WINDOW`. On macOS and Linux the child gets its own process group (`Setpgid`), and the cancel sends `SIGKILL` to the group. Not a Job Object. | The plan allows `taskkill /T`. It is the method of the old code, and it needs no Windows API calls. |
+| 2026-11-10 | G5 | `TestNotPortedToolsAnswerInternal` is deleted, and the helper `notPorted` with it. No tool part is left that is not ported, so the premise of the test is false. `TestModelToolsOnASandbox` calls the 4 tools through MCP with a real child and checks that `describe_workflow` names no graph file and no node class. | The same reason as the G2 decision about this test. The test is not weakened to pass: its subject is gone. |
+| 2026-11-10 | G5 | The Go tests of `internal/models` and `internal/server` use the test binary as the `horus workflow` child (`models.Exe` is the seam, `TestMain` the fake). In `internal/server` the fake runs the real `workflow.Main` in the child process, except in the `sleep` mode of the cancel test. | The process boundary of the spec: the server calls the workflow code only through a child process. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -765,3 +771,151 @@ After the merge of `origin/main` with G2 (`7096ebd`), on this PC: `go test ./...
 CI on `macos-latest`, the default run (Go against the golden files): the first run gave `parity: 1 of 17 cases equal`, with the `main.py` line as the only difference (see Decisions). After the change of the disk record and a new `--record`, on this PC: `python tests/workflow_parity.py` and `python tests/workflow_parity.py --live` both print `parity: 17 of 17 cases equal`.
 
 After the merge of `origin/main` with G7 (`9a90f16`): `cmd/horus/cmd_not_ported.go` keeps no line (G7 and G4 each deleted theirs). On this PC: `go test ./...` passes, the default run and `--live` both print `parity: 17 of 17 cases equal`, and `python tools/goal_check.py --no-ci` prints `PASS` for `graph`, `workflow-cli`, `downloader`, `setup-commands` and `builds`, and `goal: 5 of 8 rows passed`.
+
+## G5
+
+Baseline before building (`origin/main` at `3944492`): the contract test against Go prints `contract: 22 of 30 passed`. `python tools/goal_check.py --no-ci` prints `goal: 5 of 8 rows passed`.
+
+Red (the 4 tools still return the `INTERNAL` envelope of G1; the test cuts the long details after 300 characters):
+
+```
+$ go build -o bin/horus.exe ./cmd/horus
+$ python tests/mcp_contract.py --server-cmd <worktree>/bin/horus.exe mcp
+PASS  server identifies as horus and has instructions
+PASS  tools/list has exactly the 5 tools
+PASS  every tool has an outputSchema with ok, result, error
+PASS  uninstall_workflow is marked destructive, list_workflows read-only
+FAIL  list_workflows shows installed and partially_installed styles  -- {"ok": false, "result": null, "error": {"code": "INTERNAL", "message": "list_workflows is not ported to Go yet: the install state of each workflow comes in task G5", "retryable": false, "action_by": "human", "next_step": "This is a bug in horus. Report details to the user.", "details": {"task": "G5", "tool": "list_workflows"}}}
+FAIL  describe_workflow gives subject rules, examples and 3 present files  -- {"ok": false, "result": null, "error": {"code": "INTERNAL", "message": "describe_workflow is not ported to Go yet: the state of each model file comes in task G5", "retryable": false, "action_by": "human", "next_step": "This is a bug in horus. Report details to the user.", "details": {"task": "G5", "tool": "describe_workflow"}}}
+PASS  list_workflows and describe_workflow carry no theme or look
+PASS  describe_workflow hides the ComfyUI graph (no node class names)
+PASS  unknown workflow -> WORKFLOW_NOT_FOUND with the known names, isError
+PASS  generate_image writes a PNG at out_path and returns its path and seed
+PASS  horus sends the subject to the model as written (0 characters added)
+PASS  seed 7 reaches the sampler of the graph
+PASS  generate_image sends progress notifications
+PASS  existing out_path -> OUTPUT_EXISTS
+PASS  width 1000 -> INVALID_ARGUMENT field=width, action_by=caller
+PASS  too short subject -> INVALID_ARGUMENT field=subject with the rules
+PASS  style without model files -> WORKFLOW_NOT_INSTALLED naming the file
+PASS  GPU out of memory -> OUT_OF_MEMORY, retryable, action_by=caller
+PASS  a job over the time limit -> GENERATION_TIMEOUT, and horus cancels it on the backend
+FAIL  install of an installed style -> ok, already_installed  -- {"ok": false, "result": null, "error": {"code": "INTERNAL", "message": "install_workflow is not ported to Go yet: the install of the model files comes in task G5", "retryable": false, "action_by": "human", "next_step": "This is a bug in horus. Report details to the user.", "details": {"task": "G5", 
+FAIL  install without accept_license -> LICENSE_CONFIRMATION_REQUIRED, action_by=human, with size  -- {"ok": false, "result": null, "error": {"code": "INTERNAL", "message": "install_workflow is not ported to Go yet: the install of the model files comes in task G5", "retryable": false, "action_by": "human", "next_step": "This is a bug in horus. Report details to the user.", "details": {"task": "G5", 
+FAIL  uninstall without confirm -> CONFIRMATION_REQUIRED, plan: 1 to delete, 2 shared kept; nothing deleted  -- {"ok": false, "result": null, "error": {"code": "INTERNAL", "message": "uninstall_workflow is not ported to Go yet: the removal of the model files comes in task G5", "retryable": false, "action_by": "human", "next_step": "This is a bug in horus. Report details to the user.", "details": {"task": "G5", "tool": "uninstall_workflow"}}}
+FAIL  uninstall with confirm deletes the 1 unshared file and keeps the 2 shared files  -- {"ok": false, "result": null, "error": {"code": "INTERNAL", "message": "uninstall_workflow is not ported to Go yet: the removal of the model files comes in task G5", "retryable": false, "action_by": "human", "next_step": "This is a bug in horus. Report details to the user.", "details": {"task": "G5", "tool": "uninstall_workflow"}}}
+FAIL  uninstall with remove_shared deletes the 2 shared files  -- {"ok": false, "result": null, "error": {"code": "INTERNAL", "message": "uninstall_workflow is not ported to Go yet: the removal of the model files comes in task G5", "retryable": false, "action_by": "human", "next_step": "This is a bug in horus. Report details to the user.", "details": {"task": "G5", "tool": "uninstall_workflow"}}}
+FAIL  after uninstall, list_workflows shows both styles not_installed  -- {}
+PASS  errors are the same envelope in structuredContent and in text
+PASS  backend down and autostart off -> BACKEND_UNAVAILABLE, action_by=human
+PASS  it-illustration: manifest has no theme and no caption style file
+PASS  it-illustration: the graph holds no style words
+PASS  docs/mcp.md lists every error code
+contract: 22 of 30 passed
+exit 1
+```
+
+Green:
+
+```
+$ go build -o bin/horus.exe ./cmd/horus
+$ python tests/mcp_contract.py --server-cmd <worktree>/bin/horus.exe mcp
+PASS  server identifies as horus and has instructions
+PASS  tools/list has exactly the 5 tools
+PASS  every tool has an outputSchema with ok, result, error
+PASS  uninstall_workflow is marked destructive, list_workflows read-only
+PASS  list_workflows shows installed and partially_installed styles
+PASS  describe_workflow gives subject rules, examples and 3 present files
+PASS  list_workflows and describe_workflow carry no theme or look
+PASS  describe_workflow hides the ComfyUI graph (no node class names)
+PASS  unknown workflow -> WORKFLOW_NOT_FOUND with the known names, isError
+PASS  generate_image writes a PNG at out_path and returns its path and seed
+PASS  horus sends the subject to the model as written (0 characters added)
+PASS  seed 7 reaches the sampler of the graph
+PASS  generate_image sends progress notifications
+PASS  existing out_path -> OUTPUT_EXISTS
+PASS  width 1000 -> INVALID_ARGUMENT field=width, action_by=caller
+PASS  too short subject -> INVALID_ARGUMENT field=subject with the rules
+PASS  style without model files -> WORKFLOW_NOT_INSTALLED naming the file
+PASS  GPU out of memory -> OUT_OF_MEMORY, retryable, action_by=caller
+PASS  a job over the time limit -> GENERATION_TIMEOUT, and horus cancels it on the backend
+PASS  install of an installed style -> ok, already_installed
+PASS  install without accept_license -> LICENSE_CONFIRMATION_REQUIRED, action_by=human, with size
+PASS  uninstall without confirm -> CONFIRMATION_REQUIRED, plan: 1 to delete, 2 shared kept; nothing deleted
+PASS  uninstall with confirm deletes the 1 unshared file and keeps the 2 shared files
+PASS  uninstall with remove_shared deletes the 2 shared files
+PASS  after uninstall, list_workflows shows both styles not_installed
+PASS  errors are the same envelope in structuredContent and in text
+PASS  backend down and autostart off -> BACKEND_UNAVAILABLE, action_by=human
+PASS  it-illustration: manifest has no theme and no caption style file
+PASS  it-illustration: the graph holds no style words
+PASS  docs/mcp.md lists every error code
+contract: 30 of 30 passed
+exit 0
+```
+
+```
+$ go test -count=1 -v ./internal/models   (only the result lines)
+--- PASS: TestRunScriptReadsTheLinesAndTheResult (0.25s)
+--- PASS: TestNoResultLineIsInternal (0.04s)
+--- PASS: TestListStatusAndInstallState (0.08s)
+--- PASS: TestInstallMapsEachStatusToItsCode (0.48s)
+--- PASS: TestRemoveMapsEachStatusToItsCode (0.17s)
+--- PASS: TestCancelKillsTheProcessTree (0.21s)
+--- PASS: TestPartSize (0.00s)
+ok  	github.com/hieplam/horus/internal/models	2.058s
+$ go test -count=1 -v ./internal/server -run "TestModelTools|TestInstallReports|TestSizeText"   (only the result lines)
+--- PASS: TestModelToolsOnASandbox (0.36s)
+--- PASS: TestSizeText (0.00s)
+--- PASS: TestInstallReportsProgressAndACancelStopsTheChild (0.28s)
+ok  	github.com/hieplam/horus/internal/server	1.213s
+```
+
+- `TestInstallMapsEachStatusToItsCode` has 15 subtests, one for each outcome of an install:
+  - `ok`;
+  - HTTP 401 in the detail and on stderr: `HF_TOKEN_INVALID`;
+  - HTTP 403: `LICENSE_NOT_ACCEPTED`, with the license and its page;
+  - not enough free space: `DISK_FULL`;
+  - refusal to overwrite: `FILE_CONFLICT`;
+  - another download failure: `DOWNLOAD_FAILED`;
+  - `NO_NODE`: `NODE_PACK_MISSING`;
+  - `BAD_SIZE` and `BAD_HASH`: `FILE_CONFLICT`;
+  - `NOT_SEEN`: `BACKEND_RESTART_REQUIRED`;
+  - `MISSING`: `WORKFLOW_NOT_INSTALLED`;
+  - `UNLISTED`: `INTERNAL`;
+  - "ComfyUI was not found": `BACKEND_NOT_INSTALLED`;
+  - any other failure: `INTERNAL`.
+- `TestRemoveMapsEachStatusToItsCode`: `DELETE_FAILED` gives `FILE_IN_USE`, `REFUSED` gives `FILE_CONFLICT`, any other failure gives `INTERNAL`.
+- `TestCancelKillsTheProcessTree`: the child sleeps 60 s. A grandchild that the child started holds the same stdout pipe. `WaitDelay` is 30 s in the test, so the run returns before 10 s only when every process of the tree is gone. On this PC the run returned 154 ms after the cancel. The `.part` file stays.
+- `TestInstallReportsProgressAndACancelStopsTheChild`: through MCP, with a `progressToken`. The tool reports `2.5e+06/172 downloading flux3-image-klein-int8-convrot.safetensors: 0.00 GB` (the size of the `.part` file, then the total of `models.json`). Then the client cancels the call. The tool returns before 10 s, and the `.part` file stays.
+
+Same answers as the Python server. A scratch script (not committed) made two contract sandboxes. It called the 4 tools 11 times on each server (`horus-mcp` of Python, and `bin/horus.exe mcp`), in this order:
+
+1. `list_workflows`
+2. `describe_workflow absent-style`
+3. `install_workflow it-illustration` (already installed)
+4. `install_workflow absent-style` (no `accept_license`)
+5. `uninstall_workflow absent-style`
+6. `uninstall_workflow it-illustration` (the plan)
+7. `uninstall_workflow it-illustration` with `confirm`
+8. `describe_workflow it-illustration`
+9. `uninstall_workflow it-illustration` with `confirm` and `remove_shared`
+10. `uninstall_workflow it-illustration` with `confirm` (nothing left)
+11. `list_workflows`
+
+It compared the envelopes as JSON, with the sandbox folder and `seconds` made equal: `compare: 11 of 11 calls equal`.
+
+Stub check (mutation runs, each reverted after the run):
+
+- `InstallState` returns `installed` for every workflow: `FAIL  list_workflows shows installed and partially_installed styles`, `FAIL  after uninstall, list_workflows shows both styles not_installed  -- {"absent-style": "installed", "it-illustration": "installed"}`, `contract: 28 of 30 passed`.
+- `Remove` never passes `-yes`, but reports `WOULD_DELETE` as `DELETED` (an uninstall that deletes nothing): `FAIL  uninstall with confirm deletes the 1 unshared file and keeps the 2 shared files` (the states are right, but the files are still on disk), `FAIL  uninstall with remove_shared deletes the 2 shared files`, `FAIL  after uninstall, list_workflows shows both styles not_installed  -- {"absent-style": "partially_installed", "it-illustration": "installed"}`, `contract: 27 of 30 passed`.
+- `killTree` on Windows kills only the child (no `taskkill /T`): `--- FAIL: TestCancelKillsTheProcessTree (21.77s)` with `the run did not return 20 s after the cancel`.
+
+G1 said that two checks passed for a weak reason. They now pass with real results:
+
+- "list_workflows and describe_workflow carry no theme or look" reads a real `describe_workflow` result and two real `list_workflows` rows.
+- "describe_workflow hides the ComfyUI graph (no node class names)" reads the text of a real `describe_workflow` result.
+
+`python scripts/lint-public.py`: `lint-public: 0 finding(s)`. `gofmt -l .` prints nothing. `go test ./...` passes. `GOOS=linux` and `GOOS=darwin` `go vet ./...` pass.
+
+Ratchet: contract checks against Go: 22 → 30 of 30 (+8; see Decisions). `goal`: 5 → 5 of 8 rows. The row `contract` also needs the CI jobs on both systems (task G8).

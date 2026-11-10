@@ -42,7 +42,7 @@ func describeResult(d catalog.Detail, state string, files []InstallFile) Describ
 // failed check (a missing file) is a normal answer here, so it reads the
 // items and not the ok of the result.
 func fileStates(ctx context.Context, w *catalog.Workflow) ([]InstallFile, error) {
-	run, err := models.RunScript(ctx, "check", w.Name, []string{"-quick"}, nil, nil)
+	run, err := models.RunScript(context.WithoutCancel(ctx), "check", w.Name, []string{"-quick"}, nil, nil)
 	if err != nil {
 		return nil, err
 	}

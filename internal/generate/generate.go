@@ -239,7 +239,7 @@ func pyQuote(s string) string {
 }
 
 // round1 is round(x, 1); roundInt is round(x) of Python (half to even).
-func round1(x float64) float64 { return comfy.Round1(x) }
+func round1(x float64) float64   { return comfy.Round1(x) }
 func roundInt(x float64) float64 { return math.RoundToEven(x) }
 
 // Options are the parts of a call that the server or a test sets.

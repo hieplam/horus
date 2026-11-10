@@ -391,8 +391,8 @@ func TestYAMLFolders(t *testing.T) {
 	}
 }
 
-func TestNumbersAsPowerShellPrintsThem(t *testing.T) {
-	// The values that Windows PowerShell 5.1 printed for "{0:N2}" and [math]::Round(x, 2).
+func TestNumbersAsTheScriptPrintsThem(t *testing.T) {
+	// The values that workflow.ps1 (on .NET Framework) printed for "{0:N2}" and [math]::Round(x, 2).
 	for b, want := range map[int64]string{0: "0.00", 172: "0.00", 5_827_874_779: "5.83", 1_234_567_890_123: "1,234.57",
 		999_995_000_000: "1,000.00", 1_005_000_000: "1.01", 2_675_000_000: "2.68", 4_000_000: "0.00", 5_000_000: "0.01"} {
 		if got := gb2(b); got != want {

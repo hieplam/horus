@@ -361,7 +361,7 @@ func (r *runner) list() error {
 // roundGB is [math]::Round($bytes / 1e9, 2).
 func roundGB(b int64) float64 { return math.RoundToEven(float64(b)/1e9*100) / 100 }
 
-// gb2 is "{0:N2}" -f ($bytes / 1e9) as Windows PowerShell 5.1 prints it in
+// gb2 is "{0:N2}" -f ($bytes / 1e9) as workflow.ps1 prints it on Windows in
 // the en-US culture: .NET Framework takes the value with 15 significant digits,
 // rounds it half away from zero to two decimals, and puts a comma between
 // groups of three digits. So 999.995 gives "1,000.00" and 1.005 gives "1.01".

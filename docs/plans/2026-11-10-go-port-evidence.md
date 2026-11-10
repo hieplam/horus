@@ -34,6 +34,18 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G3 | The free space comes from a second set of OS files: `freespace_windows.go` (`GetDiskFreeSpaceExW`), `freespace_unix.go` (`darwin \|\| linux`, `syscall.Statfs`) and `freespace_other.go` (no value, so a warning, as the script did for a network path). They use only the standard library, so `go.mod` does not change. The check reads the nearest folder that exists, not the drive root. | Go has no portable call for free space, so Go forces this OS code. The spec names only the process tree as OS code; this is one more place. |
 | 2026-11-10 | G3 | Three checks that the script did not have: an address with a user part (`https://user@host/`) is refused, because `net/http` sends the user part as a `Basic` Authorization header; the downloader checks again that the destination is absent just before the rename, because `os.Rename` replaces a file; and it reads at most one byte more than the expected size from an answer. | Rule 6 of the spec (no credential to another host) and "never overwrite a file that it did not write". `Move-Item` refused an existing file; `os.Rename` does not. |
 | 2026-11-10 | G3 | The stub check found that Go's `net/http` itself drops the Authorization header on a redirect to a host that is not the first host or a subdomain of it. So the redirect test also passes without the own `CheckRedirect` rule. The own rule stays, because it also drops the header on a redirect to plain `http` and to a host that is not `huggingface.co`. The stub "always send the token" fails `TestTokenGoesOnlyToHuggingFaceHosts`. | Evidence for the Stub check, recorded so that nobody reads the redirect test as proof of the own rule alone. |
+| 2026-11-10 | G4 | `tests/workflow_parity.py` has 17 cases: the 10 cases of the plan and 7 more (`check-bad-size`, `check-bad-hash`, `remove-refused`, `check-unlisted-no-node`, `install-no-comfyui`, `remove-part-file`, `list-text`). So Green prints `parity: 17 of 17 cases equal`, not `10 of 10`. | The 10 cases reach only 9 of the 17 item statuses. The 7 more cases reach `BAD_SIZE`, `BAD_HASH`, `REFUSED`, `UNLISTED`, `NO_NODE` and the text output of `list`. More cases prove more of the same row. `DOWNLOADED`, `FAILED` and `DELETE_FAILED` need a download or a locked file; Go tests cover them (see `## G4`). |
+| 2026-11-10 | G4 | A parity case compares the exit code, the `HORUS_JSON` result (for `list -json`: the JSON list), every other output line, and after the last step the files of the sandbox's ComfyUI folder (path, size, SHA-256) and the text of `extra_model_paths.yaml`. | The plan asks for the `HORUS_JSON` result. `horus/models.py` also reads the `-- <role> -> <path>` line, and a `remove` that prints the right result but deletes nothing is wrong. |
+| 2026-11-10 | G4 | Normalisation of both sides: the sandbox folder becomes `<sandbox>`, every backslash becomes `/`, the port of the fake ComfyUI becomes `<port>`, and the time in a backup name becomes `<time>`. The golden files come from Windows. CI runs `--live` on `windows-latest`, and the default run (Go against the golden files) on `macos-latest`. | The golden files must hold no user path. With `/` for every separator, the Go output on macOS can be equal to the Windows golden files. |
+| 2026-11-10 | G4 | Allowed difference (rule 3 of the spec): the table `REWRITE` of the parity tool changes the text of `workflow.ps1` before the comparison: `.\scripts\workflow.ps1` → `horus workflow`, `.\scripts\start-comfyui.ps1` → `horus start-comfyui`, `.\scripts\install-comfyui.ps1` → `horus install-comfyui`, `-ComfyUIDir` → `-comfyui-dir`, `-Force` → `-force`, `-Yes` → `-yes`, `-Only` → `-only`. Nothing else is changed. | A message that named a `.ps1` script names the `horus` subcommand, and flags take Go style. |
+| 2026-11-10 | G4 | Safety of the parity tool: each case copies `workflow.ps1` and `download-model.ps1` into the sandbox (so the repo root of the script is the sandbox and it reads no `.env`), sets `HORUS_ROOT` to the sandbox for Go, removes `HF_TOKEN` and every other `HORUS_*` variable from the environment of the child, and sets the five `HORUS_*` folders and the URL as the contract test does. A fake ComfyUI answers `/object_info` with `tests/fixtures/object_info.json`. `install` runs only on a workflow whose files are present, so no case downloads. | The coordinator's safety rules for this PC: no real ComfyUI folder, no real model files, no download from `huggingface.co`, no token. |
+| 2026-11-10 | G4 | The flags of `horus workflow`: `-only` (a comma list, or the flag again), `-yes`, `-force`, `-quick`, `-json`, `-workflows-dir`, `-comfyui-dir`, `-models-dir`, `-text-encoder-dir`, `-server-url`, `-models-json`. Flags may come before and after the action and the workflow name, because `horus/models.py` puts them after the name. The action ignores case, as `ValidateSet` did. An unknown action, a third word or a flag that does not parse exits 2 (the script exited 1 on a parameter error). | Rule 3 of the spec, and the exit code 2 for a usage error of every `horus` command (G3, G6). |
+| 2026-11-10 | G4 | The default workflows folder is `<repo root>/workflows`. `horus workflow` does not read `HORUS_WORKFLOWS_DIR`, because `workflow.ps1` did not read it. The callers pass `-workflows-dir`, as `horus/models.py` passes `-WorkflowsDir`. | The old code is right. |
+| 2026-11-10 | G4 | The detail of a `FAILED` item holds the downloader lines that start with `FAIL:`, `Attempt ` and `The server answered with an error`, joined with ` \| `. The script took `FAIL:`, `Attempt ` and `curl exit 22`; the Go downloader prints `The server answered with an error. HTTP 401 = ... HTTP 403 = ...` where `download-model.ps1` printed `curl exit 22 means ...` (G3). `horus workflow` writes the `FAIL: <message>` line of a failed download, as `download-model.ps1` did. | The G3 note: keep the `Attempt ` and `FAIL:` lines, so that task G5 finds `error: 401`, `error: 403`, `Not enough free space` and `Refusing to overwrite`. `TestDownloadFailuresKeepTheTextThatModelsPyReads` reads each of the four texts. |
+| 2026-11-10 | G4 | The sizes in GB of `remove` (`{0:N2}`) follow .NET Framework in the `en-US` culture: the value with 15 significant digits, rounded half away from zero to 2 decimals, a comma between groups of 3 digits. Measured with `powershell.exe` on this PC: `999995000000` bytes gives `1,000.00`, `1005000000` gives `1.01`. `[math]::Round(x, 2)` of `gigabytes` is `x * 100`, rounded to even, `/ 100`. | The culture of this PC and of `windows-latest` is `en-US`. Go's own `%.2f` rounds the binary value and gives `1.00` for `1.005`. A script run in another culture prints other separators; Go always prints the `en-US` form. |
+| 2026-11-10 | G4 | `remove -yes` also deletes a read-only file: Go removes the write protection and deletes again. | `Remove-Item -Force` deletes a read-only file; `os.Remove` on Windows does not. |
+| 2026-11-10 | G4 | Known difference, not fixed: the text of an operating system error (the detail of `DELETE_FAILED`) and of a JSON error in `models.json` or `workflow.json` is the Go text, not the .NET text. The JSON escapes are also different (Go writes `<` for `<`, the script wrote `'` for `'`); the parsed values are equal. | Go forces its own error texts. No caller reads these texts; `horus/models.py` reads only the status. |
+| 2026-11-10 | G4 | The Go comments name `workflow.ps1` or .NET, never the shell by name. | The `no-python` row of `tools/goal_check.py` fails for every Go file that contains the word `powershell`. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -350,3 +362,140 @@ Stub check (mutation runs, each reverted after the run):
 `python scripts/lint-public.py`: `lint-public: 0 finding(s)`. `gofmt -l .` prints nothing. `go test ./...` passes.
 
 Ratchet: `goal`: 1 → 2 of 8 rows (`downloader`). Downloader cases that pass: 0 → 10 of 10.
+
+## G4
+
+Baseline before building (`origin/main` at `d0f89ef`): `python tools/goal_check.py --no-ci` gives `FAIL  workflow-cli - missing: tests/workflow_parity.py` and `goal: 2 of 8 rows passed`. Parity: 0 cases equal.
+
+The golden files: `python tests/workflow_parity.py --record` on this PC (Windows 11, Windows PowerShell 5.1, culture `en-US`) ran `workflow.ps1` in a sandbox for each case and wrote `tests/fixtures/workflow_parity/<case>.json` (17 files).
+
+Red (the parity tool and the golden files committed, `horus workflow` still the line in `cmd_not_ported.go`):
+
+```
+$ horus workflow check it-illustration -json
+horus workflow: not implemented yet
+exit 2
+$ python tests/workflow_parity.py   (the diff lines under each case left out)
+DIFFERENT list
+DIFFERENT check-quick
+DIFFERENT check
+DIFFERENT install-installed
+DIFFERENT check-absent
+DIFFERENT remove-plan
+DIFFERENT remove-yes
+DIFFERENT remove-yes-force
+DIFFERENT list-after-remove
+DIFFERENT check-only-vae
+DIFFERENT check-bad-size
+DIFFERENT check-bad-hash
+DIFFERENT remove-refused
+DIFFERENT check-unlisted-no-node
+DIFFERENT install-no-comfyui
+DIFFERENT remove-part-file
+DIFFERENT list-text
+parity: 0 of 17 cases equal
+exit 1
+$ python tools/goal_check.py --no-ci
+FAIL  contract - server command not found: horus
+FAIL  graph - missing: ./internal/comfy
+FAIL  workflow-cli - parity: 0 of 17 cases equal
+PASS  downloader - 14 tests passed
+FAIL  setup-commands - 3 of 8 commands have a test; none for checksetup, syncworkflows, newworkflow, register, runillustration
+PASS  builds - 3 of 3 build
+FAIL  real-image - needs --real on the GPU machine
+FAIL  no-python - 2827 lines left; 18 files of Python and PowerShell remain; .mcp.json horus entry is not `horus mcp`
+goal: 2 of 8 rows passed
+exit 1
+```
+
+Green:
+
+```
+$ python tests/workflow_parity.py --live
+EQUAL     list
+EQUAL     check-quick
+EQUAL     check
+EQUAL     install-installed
+EQUAL     check-absent
+EQUAL     remove-plan
+EQUAL     remove-yes
+EQUAL     remove-yes-force
+EQUAL     list-after-remove
+EQUAL     check-only-vae
+EQUAL     check-bad-size
+EQUAL     check-bad-hash
+EQUAL     remove-refused
+EQUAL     check-unlisted-no-node
+EQUAL     install-no-comfyui
+EQUAL     remove-part-file
+EQUAL     list-text
+parity: 17 of 17 cases equal
+exit 0
+$ python tools/goal_check.py --no-ci
+FAIL  contract - server command not found: horus
+FAIL  graph - missing: ./internal/comfy
+PASS  workflow-cli - parity: 17 of 17 cases equal
+PASS  downloader - 14 tests passed
+FAIL  setup-commands - 3 of 8 commands have a test; none for checksetup, syncworkflows, newworkflow, register, runillustration
+PASS  builds - 3 of 3 build
+FAIL  real-image - needs --real on the GPU machine
+FAIL  no-python - 2827 lines left; 18 files of Python and PowerShell remain; .mcp.json horus entry is not `horus mcp`
+goal: 3 of 8 rows passed
+exit 1
+```
+
+The cases and the item statuses that they reach:
+
+| Case | Steps | Statuses |
+|---|---|---|
+| `list` | `list -json` | (the JSON list) |
+| `check-quick` | `check it-illustration -quick`, no ComfyUI | `OK`, `SKIP` |
+| `check` | `check it-illustration` | `OK` |
+| `install-installed` | `install it-illustration` | `PRESENT`, `OK` |
+| `check-absent` | `check absent-style` | `MISSING`, `NOT_SEEN` |
+| `remove-plan` | `remove it-illustration` | `KEPT_SHARED`, `WOULD_DELETE` |
+| `remove-yes` | `remove it-illustration -yes` | `KEPT_SHARED`, `DELETED` |
+| `remove-yes-force` | `remove it-illustration -yes -force` | `DELETED` |
+| `list-after-remove` | `remove ... -yes -force`, then `list -json` | `DELETED`, (the JSON list) |
+| `check-only-vae` | `check it-illustration -only vae` | `OK` |
+| `check-bad-size` | `check`, the VAE file has 1 byte more | `BAD_SIZE` |
+| `check-bad-hash` | `check`, the text encoder has other bytes | `BAD_HASH` |
+| `remove-refused` | `remove -yes -force`, the VAE file has 1 byte more | `REFUSED`, `DELETED` |
+| `check-unlisted-no-node` | `check`, the graph loads one more file, the server has no `VAELoader` | `UNLISTED`, `NO_NODE`, `NOT_SEEN` |
+| `install-no-comfyui` | `install` without `ComfyUI/main.py` | (the message that gives `BACKEND_NOT_INSTALLED`) |
+| `remove-part-file` | `remove absent-style -yes`, with a `.part` file | `ABSENT`, `KEPT_SHARED`, `DELETED` |
+| `list-text` | `list` without `-json` | (the text table) |
+
+The three statuses that need a download or a locked file have Go tests against a local fake HTTPS server (no network):
+
+```
+$ go test -count=1 -v ./internal/scripts/workflow   (only the result lines)
+--- PASS: TestInstallDownloadsMapsTheFolderAndChecks (0.05s)
+--- PASS: TestInstallKeepsAFolderThatTheYAMLAlreadyMaps (0.03s)
+--- PASS: TestDownloadFailuresKeepTheTextThatModelsPyReads (0.08s)
+    --- PASS: TestDownloadFailuresKeepTheTextThatModelsPyReads/401 (0.02s)
+    --- PASS: TestDownloadFailuresKeepTheTextThatModelsPyReads/403 (0.02s)
+    --- PASS: TestDownloadFailuresKeepTheTextThatModelsPyReads/disk_full (0.02s)
+    --- PASS: TestDownloadFailuresKeepTheTextThatModelsPyReads/conflict (0.01s)
+--- PASS: TestRemoveThatCannotDeleteGivesDeleteFailed (0.01s)
+--- PASS: TestRemoveDeletesAReadOnlyFile (0.01s)
+--- PASS: TestFlagsAndExitCodes (0.01s)
+--- PASS: TestYAMLFolders (0.01s)
+--- PASS: TestNumbersAsTheScriptPrintsThem (0.00s)
+ok  	github.com/hieplam/horus/internal/scripts/workflow	1.769s
+```
+
+- `TestInstallDownloadsMapsTheFolderAndChecks`: `DOWNLOADED` for both files, the bytes on disk, the `-- vae -> <path>` line, the two `horus_<folder>` blocks in `extra_model_paths.yaml`, the backup `extra_model_paths.yaml.bak-20261110-090807` with the old text, and a second install that gives `PRESENT` with no request and no change to the file.
+- `TestDownloadFailuresKeepTheTextThatModelsPyReads`: HTTP 401, HTTP 403, too little free space and a different file on disk each give a `FAILED` item whose detail holds `error: 401`, `error: 403`, `Not enough free space` or `Refusing to overwrite`, with the `Attempt ` and `FAIL:` lines.
+- `TestRemoveThatCannotDeleteGivesDeleteFailed`: an open file on Windows, a read-only folder on macOS and Linux.
+
+Stub check (mutation runs, each reverted after the run):
+
+- `writeResult` prints `HORUS_JSON {}`: `parity: 2 of 17 cases equal`, exit 1. The two equal cases are `list` and `list-text`, which have no `HORUS_JSON` line.
+- `list` prints `[]`: `list`, `list-after-remove` and `list-text` are `DIFFERENT` (`parity: 0 of 3 cases equal`).
+- The detail of a `FAILED` item left empty: the 4 subtests of `TestDownloadFailuresKeepTheTextThatModelsPyReads` fail.
+- The tool counts only the cases that it compared, and exits 0 only when that count equals the number of cases. `--live` proves that the golden files still come from `workflow.ps1`.
+
+`python scripts/lint-public.py`: `lint-public: 0 finding(s)`. `gofmt -l .` prints nothing. `go test ./...` passes. `GOOS=linux` and `GOOS=darwin` `go vet ./...` pass.
+
+Ratchet: `goal`: 2 → 3 of 8 rows (`workflow-cli`). Parity: 0 → 17 of 17 cases equal (the plan asks for 10 of 10).

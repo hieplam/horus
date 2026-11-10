@@ -19,7 +19,7 @@ import (
 	"strings"
 )
 
-// modelExt matches a model file name. PowerShell -match ignores case.
+// modelExt matches a model file name. The -match of workflow.ps1 ignores case.
 var modelExt = regexp.MustCompile(`(?i)\.(safetensors|sft|gguf|ckpt|pt|pth|bin|onnx)$`)
 
 // object is a JSON object that keeps the order of its keys, as
@@ -29,7 +29,7 @@ type object struct {
 	vals []any
 }
 
-// get looks a key up without case, as PowerShell reads a property.
+// get looks a key up without case, as workflow.ps1 reads a property.
 func (o *object) get(key string) any {
 	for i, k := range o.keys {
 		if k == key {
@@ -121,7 +121,7 @@ func readJSON(path string) (any, error) {
 	return v, nil
 }
 
-// truthy is the PowerShell truth of a JSON value.
+// truthy is the truth (as workflow.ps1 tests it) of a JSON value.
 func truthy(v any) bool {
 	switch x := v.(type) {
 	case nil:
@@ -145,7 +145,7 @@ func truthy(v any) bool {
 	return true
 }
 
-// str is the PowerShell [string] cast of a JSON value.
+// str is the [string] cast of workflow.ps1 of a JSON value.
 func str(v any) string {
 	switch x := v.(type) {
 	case nil:
@@ -163,7 +163,7 @@ func str(v any) string {
 	return fmt.Sprint(v)
 }
 
-// toLong is the PowerShell [long] cast of a JSON value. A value that does not
+// toLong is the [long] cast of workflow.ps1 of a JSON value. A value that does not
 // convert gives 0, which the manifest check refuses.
 func toLong(v any) int64 {
 	var s string

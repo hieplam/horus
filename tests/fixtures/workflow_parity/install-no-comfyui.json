@@ -1,0 +1,33 @@
+{
+ "case": "install-no-comfyui",
+ "steps": [
+  {
+   "args": [
+    "install",
+    "it-illustration",
+    "-json",
+    "-workflows-dir",
+    "<sandbox>/workflows"
+   ],
+   "exit": 1,
+   "result": {
+    "ok": false,
+    "action": "install",
+    "workflow": "it-illustration",
+    "message": "ComfyUI was not found in <sandbox>/comfy. Run horus install-comfyui first, or pass -comfyui-dir.",
+    "items": []
+   },
+   "lines": [
+    "FAIL: ComfyUI was not found in <sandbox>/comfy. Run horus install-comfyui first, or pass -comfyui-dir."
+   ]
+  }
+ ],
+ "after": {
+  "files": [
+   "comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors 72 67ae2070ae90",
+   "comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors 62 8f564ff8ece9",
+   "comfy/ComfyUI/models/vae/flux2-vae.safetensors 38 84f1855a2759"
+  ],
+  "extra_model_paths.yaml": null
+ }
+}

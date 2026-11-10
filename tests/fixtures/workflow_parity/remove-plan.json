@@ -1,0 +1,65 @@
+{
+ "case": "remove-plan",
+ "steps": [
+  {
+   "args": [
+    "remove",
+    "it-illustration",
+    "-json",
+    "-workflows-dir",
+    "<sandbox>/workflows"
+   ],
+   "exit": 0,
+   "result": {
+    "ok": true,
+    "action": "remove",
+    "workflow": "it-illustration",
+    "message": "dry run: nothing deleted, 1 file(s) would be deleted",
+    "items": [
+     {
+      "status": "KEPT_SHARED",
+      "kind": "file",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+      "bytes": 62,
+      "detail": "also used by: absent-style"
+     },
+     {
+      "status": "KEPT_SHARED",
+      "kind": "file",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors",
+      "bytes": 38,
+      "detail": "also used by: absent-style"
+     },
+     {
+      "status": "WOULD_DELETE",
+      "kind": "file",
+      "role": "diffusion",
+      "file": "flux3-image-klein-int8-convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+      "bytes": 72,
+      "detail": ""
+     }
+    ]
+   },
+   "lines": [
+    "KEEP      text_encoder <sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors (also used by: absent-style; -force deletes it)",
+    "KEEP      vae <sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors (also used by: absent-style; -force deletes it)",
+    "WOULD DEL  diffusion <sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors (0.00 GB)",
+    "Dry run: nothing deleted. 0.00 GB in 1 file(s). Add -yes to delete."
+   ]
+  }
+ ],
+ "after": {
+  "files": [
+   "comfy/ComfyUI/main.py 7 d13e881e48bd",
+   "comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors 72 67ae2070ae90",
+   "comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors 62 8f564ff8ece9",
+   "comfy/ComfyUI/models/vae/flux2-vae.safetensors 38 84f1855a2759"
+  ],
+  "extra_model_paths.yaml": null
+ }
+}

@@ -1,0 +1,65 @@
+{
+ "case": "remove-refused",
+ "steps": [
+  {
+   "args": [
+    "remove",
+    "it-illustration",
+    "-json",
+    "-workflows-dir",
+    "<sandbox>/workflows",
+    "-yes",
+    "-force"
+   ],
+   "exit": 1,
+   "result": {
+    "ok": false,
+    "action": "remove",
+    "workflow": "it-illustration",
+    "message": "Deleted 2 file(s), but 1 file(s) were refused. See the REFUSE lines.",
+    "items": [
+     {
+      "status": "REFUSED",
+      "kind": "file",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors",
+      "bytes": 39,
+      "detail": "the file has 39 bytes, models.json says 38: it is not the listed file"
+     },
+     {
+      "status": "DELETED",
+      "kind": "file",
+      "role": "diffusion",
+      "file": "flux3-image-klein-int8-convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+      "bytes": 72,
+      "detail": ""
+     },
+     {
+      "status": "DELETED",
+      "kind": "file",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+      "bytes": 62,
+      "detail": ""
+     }
+    ]
+   },
+   "lines": [
+    "REFUSE    vae <sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors has 39 bytes, models.json says 38. It is not the listed file. Delete it yourself.",
+    "DELETE     diffusion <sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors (0.00 GB)",
+    "DELETE     text_encoder (also used by: absent-style) <sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors (0.00 GB)",
+    "FAIL: Deleted 2 file(s), but 1 file(s) were refused. See the REFUSE lines."
+   ]
+  }
+ ],
+ "after": {
+  "files": [
+   "comfy/ComfyUI/main.py 7 d13e881e48bd",
+   "comfy/ComfyUI/models/vae/flux2-vae.safetensors 39 bb7391916753"
+  ],
+  "extra_model_paths.yaml": null
+ }
+}

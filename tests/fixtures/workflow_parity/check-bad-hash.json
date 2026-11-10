@@ -1,0 +1,116 @@
+{
+ "case": "check-bad-hash",
+ "steps": [
+  {
+   "args": [
+    "check",
+    "it-illustration",
+    "-json",
+    "-workflows-dir",
+    "<sandbox>/workflows"
+   ],
+   "exit": 1,
+   "result": {
+    "ok": false,
+    "action": "check",
+    "workflow": "it-illustration",
+    "message": "1 check(s) failed. Fix: horus workflow install it-illustration",
+    "items": [
+     {
+      "status": "OK",
+      "kind": "file",
+      "role": "diffusion",
+      "file": "flux3-image-klein-int8-convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+      "bytes": 72,
+      "detail": "size and SHA-256 verified"
+     },
+     {
+      "status": "BAD_HASH",
+      "kind": "file",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+      "bytes": 62,
+      "detail": "SHA-256 is f5c153e98b3b24b804dcc5d83394f0b90d3a4d768fffef2ef10a4b0887e20f19, expected 8f564ff8ece970eb9c52ad31f4d8c0e9b73035bb55d5b8ea6fd67e288d578aaf"
+     },
+     {
+      "status": "OK",
+      "kind": "file",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors",
+      "bytes": 38,
+      "detail": "size and SHA-256 verified"
+     },
+     {
+      "status": "OK",
+      "kind": "graph",
+      "role": "",
+      "file": "",
+      "path": "",
+      "bytes": -1,
+      "detail": "models.json lists all 3 model files of workflow.json"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "",
+      "file": "",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server has all 10 node classes"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "diffusion",
+      "file": "flux3-image-klein-int8-convrot.safetensors",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server lists the file"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server lists the file"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server lists the file"
+     }
+    ]
+   },
+   "lines": [
+    "Checking workflow 'it-illustration': 3 model file(s).",
+    "OK        diffusion <sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors (72 bytes, SHA-256 verified)",
+    "BAD HASH  text_encoder <sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors SHA-256 is f5c153e98b3b24b804dcc5d83394f0b90d3a4d768fffef2ef10a4b0887e20f19, expected 8f564ff8ece970eb9c52ad31f4d8c0e9b73035bb55d5b8ea6fd67e288d578aaf",
+    "OK        vae <sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors (38 bytes, SHA-256 verified)",
+    "OK        models.json lists all 3 model file(s) that workflow.json loads",
+    "OK        the server has all 10 node classes of workflow.json",
+    "OK        the server lists flux3-image-klein-int8-convrot.safetensors",
+    "OK        the server lists qwen3vl_4b_int8_convrot.safetensors",
+    "OK        the server lists flux2-vae.safetensors",
+    "FAIL: 1 check(s) failed. Fix: horus workflow install it-illustration"
+   ]
+  }
+ ],
+ "after": {
+  "files": [
+   "comfy/ComfyUI/main.py 7 d13e881e48bd",
+   "comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors 72 67ae2070ae90",
+   "comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors 62 f5c153e98b3b",
+   "comfy/ComfyUI/models/vae/flux2-vae.safetensors 38 84f1855a2759"
+  ],
+  "extra_model_paths.yaml": null
+ }
+}

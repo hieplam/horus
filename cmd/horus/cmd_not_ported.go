@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	notPorted("workflow", "list, check, install or remove the model files of a workflow (task G4)")
+	// Every command of the port map is ported (G7 and G4 deleted the last lines).
 }
 
 func notPorted(name, summary string) {

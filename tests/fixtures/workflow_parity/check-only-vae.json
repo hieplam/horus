@@ -1,0 +1,78 @@
+{
+ "case": "check-only-vae",
+ "steps": [
+  {
+   "args": [
+    "check",
+    "it-illustration",
+    "-json",
+    "-workflows-dir",
+    "<sandbox>/workflows",
+    "-only",
+    "vae"
+   ],
+   "exit": 0,
+   "result": {
+    "ok": true,
+    "action": "check",
+    "workflow": "it-illustration",
+    "message": "workflow 'it-illustration' is ready",
+    "items": [
+     {
+      "status": "OK",
+      "kind": "file",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors",
+      "bytes": 38,
+      "detail": "size and SHA-256 verified"
+     },
+     {
+      "status": "OK",
+      "kind": "graph",
+      "role": "",
+      "file": "",
+      "path": "",
+      "bytes": -1,
+      "detail": "models.json lists all 3 model files of workflow.json"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "",
+      "file": "",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server has all 10 node classes"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server lists the file"
+     }
+    ]
+   },
+   "lines": [
+    "Checking workflow 'it-illustration': 1 model file(s).",
+    "OK        vae <sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors (38 bytes, SHA-256 verified)",
+    "OK        models.json lists all 3 model file(s) that workflow.json loads",
+    "OK        the server has all 10 node classes of workflow.json",
+    "OK        the server lists flux2-vae.safetensors",
+    "OK: workflow 'it-illustration' is ready."
+   ]
+  }
+ ],
+ "after": {
+  "files": [
+   "comfy/ComfyUI/main.py 7 d13e881e48bd",
+   "comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors 72 67ae2070ae90",
+   "comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors 62 8f564ff8ece9",
+   "comfy/ComfyUI/models/vae/flux2-vae.safetensors 38 84f1855a2759"
+  ],
+  "extra_model_paths.yaml": null
+ }
+}

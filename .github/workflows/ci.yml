@@ -72,3 +72,32 @@ jobs:
           # Until task G8 this job prints the count and does not fail on a count under 30.
           python tests/mcp_contract.py --server-cmd "$GITHUB_WORKSPACE/bin/horus${{ runner.os == 'Windows' && '.exe' || '' }}" mcp | tee contract.log || true
           grep "contract: " contract.log
+
+  workflow-parity:
+    # tests/workflow_parity.py: horus workflow against the golden files of scripts/workflow.ps1.
+    # On Windows --live also runs workflow.ps1 and checks that the golden files are still true (until task G10).
+    name: workflow-parity ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r tests/requirements.txt
+      - run: go build -o bin/ ./cmd/horus
+      - name: Parity of horus workflow
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            python tests/workflow_parity.py --live --horus bin/horus.exe | tee parity.log
+          else
+            python tests/workflow_parity.py --horus bin/horus | tee parity.log
+          fi
+          grep -q "parity: 17 of 17 cases equal" parity.log

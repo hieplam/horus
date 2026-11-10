@@ -1,0 +1,76 @@
+{
+ "case": "remove-part-file",
+ "steps": [
+  {
+   "args": [
+    "remove",
+    "absent-style",
+    "-json",
+    "-workflows-dir",
+    "<sandbox>/workflows",
+    "-yes"
+   ],
+   "exit": 0,
+   "result": {
+    "ok": true,
+    "action": "remove",
+    "workflow": "absent-style",
+    "message": "deleted 1 file(s)",
+    "items": [
+     {
+      "status": "ABSENT",
+      "kind": "file",
+      "role": "diffusion",
+      "file": "absent-model.safetensors",
+      "path": "",
+      "bytes": 5000000000,
+      "detail": "not on disk"
+     },
+     {
+      "status": "KEPT_SHARED",
+      "kind": "file",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+      "bytes": 62,
+      "detail": "also used by: it-illustration"
+     },
+     {
+      "status": "KEPT_SHARED",
+      "kind": "file",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors",
+      "bytes": 38,
+      "detail": "also used by: it-illustration"
+     },
+     {
+      "status": "DELETED",
+      "kind": "file",
+      "role": "diffusion",
+      "file": "absent-model.safetensors.part",
+      "path": "<sandbox>/comfy/ComfyUI/models/diffusion_models/absent-model.safetensors.part",
+      "bytes": 1234,
+      "detail": ""
+     }
+    ]
+   },
+   "lines": [
+    "ABSENT    diffusion absent-model.safetensors",
+    "KEEP      text_encoder <sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors (also used by: it-illustration; -force deletes it)",
+    "KEEP      vae <sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors (also used by: it-illustration; -force deletes it)",
+    "DELETE     unfinished download of absent-model.safetensors <sandbox>/comfy/ComfyUI/models/diffusion_models/absent-model.safetensors.part (0.00 GB)",
+    "OK: deleted 1 file(s), 0.00 GB. Reinstall: horus workflow install absent-style"
+   ]
+  }
+ ],
+ "after": {
+  "files": [
+   "comfy/ComfyUI/main.py 7 d13e881e48bd",
+   "comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors 72 67ae2070ae90",
+   "comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors 62 8f564ff8ece9",
+   "comfy/ComfyUI/models/vae/flux2-vae.safetensors 38 84f1855a2759"
+  ],
+  "extra_model_paths.yaml": null
+ }
+}

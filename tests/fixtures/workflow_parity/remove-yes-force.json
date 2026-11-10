@@ -1,0 +1,64 @@
+{
+ "case": "remove-yes-force",
+ "steps": [
+  {
+   "args": [
+    "remove",
+    "it-illustration",
+    "-json",
+    "-workflows-dir",
+    "<sandbox>/workflows",
+    "-yes",
+    "-force"
+   ],
+   "exit": 0,
+   "result": {
+    "ok": true,
+    "action": "remove",
+    "workflow": "it-illustration",
+    "message": "deleted 3 file(s)",
+    "items": [
+     {
+      "status": "DELETED",
+      "kind": "file",
+      "role": "diffusion",
+      "file": "flux3-image-klein-int8-convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+      "bytes": 72,
+      "detail": ""
+     },
+     {
+      "status": "DELETED",
+      "kind": "file",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+      "bytes": 62,
+      "detail": ""
+     },
+     {
+      "status": "DELETED",
+      "kind": "file",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors",
+      "bytes": 38,
+      "detail": ""
+     }
+    ]
+   },
+   "lines": [
+    "DELETE     diffusion <sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors (0.00 GB)",
+    "DELETE     text_encoder (also used by: absent-style) <sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors (0.00 GB)",
+    "DELETE     vae (also used by: absent-style) <sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors (0.00 GB)",
+    "OK: deleted 3 file(s), 0.00 GB. Reinstall: horus workflow install it-illustration"
+   ]
+  }
+ ],
+ "after": {
+  "files": [
+   "comfy/ComfyUI/main.py 7 d13e881e48bd"
+  ],
+  "extra_model_paths.yaml": null
+ }
+}

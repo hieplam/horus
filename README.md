@@ -94,9 +94,9 @@ that needs pictures) has the horus tools. It calls `list_workflows`, reads the
 rules of a style with `describe_workflow`, and calls `generate_image`. The call
 waits until the PNG is on disk and returns its path. Errors have a code, a
 `next_step` and `action_by`, so the agent knows if it must retry, change its
-call or ask you. Details: [`docs/mcp.md`](docs/mcp.md). Limit: a session outside
-this repo also needs the variable `HORUS_ROOT`, which `horus register` does not
-set yet ([setup step 5](docs/setup.md#optional-the-image-tool-for-agents-in-other-folders)).
+call or ask you. Details: [`docs/mcp.md`](docs/mcp.md). `horus register` also sets
+the variable `HORUS_ROOT` to the repo folder. You do not set it by hand
+([setup step 5](docs/setup.md#optional-the-image-tool-for-agents-in-other-folders)).
 
 ## What you need
 

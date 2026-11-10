@@ -1392,8 +1392,7 @@ exit 0
 
 | File | Bytes | Size | SHA-256 | Seed | Seconds |
 |---|---|---|---|---|---|
-| `<repo>\.scratch\g11
-eal-image-seed7-20261110-185211.png` | 2,421,991 | 1536 x 1024 | `9f8fbe697dc813d1e8ca17a7152e651fd7682df008790f51e8c217e21bee6080` | 7 | 216 |
+| `<repo>\.scratch\g11\real-image-seed7-20261110-185211.png` | 2,421,991 | 1536 x 1024 | `9f8fbe697dc813d1e8ca17a7152e651fd7682df008790f51e8c217e21bee6080` | 7 | 216 |
 
 Subject of the contract test: "On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. On the right, a sky-blue server box takes them off the belt."
 
@@ -1637,3 +1636,480 @@ PASS  setup-commands - 8 of 8 commands have a passing test
 ```
 
 Stub check: the test reads the arguments that the fake child program recorded, so a flag that is parsed and not used fails it. `-quick` must put `-quick` in the record, and the default must not.
+## G12
+
+Placeholders: `<repo>` is the main checkout, `<user>` is the user folder, `<tmp>` is a temporary folder outside the repo. Commit under test: `fd83a809990d4153d3885664a969ffc82dbc6551` (main, merge of PR 37). The PC: Windows 11, GTX 1660 Ti 6 GB, ComfyUI 0.44.0 (already running, started by the owner), Go 1.27.3, Windows PowerShell 5.1, Claude Code 2.1.322.
+
+Baseline (ratchet): open defects against the goal rows: 0 at the start of this task.
+
+### Step 1: a new user's clone and the docs
+
+```
+$ cd <tmp> && git clone https://github.com/hieplam/horus clone && cd clone
+$ git log --oneline -1
+fd83a80 Merge pull request #37 from hieplam/docs/g11-final-verify
+$ go build -o bin/horus.exe ./cmd/horus
+$ go version -m bin/horus.exe | grep vcs
+	build	vcs.revision=fd83a809990d4153d3885664a969ffc82dbc6551
+	build	vcs.modified=false
+```
+
+The settings of a new user on this PC: `.env` in the clone with one line, `HORUS_COMFYUI_DIR=D:\ComfyUI_windows_portable` (the value of the owner's `.env`). The file has no token, so no download can run. `HORUS_ROOT` is not set: horus finds the clone from the current folder, as `docs/mcp.md` says. The model files are in `<user>\ComfyUI-models`, which ComfyUI's `extra_model_paths.yaml` maps.
+
+The old code for the side-by-side comparison: a second clone at `c5379f9` (`<tmp>\old`), with the same one-line `.env`. Its scripts ran with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File`.
+
+Docs read in full: `README.md`, `AGENTS.md`, `ROADMAP.md`, `.env.example`, `docs/setup.md`, `docs/mcp.md`, `docs/running-workflows.md`, `docs/style-to-workflow.md`, `docs/models.md`, `workflows/it-illustration/README.md`, `workflows/_template/README.md`. Searched: `docs/concepts.md`, `docs/why-flux3-klein.md`, `prompts/**`. The search for names that are gone (plans and specs left out):
+
+```
+$ grep -rnI -E '\.ps1|horus-mcp|\.venvs|-Json|-Quick|-Yes\b|-Force|-ComfyUIDir|run-illustration\.py|pyproject|does not set|not set yet' -- *.md docs workflows prompts .env.example
+README.md:98:this repo also needs the variable `HORUS_ROOT`, which `horus register` does not
+docs/setup.md:131:| comfy MCP server | `%USERPROFILE%\.venvs\comfy-mcp\Scripts\comfy-mcp.exe`, in a venv with `comfy-mcp` 0.10.0 and `comfy-cli` 1.25.0 | `horus install-comfy-mcp` |
+```
+
+The `setup.md` hit is true: the comfy-mcp venv stays. The `README.md` hit is defect #38. `horus register` sets `HORUS_ROOT` since PR #36: `internal/scripts/register/register.go` line 58 passes `-e HORUS_ROOT=<root>`.
+
+Every `horus ...` command line of the docs names a subcommand and flags that `-h` lists (step 2). The safety rules of this task forbid some commands on this PC. These were checked with `-h` and the Go code, and not run: `install-comfyui`, `start-comfyui`, `install-comfy-mcp`, `workflow install`, `workflow remove -yes`, `download-model`, `register`, `run-illustration`. The Go code has each message text that `docs/setup.md` quotes: `7-Zip was not found`, `Not enough free space`, `SHA-256 mismatch`, `SKIP: ComfyUI is already installed`, `Python %s was not found`, `pip install failed`, `horus-comfyui.err.log`, `The claude command was not found`, `SKIP: Claude Code already knows a server named horus`.
+
+The test command of `docs/mcp.md` "Test the server", with the `mcp==2.3.0` venv of this PC in place of `.scratch\test-venv` (cut: the first 27 PASS lines):
+
+```
+$ python tests/mcp_contract.py --server-cmd bin\horus.exe mcp
+PASS  it-illustration: manifest has no theme and no caption style file
+PASS  it-illustration: the graph holds no style words
+PASS  docs/mcp.md lists every error code
+contract: 30 of 30 passed
+exit=0
+```
+
+### Step 2: every subcommand, and the old script for the same state
+
+`-h` of each command. For the subcommands, the flag help lines are cut to the flag names. The full text was compared with the docs.
+
+```
+$ bin/horus.exe -h
+Usage: horus <command> [flags]
+
+Commands:
+  check-setup         one PASS or FAIL line for each check of the setup
+  download-model      download one model file with size and SHA-256 checks
+  errors              print the table of error codes (-json for JSON)
+  install-comfy-mcp   install comfy-mcp and comfy-cli in their own venv
+  install-comfyui     install the ComfyUI portable build, Windows only
+  mcp                 serve the 5 horus tools over stdio (MCP)
+  new-workflow        make a new workflow folder from the template
+  register            register horus mcp with Claude Code
+  run-illustration    make one image without MCP
+  start-comfyui       start ComfyUI and wait for its server, Windows only
+  sync-workflows      copy the workflows into the ComfyUI page
+  workflow            list, check, install or remove the model files of a workflow
+
+Run horus <command> -h for the flags of a command.
+exit=0
+$ bin/horus.exe mcp -h
+Usage: horus mcp
+Serves list_workflows, describe_workflow, install_workflow, uninstall_workflow and generate_image over stdio.
+exit=2
+workflow           -comfyui-dir -force -json -models-dir -models-json -only -quick -server-url -text-encoder-dir -workflows-dir -yes   exit=0
+check-setup        -comfyui-dir -full -models-dir -server-url -text-encoder-dir -venv-path -workflow                                  exit=2
+sync-workflows     -comfyui-dir -force -workflows-dir                                                                                  exit=2
+new-workflow       -description -model-family -name -workflows-dir                                                                     exit=2
+install-comfyui    -archive-path -install-dir -keep-archive -seven-zip                                                                 exit=2
+start-comfyui      -comfyui-dir -server-url -timeout-seconds                                                                           exit=2
+install-comfy-mcp  -python-version -venv-path                                                                                          exit=2
+download-model     -destination -expected-bytes -max-attempts -sha256 -token-env-var -url                                              exit=0
+run-illustration   -height -out -seed -steps -style-file -subject -subject-file -timeout -url -width -workflow                         exit=2
+register           -horus-path -root                                                                                                   exit=2
+errors             -json                                                                                                               exit=2
+```
+
+The exit code of `-h` is 0 for three commands and 2 for the others: follow-up #41 (no goal row).
+
+`workflow list`, new and old. They are the same, except the allowed rename of `.\scripts\workflow.ps1` to `horus workflow`:
+
+```
+$ bin/horus.exe workflow list
+it-illustration
+  Text in, image out. The picture is 1536x1024. The model is FLUX 3 Image Klein (int8 build) running in ComfyUI. This is the first horus example.
+  Models: 3 file(s), 11.02 GB (diffusion, text_encoder, vae). Installed: yes (size check).
+
+Install: horus workflow install <name>    Check: horus workflow check <name>
+exit=0
+$ scripts/workflow.ps1 list                   (c5379f9)
+it-illustration
+  Text in, image out. The picture is 1536x1024. The model is FLUX 3 Image Klein (int8 build) running in ComfyUI. This is the first horus example.
+  Models: 3 file(s), 11.02 GB (diffusion, text_encoder, vae). Installed: yes (size check).
+
+Install: .\scripts\workflow.ps1 install <name>    Check: .\scripts\workflow.ps1 check <name>
+exit=0
+```
+
+`workflow list -json` and `list -Json` print the same 8 keys and values (`"bytes": 11022645311`, `"installed": "yes"`). Only the space after the colon differs (`"name": ` against `"name":  `).
+
+`workflow check it-illustration -quick`, new. The old `-Quick` output is the same, line for line:
+
+```
+Checking workflow 'it-illustration': 3 model file(s), size only.
+OK        diffusion <user>\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors (5827874779 bytes)
+OK        text_encoder <user>\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors (4858559240 bytes)
+OK        vae <user>\ComfyUI-models\vae\flux2-vae.safetensors (336211292 bytes)
+OK        models.json lists all 3 model file(s) that workflow.json loads
+OK        the server has all 10 node classes of workflow.json
+OK        the server lists flux3-image-klein-int8-convrot.safetensors
+OK        the server lists qwen3vl_4b_int8_convrot.safetensors
+OK        the server lists flux2-vae.safetensors
+OK: workflow 'it-illustration' is ready.
+exit=0
+```
+
+`workflow remove it-illustration` without `-yes` (the plan only), new. The old output is the same, except `-Yes` for `-yes`. The three file sizes were the same after both runs.
+
+```
+WOULD DEL  diffusion <user>\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors (5.83 GB)
+WOULD DEL  text_encoder <user>\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors (4.86 GB)
+WOULD DEL  vae <user>\ComfyUI-models\vae\flux2-vae.safetensors (0.34 GB)
+Dry run: nothing deleted. 11.02 GB in 3 file(s). Add -yes to delete.
+exit=0
+```
+
+`check-setup`, new:
+
+```
+PASS  ComfyUI folder - D:\ComfyUI_windows_portable
+PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+PASS  .mcp.json - command points at <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+PASS  horus on PATH - <user>\go\bin\horus.exe
+PASS  .mcp.json horus - command points at <user>\go\bin\horus.exe
+All checks passed.
+exit=0
+```
+
+`check-setup.ps1`, old, same state:
+
+```
+PASS  ComfyUI folder - D:\ComfyUI_windows_portable
+PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - <user>\.venvs\comfy-mcp
+PASS  .mcp.json - command and COMFY_BIN point at <user>\.venvs\comfy-mcp
+PASS  horus-mcp environment - <user>\.venvs\horus-mcp
+PASS  .mcp.json horus - command points at <user>\.venvs\horus-mcp
+All checks passed.
+exit=0
+```
+
+The G7 decisions record these differences: checks 3 and 5 are "found" checks, and the horus check looks for `horus` on the PATH, as the port map of issue #4 says. The old check also required `comfy.exe` and the `COMFY_BIN` value. The Go check does not: follow-up #41.
+
+`check-setup -workflow it-illustration`, new: the six lines above, then the `-quick` check lines with 6 spaces in front, then `PASS  models for 'it-illustration' - all files present and verified` and `All checks passed.`, exit 0. The old `-Workflow` run printed the same lines with `SHA-256 verified` on each file, because the script always hashed. The Go default is size only, and `-full` hashes (G7 decision; `docs/setup.md` step 4 uses `-full`). The word "verified" after a size-only check: follow-up #41.
+
+`sync-workflows` without `-force`, new and old, same state. The pane copy has another SHA-256 than the repo copy:
+
+```
+$ bin/horus.exe sync-workflows
+CONFLICT horus-it-illustration.json differs from workflows\it-illustration\workflow.json. Compare both, then run again with -force to use the repo copy.
+exit=1
+$ scripts/sync-workflows.ps1                  (c5379f9)
+CONFLICT horus-it-illustration.json differs from workflows\it-illustration\workflow.json. Compare both, then run again with -Force to use the repo copy.
+exit=1
+$ sha256sum <ComfyUI>\ComfyUI\user\default\workflows\horus-it-illustration.json      (before and after both runs)
+741812b769b3d4f2c9f8b7afc1f7d08065c45ae5661410f664b315e809e4f051
+```
+
+`new-workflow` in the temporary clone, new:
+
+```
+$ bin/horus.exe new-workflow -name g12-sample -description "A test workflow for the acceptance."
+Created <tmp>\clone\workflows\g12-sample\README.md
+Next: add workflow.json through the ComfyUI UI export or a template. Do not hand-edit the graph.
+exit=0
+$ bin/horus.exe new-workflow -name g12-sample -description "x"
+Workflow folder already exists. Not overwriting: <tmp>\clone\workflows\g12-sample
+exit=1
+$ bin/horus.exe new-workflow -name Bad_Name -description "x"
+Name must be kebab-case (lowercase letters, digits, single hyphens): 'Bad_Name'
+exit=1
+$ bin/horus.exe new-workflow
+horus new-workflow: -name and -description are required
+exit=2
+```
+
+The old script printed the same three answers with the same exit codes (with `<tmp>\old\...` in the paths). The two READMEs differ in one block only. The cause is the template file of each commit, not the code: at `fd83a80` the template has a plain code block where `c5379f9` had a `powershell` block with `# TBD`. The template still names a `theme` field that the server refuses: follow-up #39 (the same text is at `c5379f9`).
+
+### Step 3: the 5 tools on the real setup
+
+The server is `<tmp>\clone\bin\horus.exe mcp`, started in the clone, without `HORUS_ROOT`. Before the calls: `nvidia-smi` showed 581 MiB used and 0 % load, and `/queue` was `{"queue_running": [], "queue_pending": []}`.
+
+Four calls with the Python MCP client (`mcp==2.3.0`), one call for each tool. `list_workflows`:
+
+```
+isError: False
+{"ok": true, "result": {"workflows": [{"name": "it-illustration", "title": "FLUX 3 Image Klein, text to image",
+ "summary": "General text-to-image with FLUX 3 Image Klein (int8 build). horus sends your subject to the model exactly as written and adds no style. ...",
+ "good_for": [3 items], "not_good_for": [3 items], "output": {"format": "png", "default_width": 1536, "default_height": 1024},
+ "typical_seconds": [217, 470], "install_state": "installed", "download_bytes": 11022645311}], "backend_running": true}, "error": null}
+```
+
+`describe_workflow(workflow="it-illustration")` (cut: the text of the rules, of the two examples and of `good_for`):
+
+```
+isError: False
+"ok": true
+"output": {"format": "png", "default_width": 1536, "default_height": 1024, "min_side": 512, "max_side": 1536, "multiple_of": 16, "note": "1536x1024 (3:2) is the tested size. ..."}
+"subject": {"min_chars": 40, "max_chars": 4000, "how_to_write": "The subject is the whole prompt. horus adds nothing: ...", "rules": [5 items], "examples": [2 items, seeds 2024 and 77]}
+"license": {"name": "FLUX Kommunity License (gated: accept it on the repo page first)", "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy", "download_bytes": 11022645311}
+"install_state": "installed"
+"files": diffusion present "size verified", text_encoder present "size verified", vae present "size verified"
+"error": null
+```
+
+The answer has no `graph`, no node class and no file name of the graph.
+
+`install_workflow(workflow="it-illustration")`, without `accept_license`:
+
+```
+isError: False
+{"ok": true, "result": {"workflow": "it-illustration", "install_state": "installed", "already_installed": true,
+ "files": [{"role": "diffusion", "file": "flux3-image-klein-int8-convrot.safetensors", "bytes": 5827874779, "state": "present", "path": "<user>\\ComfyUI-models\\diffusion_models\\flux3-image-klein-int8-convrot.safetensors", "detail": "size verified"},
+           {"role": "text_encoder", "file": "qwen3vl_4b_int8_convrot.safetensors", "bytes": 4858559240, "state": "present", ..., "detail": "size verified"},
+           {"role": "vae", "file": "flux2-vae.safetensors", "bytes": 336211292, "state": "present", ..., "detail": "size verified"}],
+ "seconds": 0.4}, "error": null}
+```
+
+`uninstall_workflow(workflow="it-illustration")`, without `confirm`:
+
+```
+isError: True
+{"ok": false, "result": null, "error": {"code": "CONFIRMATION_REQUIRED", "message": "nothing was deleted: the user must confirm the plan",
+ "retryable": false, "action_by": "human", "next_step": "Show the plan in details.files to the user. When the user agrees, call again with confirm=true.",
+ "details": {"files": [3 items, each "state": "would_delete"], "would_free_bytes": 11022645311}}}
+```
+
+Size and modification time of the 3 model files, before and after the two calls (the same):
+
+```
+5827874779 1793980316 <user>/ComfyUI-models/diffusion_models/flux3-image-klein-int8-convrot.safetensors
+4858559240 1793963355 <user>/ComfyUI-models/text_encoders/qwen3vl_4b_int8_convrot.safetensors
+336211292 1793980353 <user>/ComfyUI-models/vae/flux2-vae.safetensors
+```
+
+`generate_image` from Claude Code in headless mode, with a temporary MCP config outside the repo that names only the clone's binary, and `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=1800000` (G9 decision):
+
+```
+$ claude -p "Call the tool mcp__horus__generate_image exactly once with ... workflow=it-illustration, width=1536, height=1024, seed=12, out_path=<repo>\.scratch\g12\g12-acceptance-lighthouse.png, subject=<below> ..." \
+    --mcp-config <tmp>\mcp-g12.json --strict-mcp-config --model sonnet --allowedTools mcp__horus__generate_image
+{"ok":true,"result":{"workflow":"it-illustration","path":"<repo>\\.scratch\\g12\\g12-acceptance-lighthouse.png","bytes":1191086,"width":1536,"height":1024,"seed":12,"seconds":212.7,"backend_seconds":210.8,"started_backend":false,"job_id":"f99b7deb-c41a-4ec2-bf49-eebb6ff14bac"},"error":null}
+exit=0      (19:06:35 to 19:10:18)
+```
+
+Server log (`HORUS_LOG_FILE`; cut: the progress lines from 20 s to 201 s):
+
+```
+2026-11-10 19:06:41,925 horus INFO call generate_image progress_token=2
+2026-11-10 19:06:42,382 horus INFO progress 0 job f99b7deb-c41a-4ec2-bf49-eebb6ff14bac submitted
+2026-11-10 19:06:42,384 horus INFO progress 0 rendering, 0 s
+2026-11-10 19:06:52,393 horus INFO progress 10 rendering, 10 s
+2026-11-10 19:10:12,587 horus INFO progress 211 rendering, 211 s
+```
+
+Claude Code 2.1.322 sent a `progressToken`. `docs/mcp.md` says that 2.1.318 sent none: follow-up #42 (a dated measurement, no goal row).
+
+Subject: "A clean flat vector illustration with dark navy outlines and solid pastel fills. In the centre, a tall red and white striped lighthouse stands on a small grey rocky island. A warm yellow beam of light goes from the top of the lighthouse to the right. Three white seagulls fly in the sky on the left. Calm light-blue waves surround the island. The sky is plain pale peach. The whole scene is centred with wide margins. The picture contains no text of any kind: no letters, no digits and no logos."
+
+| File | Bytes | Size | SHA-256 | Seed | Seconds |
+|---|---|---|---|---|---|
+| `<repo>\.scratch\g12\g12-acceptance-lighthouse.png` | 1,191,086 | 1536 x 1024 | `59c3e01ecfdf2ba21615a5c0e63b88ff00fcc2a0cb02d9287d8b43d1168418e9` | 12 | 212.7 |
+
+Verdict (the PNG was opened and compared with the subject): the image matches the subject.
+- Centre: a tall lighthouse with red and white stripes, on a grey rocky island.
+- A pale yellow beam goes from the lamp room to the right.
+- Left: three white seagulls in flight.
+- Light-blue waves surround the island. The sky is plain pale peach.
+- Flat vector with dark navy outlines and pastel fills. The scene is centred with wide margins. No text, no digits, no logos.
+
+The tool from a folder outside the repo, with the settings of the owner's user-scope entry (`claude mcp get horus`: command `<user>\go\bin\horus.exe`, args `mcp`, `HORUS_ROOT=<repo>`). The binary of that entry is built from `d7696c6` (merge of PR 36, the fix of issue #32):
+
+```
+$ claude mcp get horus
+horus:
+  Scope: User config (available in all your projects)
+  Status: ✔ Connected
+  Type: stdio
+  Command: <user>\go\bin\horus.exe
+  Args: mcp
+  Environment:
+    HORUS_ROOT=<repo>
+$ cd <tmp>\outside && HORUS_ROOT=<repo> python call.py <user>\go\bin\horus.exe list_workflows '{}'
+isError: False
+ "ok": true,
+    "name": "it-illustration",
+    "install_state": "installed",
+  "backend_running": true
+```
+
+The fix of issue #32 holds. Without `HORUS_ROOT`, the same call in the same folder answers `INTERNAL` with `next_step` "This is a bug in horus" and `FAIL: No workflows folder: <user>\go\bin\workflows`. `horus register` sets the variable, so no goal row fails. The misleading `next_step` is follow-up #40.
+
+### Step 4: the error table
+
+```
+$ bin/horus.exe errors -json > errors.json
+$ python cmp_errors.py errors.json docs/mcp.md      (reads each table row `| `CODE` | yes/no | action_by | next step |`)
+codes in horus errors -json: 21  rows in docs/mcp.md: 21
+differences: 0
+```
+
+Each `next_step` of `horus errors -json` was read for a name that is gone. Only one names a command: `BACKEND_UNAVAILABLE` ("Ask the user to run horus start-comfyui in the horus repo and read docs/setup.md."). `horus start-comfyui` exists. The others name tool names (`list_workflows`, `install_workflow`, `generate_image`), arguments (`accept_license`, `confirm`, `out_path`, `overwrite`), `details` keys, `HF_TOKEN`, `.env` and `docs/setup.md`. All exist.
+
+### Step 5: re-check after the fixes
+
+Three fixes were merged after the review of `fd83a80`: PR #44 (#38), PR #45 (#43, which took points 2 and 3 of follow-up #41 into the epic) and PR #47 (#46, found by the coordinator). The branch `docs/g12-acceptance` was merged with `origin/main` (`98edd90`). `bin/horus.exe` was built from the merged tree (`vcs.revision=fe180c47cd477ec860b8634594733f3288966aa8`). Only what the three fixes touched was checked again. The statements in steps 1 and 2 about the old `check-setup` lines (`-full`, no comfy-cli check, "verified" after a size-only check) describe `fd83a80` and are replaced by this step.
+
+`README.md` lines 96 to 98 (the two link targets rewritten relative to this file) against `internal/scripts/register/register.go` line 58 (`"-e", "HORUS_ROOT="+o.Root`): they agree.
+
+```
+call or ask you. Details: [`docs/mcp.md`](../mcp.md). `horus register` also sets
+the variable `HORUS_ROOT` to the repo folder. You do not set it by hand
+([setup step 5](../setup.md#optional-the-image-tool-for-agents-in-other-folders)).
+```
+
+`check-setup -h` (`-full` is gone, `-quick` is new):
+
+```
+$ bin/horus.exe check-setup -h
+Usage of horus check-setup:
+  -comfyui-dir string
+    	the portable folder (default: HORUS_COMFYUI_DIR, then <home>/ComfyUI_windows_portable)
+  -models-dir string
+    	with -workflow: models folder (default: HORUS_MODELS_DIR)
+  -quick
+    	with -workflow: check the size of each file only (the default also checks the SHA-256, and hashing 11 GB takes minutes)
+  -server-url string
+    	address of the ComfyUI server (default "http://127.0.0.1:8188")
+  -text-encoder-dir string
+    	with -workflow: folder of the text encoder on another drive (default: HORUS_TEXT_ENCODER_DIR)
+  -venv-path string
+    	folder of the comfy-mcp venv (default: <home>/.venvs/comfy-mcp)
+  -workflow string
+    	also check the model files of workflows/<name>/models.json
+exit=2
+$ bin/horus.exe check-setup -full
+flag provided but not defined: -full
+exit=2
+```
+
+`check-setup` on this PC (read-only; `HORUS_ROOT=<repo>`, `<user>\go\bin` on the PATH), new:
+
+```
+PASS  ComfyUI folder - D:\ComfyUI_windows_portable
+PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+PASS  comfy-cli - <user>\.venvs\comfy-mcp\Scripts\comfy.exe
+PASS  .mcp.json - command points at <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe, COMFY_BIN at <user>\.venvs\comfy-mcp\Scripts\comfy.exe
+PASS  horus on PATH - <user>\go\bin\horus.exe
+PASS  .mcp.json horus - command points at <user>\go\bin\horus.exe
+All checks passed.
+exit=0
+```
+
+`check-setup.ps1` at `c5379f9`, same state, run again:
+
+```
+PASS  ComfyUI folder - D:\ComfyUI_windows_portable
+PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - <user>\.venvs\comfy-mcp
+PASS  .mcp.json - command and COMFY_BIN point at <user>\.venvs\comfy-mcp
+PASS  horus-mcp environment - <user>\.venvs\horus-mcp
+PASS  .mcp.json horus - command points at <user>\.venvs\horus-mcp
+All checks passed.
+exit=0
+```
+
+Each check of the old script has a Go line now: the comfy-cli program (`comfy.exe`) and `COMFY_BIN` are checked again. The `horus-mcp` venv lines became `horus on PATH` and `.mcp.json horus`, as the port map of issue #4 says.
+
+`check-setup -workflow it-illustration -quick` (the run without `-quick` hashes 11 GB and was not run; PR #47 tests the default):
+
+```
+(the 7 PASS lines above)
+      Checking workflow 'it-illustration': 3 model file(s), size only.
+      OK        diffusion <user>\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors (5827874779 bytes)
+      OK        text_encoder <user>\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors (4858559240 bytes)
+      OK        vae <user>\ComfyUI-models\vae\flux2-vae.safetensors (336211292 bytes)
+      OK        models.json lists all 3 model file(s) that workflow.json loads
+      OK        the server has all 10 node classes of workflow.json
+      OK        the server lists flux3-image-klein-int8-convrot.safetensors
+      OK        the server lists qwen3vl_4b_int8_convrot.safetensors
+      OK        the server lists flux2-vae.safetensors
+      OK: workflow 'it-illustration' is ready.
+PASS  models for 'it-illustration' - all files present, size checked (the SHA-256 is not checked; drop -quick)
+All checks passed.
+exit=0
+```
+
+`docs/setup.md` agrees with the code: step 4 runs `horus check-setup -workflow it-illustration` (full check by default, `-quick` for sizes only), and "Check an existing machine" lists the three forms. No doc names `-full`:
+
+```
+$ git grep -n -- '-full' -- '*.md' ':!docs/plans' ':!docs/specs'
+(no output)
+```
+
+The checks of the merged tree:
+
+```
+$ go test -count=1 ./...
+ok  	github.com/hieplam/horus/cmd/horus	3.547s
+ok  	github.com/hieplam/horus/internal/catalog	1.268s
+ok  	github.com/hieplam/horus/internal/comfy	4.501s
+?   	github.com/hieplam/horus/internal/comfy/comfytest	[no test files]
+ok  	github.com/hieplam/horus/internal/generate	4.536s
+ok  	github.com/hieplam/horus/internal/herr	0.945s
+ok  	github.com/hieplam/horus/internal/models	3.547s
+ok  	github.com/hieplam/horus/internal/scripts/checksetup	4.436s
+ok  	github.com/hieplam/horus/internal/scripts/downloadmodel	3.921s
+ok  	github.com/hieplam/horus/internal/scripts/installcomfymcp	4.644s
+ok  	github.com/hieplam/horus/internal/scripts/installcomfyui	4.481s
+ok  	github.com/hieplam/horus/internal/scripts/newworkflow	1.196s
+ok  	github.com/hieplam/horus/internal/scripts/register	5.665s
+ok  	github.com/hieplam/horus/internal/scripts/runillustration	3.987s
+ok  	github.com/hieplam/horus/internal/scripts/startcomfyui	10.685s
+ok  	github.com/hieplam/horus/internal/scripts/syncworkflows	1.037s
+ok  	github.com/hieplam/horus/internal/scripts/workflow	2.655s
+ok  	github.com/hieplam/horus/internal/server	1.756s
+ok  	github.com/hieplam/horus/internal/settings	0.889s
+exit=0
+$ gofmt -l .
+exit=0
+$ python tests/mcp_contract.py --server-cmd bin\horus.exe mcp      (cut: the first 29 PASS lines)
+PASS  docs/mcp.md lists every error code
+contract: 30 of 30 passed
+exit=0
+$ python tools/goal_check.py --no-ci --server-cmd bin/horus.exe mcp
+PASS  contract - local 30 of 30; CI part skipped (--no-ci)
+PASS  graph - TestUIToAPIGolden passes
+PASS  workflow-cli - parity: 17 of 17 cases equal
+PASS  downloader - 14 tests passed
+PASS  setup-commands - 8 of 8 commands have a passing test
+PASS  builds - 3 of 3 build
+FAIL  real-image - needs --real on the GPU machine
+PASS  no-python - 0 lines left
+goal: 7 of 8 rows passed
+exit=1
+```
+
+`real-image` needs `--real`. G11 passed it on this PC, and step 3 of this section made one more image through `claude -p`. No new image was made in this step.
+
+### Defects and follow-ups
+
+| Issue | Kind | Goal row | State |
+|---|---|---|---|
+| #38 README says that `horus register` does not set `HORUS_ROOT` | defect, blocked G12 | `setup-commands` (`horus register`), acceptance bar | closed (PR #44) |
+| #43 `check-setup` lost the comfy-cli check, and says "verified" after a size-only check | defect, blocked G12 (points 2 and 3 of #41, moved into the epic) | `setup-commands` | closed (PR #45) |
+| #46 `check-setup -workflow` must do the full SHA-256 check by default | defect, blocked G12 (found by the coordinator) | `setup-commands` | closed (PR #47) |
+| #39 template README names the refused field `theme` | follow-up, not in the epic | none (text older than the port) | open |
+| #40 `INTERNAL` "bug in horus" when the root is not found | follow-up, not in the epic | none (`register` sets `HORUS_ROOT`) | open |
+| #41 `-h` exit codes (point 1; points 2 and 3 went to #43) | follow-up, not in the epic | none (style) | open |
+| #42 `docs/mcp.md` progress-token measurement is out of date | follow-up, not in the epic | none (dated measurement) | open |
+
+```
+$ gh issue list --search "6 in:body is:open label:bug" --json number,title
+[]
+```
+
+Ratchet: open defects against the goal rows: 0 at the start, 3 found (#38 by this task, #43 from this task's follow-up #41, #46 by the coordinator), 0 at the end.

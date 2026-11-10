@@ -361,11 +361,29 @@ func (r *runner) list() error {
 // roundGB is [math]::Round($bytes / 1e9, 2).
 func roundGB(b int64) float64 { return math.RoundToEven(float64(b)/1e9*100) / 100 }
 
-// gb2 is "{0:N2}" -f ($bytes / 1e9) in the en-US culture: two decimals and a
-// comma between groups of three digits.
+// gb2 is "{0:N2}" -f ($bytes / 1e9) as Windows PowerShell 5.1 prints it in
+// the en-US culture: .NET Framework takes the value with 15 significant digits,
+// rounds it half away from zero to two decimals, and puts a comma between
+// groups of three digits. So 999.995 gives "1,000.00" and 1.005 gives "1.01".
 func gb2(b int64) string {
-	s := strconv.FormatFloat(float64(b)/1e9, 'f', 2, 64)
-	intPart, frac, _ := strings.Cut(s, ".")
+	e := strconv.FormatFloat(float64(b)/1e9, 'e', 14, 64) // d.dddddddddddddde+XX
+	mant, expText, _ := strings.Cut(e, "e")
+	digits := strings.Replace(mant, ".", "", 1)
+	exp, _ := strconv.Atoi(expText)
+	keep := exp + 3 // the digits of value*100
+	var n uint64
+	if keep > 0 {
+		for len(digits) <= keep {
+			digits += "0"
+		}
+		n, _ = strconv.ParseUint(digits[:keep], 10, 64)
+		if digits[keep] >= '5' {
+			n++
+		}
+	} else if keep == 0 && digits[0] >= '5' {
+		n = 1
+	}
+	intPart, frac := strconv.FormatUint(n/100, 10), fmt.Sprintf("%02d", n%100)
 	var g []byte
 	for i, c := range []byte(intPart) {
 		if i > 0 && (len(intPart)-i)%3 == 0 {

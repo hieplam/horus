@@ -11,11 +11,7 @@ import (
 )
 
 func init() {
-	notPorted("check-setup", "check the setup of this machine (task G7)")
-	notPorted("sync-workflows", "copy the workflows into the ComfyUI page (task G7)")
-	notPorted("new-workflow", "make a new workflow folder from the template (task G7)")
-	notPorted("register", "register horus mcp with Claude Code (task G7)")
-	notPorted("run-illustration", "make one image without MCP (task G7)")
+	// Every command of the port map is ported (G7 and G4 deleted the last lines).
 }
 
 func notPorted(name, summary string) {

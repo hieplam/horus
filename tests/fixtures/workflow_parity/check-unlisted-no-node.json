@@ -1,0 +1,116 @@
+{
+ "case": "check-unlisted-no-node",
+ "steps": [
+  {
+   "args": [
+    "check",
+    "it-illustration",
+    "-json",
+    "-workflows-dir",
+    "<sandbox>/workflows"
+   ],
+   "exit": 1,
+   "result": {
+    "ok": false,
+    "action": "check",
+    "workflow": "it-illustration",
+    "message": "3 check(s) failed. Fix: horus workflow install it-illustration",
+    "items": [
+     {
+      "status": "OK",
+      "kind": "file",
+      "role": "diffusion",
+      "file": "flux3-image-klein-int8-convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+      "bytes": 72,
+      "detail": "size and SHA-256 verified"
+     },
+     {
+      "status": "OK",
+      "kind": "file",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+      "bytes": 62,
+      "detail": "size and SHA-256 verified"
+     },
+     {
+      "status": "OK",
+      "kind": "file",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors",
+      "bytes": 38,
+      "detail": "size and SHA-256 verified"
+     },
+     {
+      "status": "UNLISTED",
+      "kind": "graph",
+      "role": "",
+      "file": "extra-lora.safetensors",
+      "path": "",
+      "bytes": -1,
+      "detail": "workflow.json loads this file, but models.json does not list it"
+     },
+     {
+      "status": "NO_NODE",
+      "kind": "server",
+      "role": "",
+      "file": "VAELoader",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server has no node class 'VAELoader'"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "diffusion",
+      "file": "flux3-image-klein-int8-convrot.safetensors",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server lists the file"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server lists the file"
+     },
+     {
+      "status": "NOT_SEEN",
+      "kind": "server",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server does not list the file"
+     }
+    ]
+   },
+   "lines": [
+    "Checking workflow 'it-illustration': 3 model file(s).",
+    "OK        diffusion <sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors (72 bytes, SHA-256 verified)",
+    "OK        text_encoder <sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors (62 bytes, SHA-256 verified)",
+    "OK        vae <sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors (38 bytes, SHA-256 verified)",
+    "UNLISTED  workflow.json loads extra-lora.safetensors, but models.json does not list it. Add it to models.json.",
+    "NO NODE   the server has no node class 'VAELoader'. Install its node pack (MCP install_node), then restart ComfyUI.",
+    "OK        the server lists flux3-image-klein-int8-convrot.safetensors",
+    "OK        the server lists qwen3vl_4b_int8_convrot.safetensors",
+    "NOT SEEN  the server does not list flux2-vae.safetensors. Check extra_model_paths.yaml, then restart ComfyUI.",
+    "FAIL: 3 check(s) failed. Fix: horus workflow install it-illustration"
+   ]
+  }
+ ],
+ "after": {
+  "files": [
+   "comfy/ComfyUI/main.py 8 ddc00976caf4",
+   "comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors 72 67ae2070ae90",
+   "comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors 62 8f564ff8ece9",
+   "comfy/ComfyUI/models/vae/flux2-vae.safetensors 38 84f1855a2759"
+  ],
+  "extra_model_paths.yaml": null
+ }
+}

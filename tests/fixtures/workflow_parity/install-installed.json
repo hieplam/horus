@@ -1,0 +1,155 @@
+{
+ "case": "install-installed",
+ "steps": [
+  {
+   "args": [
+    "install",
+    "it-illustration",
+    "-json",
+    "-workflows-dir",
+    "<sandbox>/workflows"
+   ],
+   "exit": 0,
+   "result": {
+    "ok": true,
+    "action": "install",
+    "workflow": "it-illustration",
+    "message": "workflow 'it-illustration' is installed and ready",
+    "items": [
+     {
+      "status": "PRESENT",
+      "kind": "download",
+      "role": "diffusion",
+      "file": "flux3-image-klein-int8-convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+      "bytes": 72,
+      "detail": "already present and verified"
+     },
+     {
+      "status": "PRESENT",
+      "kind": "download",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+      "bytes": 62,
+      "detail": "already present and verified"
+     },
+     {
+      "status": "PRESENT",
+      "kind": "download",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors",
+      "bytes": 38,
+      "detail": "already present and verified"
+     },
+     {
+      "status": "OK",
+      "kind": "file",
+      "role": "diffusion",
+      "file": "flux3-image-klein-int8-convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+      "bytes": 72,
+      "detail": "size verified"
+     },
+     {
+      "status": "OK",
+      "kind": "file",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+      "bytes": 62,
+      "detail": "size verified"
+     },
+     {
+      "status": "OK",
+      "kind": "file",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors",
+      "bytes": 38,
+      "detail": "size verified"
+     },
+     {
+      "status": "OK",
+      "kind": "graph",
+      "role": "",
+      "file": "",
+      "path": "",
+      "bytes": -1,
+      "detail": "models.json lists all 3 model files of workflow.json"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "",
+      "file": "",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server has all 10 node classes"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "diffusion",
+      "file": "flux3-image-klein-int8-convrot.safetensors",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server lists the file"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server lists the file"
+     },
+     {
+      "status": "OK",
+      "kind": "server",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "",
+      "bytes": -1,
+      "detail": "the server lists the file"
+     }
+    ]
+   },
+   "lines": [
+    "License: FLUX Kommunity License (gated: accept it on the repo page first)",
+    "Installing 3 model file(s) for workflow 'it-illustration'.",
+    "-- diffusion -> <sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+    "Checking SHA-256 of the existing file flux3-image-klein-int8-convrot.safetensors ...",
+    "SKIP flux3-image-klein-int8-convrot.safetensors : already present and verified.",
+    "-- text_encoder -> <sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+    "Checking SHA-256 of the existing file qwen3vl_4b_int8_convrot.safetensors ...",
+    "SKIP qwen3vl_4b_int8_convrot.safetensors : already present and verified.",
+    "-- vae -> <sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors",
+    "Checking SHA-256 of the existing file flux2-vae.safetensors ...",
+    "SKIP flux2-vae.safetensors : already present and verified.",
+    "",
+    "Checking workflow 'it-illustration': 3 model file(s), size only.",
+    "OK        diffusion <sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors (72 bytes)",
+    "OK        text_encoder <sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors (62 bytes)",
+    "OK        vae <sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors (38 bytes)",
+    "OK        models.json lists all 3 model file(s) that workflow.json loads",
+    "OK        the server has all 10 node classes of workflow.json",
+    "OK        the server lists flux3-image-klein-int8-convrot.safetensors",
+    "OK        the server lists qwen3vl_4b_int8_convrot.safetensors",
+    "OK        the server lists flux2-vae.safetensors",
+    "OK: workflow 'it-illustration' is installed and ready."
+   ]
+  }
+ ],
+ "after": {
+  "files": [
+   "comfy/ComfyUI/main.py 8 ddc00976caf4",
+   "comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors 72 67ae2070ae90",
+   "comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors 62 8f564ff8ece9",
+   "comfy/ComfyUI/models/vae/flux2-vae.safetensors 38 84f1855a2759"
+  ],
+  "extra_model_paths.yaml": null
+ }
+}

@@ -1,0 +1,65 @@
+{
+ "case": "remove-yes",
+ "steps": [
+  {
+   "args": [
+    "remove",
+    "it-illustration",
+    "-json",
+    "-workflows-dir",
+    "<sandbox>/workflows",
+    "-yes"
+   ],
+   "exit": 0,
+   "result": {
+    "ok": true,
+    "action": "remove",
+    "workflow": "it-illustration",
+    "message": "deleted 1 file(s)",
+    "items": [
+     {
+      "status": "KEPT_SHARED",
+      "kind": "file",
+      "role": "text_encoder",
+      "file": "qwen3vl_4b_int8_convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+      "bytes": 62,
+      "detail": "also used by: absent-style"
+     },
+     {
+      "status": "KEPT_SHARED",
+      "kind": "file",
+      "role": "vae",
+      "file": "flux2-vae.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors",
+      "bytes": 38,
+      "detail": "also used by: absent-style"
+     },
+     {
+      "status": "DELETED",
+      "kind": "file",
+      "role": "diffusion",
+      "file": "flux3-image-klein-int8-convrot.safetensors",
+      "path": "<sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+      "bytes": 72,
+      "detail": ""
+     }
+    ]
+   },
+   "lines": [
+    "KEEP      text_encoder <sandbox>/comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors (also used by: absent-style; -force deletes it)",
+    "KEEP      vae <sandbox>/comfy/ComfyUI/models/vae/flux2-vae.safetensors (also used by: absent-style; -force deletes it)",
+    "DELETE     diffusion <sandbox>/comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors (0.00 GB)",
+    "OK: deleted 1 file(s), 0.00 GB. Reinstall: horus workflow install it-illustration"
+   ]
+  }
+ ],
+ "after": {
+  "files": [
+   "comfy/ComfyUI/main.py 8 ddc00976caf4",
+   "comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors 62 8f564ff8ece9",
+   "comfy/ComfyUI/models/vae/flux2-vae.safetensors 38 84f1855a2759"
+  ],
+  "extra_model_paths.yaml": null
+ }
+}

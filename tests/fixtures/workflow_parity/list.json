@@ -1,0 +1,46 @@
+{
+ "case": "list",
+ "steps": [
+  {
+   "args": [
+    "list",
+    "-json",
+    "-workflows-dir",
+    "<sandbox>/workflows"
+   ],
+   "exit": 0,
+   "result": [
+    {
+     "name": "absent-style",
+     "description": "Text in, image out. The picture is 1536x1024. The model is FLUX 3 Image Klein (int8 build) running in ComfyUI. This is the first horus example.",
+     "files": 3,
+     "present": 2,
+     "bytes": 5000000100,
+     "gigabytes": 5,
+     "installed": "no (2 of 3 files)",
+     "roles": "diffusion, text_encoder, vae"
+    },
+    {
+     "name": "it-illustration",
+     "description": "Text in, image out. The picture is 1536x1024. The model is FLUX 3 Image Klein (int8 build) running in ComfyUI. This is the first horus example.",
+     "files": 3,
+     "present": 3,
+     "bytes": 172,
+     "gigabytes": 0,
+     "installed": "yes",
+     "roles": "diffusion, text_encoder, vae"
+    }
+   ],
+   "lines": []
+  }
+ ],
+ "after": {
+  "files": [
+   "comfy/ComfyUI/main.py 8 ddc00976caf4",
+   "comfy/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors 72 67ae2070ae90",
+   "comfy/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors 62 8f564ff8ece9",
+   "comfy/ComfyUI/models/vae/flux2-vae.safetensors 38 84f1855a2759"
+  ],
+  "extra_model_paths.yaml": null
+ }
+}

@@ -22,6 +22,11 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G1 | `.gitattributes` keeps `*.go`, `go.mod` and `go.sum` at LF. The plan does not list this file. | `gofmt -l` lists a CRLF file, and a Windows checkout with `core.autocrlf` writes CRLF. |
 | 2026-11-10 | G1 | Known difference, not fixed: `catalog.All` sorts the workflow folders by byte order. Python sorts `WindowsPath` objects without case on Windows. The order is the same for names in lower case, and `new-workflow` allows only kebab-case names. | Not forced by Go, but no shipped or allowed name shows the difference. |
 | 2026-11-10 | G1 | The CI job `contract` runs on `windows-latest` and `macos-latest` with the name `contract <os>`. It prints the count and does not fail (until G8). | Plan step 7 and the G0 decision about job names. |
+| 2026-11-10 | G6 | `install-comfyui` downloads with Go `net/http` (resume with a `Range` header, 3 attempts, 5 s and 10 s between them), not with `curl.exe`. The check for `curl.exe` is dropped. The size, the SHA-256, the free-space message and the call of `7z.exe` stay. | The plan names the archive pin, the free-space check and 7-Zip, not curl. A Go download is testable with a local HTTP server and needs no second program. |
+| 2026-11-10 | G6 | Flags are Go style with the same meaning: `-install-dir`, `-archive-path`, `-seven-zip`, `-keep-archive`; `-comfyui-dir`, `-server-url`, `-timeout-seconds`; `-venv-path`, `-python-version`. A failure prints one line `horus <command>: <message>` to stderr and exits 1. A flag error exits 2. | Issue #13 and issue #4: same flags in Go style. The text of each message is the text of the script. |
+| 2026-11-10 | G6 | `start-comfyui` passes `--port <port of -server-url>` as the script does, after the three arguments of the plan. The first check of the server comes after one poll interval (2 s), as in the script. | The script does this. The plan lists only the 3 fixed arguments. |
+| 2026-11-10 | G6 | `install-comfy-mcp` also runs on macOS and Linux. It uses `python<version>` as the launcher and `bin/` in the venv there, and `py.exe -<version>` and `Scripts\` on Windows. The plan makes only `install-comfyui` and `start-comfyui` Windows-only. | The plan, step 3. |
+| 2026-11-10 | G6 | The tests use the test binary as the fake `7z`, the fake `python.exe` and the fake Python launcher (`TestMain` with an environment variable). They run on Windows, macOS and Linux. The fake `python.exe` of `start-comfyui` waits 60 s and the test kills it by the process id from its record. | The coordinator asked for fakes that work on all three CI systems. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -186,3 +191,73 @@ Stub check:
 `python scripts/lint-public.py`: `lint-public: 0 finding(s)`. `gofmt -l .` prints nothing.
 
 Ratchet: contract checks that pass against Go: 0 → 11 (the plan asks for at least 6). `goal`: 0 → 1 of 8 (`builds`).
+
+## G6
+
+Baseline before building: `python tools/goal_check.py --no-ci` on `origin/main` (`6d8553f`) has `FAIL  setup-commands` (no `internal/scripts`), `goal: 1 of 8`. Commands with a passing test: 0 of 8.
+
+Red (before building, in the main checkout at `6d8553f`):
+
+```
+$ go test ./internal/scripts/installcomfyui ./internal/scripts/startcomfyui ./internal/scripts/installcomfymcp
+stat <repo>\internal\scripts\installcomfyui: directory not found
+FAIL	./internal/scripts/installcomfyui [setup failed]
+stat <repo>\internal\scripts\startcomfyui: directory not found
+FAIL	./internal/scripts/startcomfyui [setup failed]
+stat <repo>\internal\scripts\installcomfymcp: directory not found
+FAIL	./internal/scripts/installcomfymcp [setup failed]
+FAIL
+exit 1
+```
+
+Green:
+
+```
+$ go test -v ./internal/scripts/installcomfyui ./internal/scripts/startcomfyui ./internal/scripts/installcomfymcp
+--- PASS: TestWrongSHA256StopsBeforeUnpacking (0.05s)
+--- PASS: TestRightSHA256UnpacksWithTheArchivePath (0.53s)
+--- PASS: TestKeepArchive (0.04s)
+--- PASS: TestTooLittleFreeSpaceStopsWithTheMessageOfTheScript (0.00s)
+--- PASS: TestAlreadyInstalledSkips (0.00s)
+--- PASS: TestNonEmptyFolderWithoutComfyUIFails (0.00s)
+--- PASS: TestSevenZipMissingFails (0.00s)
+--- PASS: TestSevenZipFailureKeepsTheArchive (0.04s)
+--- PASS: TestWrongLayoutFails (0.04s)
+--- PASS: TestVerifiedArchiveIsReusedAndOtherFileIsRefused (0.04s)
+--- PASS: TestDownloadResumesAPartFile (0.05s)
+--- PASS: TestDownloadRetriesAfterAFailedAttempt (0.04s)
+--- PASS: TestDownloadGivesUpAfterThreeAttempts (0.00s)
+--- PASS: TestPinnedValues (0.00s)
+--- PASS: TestNotSupportedOffWindows (0.00s)
+--- PASS: TestBadFlagExits2 (0.00s)
+ok  	github.com/hieplam/horus/internal/scripts/installcomfyui	2.627s
+--- PASS: TestStartsThePythonOfThePortableBuildAndWaitsForTheServer (1.72s)
+--- PASS: TestWritesTheTwoLogFiles (1.63s)
+--- PASS: TestAlreadyAnsweringStartsNothing (0.02s)
+--- PASS: TestFailsAfterTheTimeLimitWhenNothingAnswers (2.55s)
+--- PASS: TestFailsWhenThePythonStops (2.10s)
+--- PASS: TestFailsWhenComfyUIIsNotInstalled (0.01s)
+--- PASS: TestNotSupportedOffWindows (0.00s)
+--- PASS: TestBadFlagExits2 (0.00s)
+ok  	github.com/hieplam/horus/internal/scripts/startcomfyui	9.783s
+--- PASS: TestMakesTheVenvAndInstallsThePinnedVersions (0.85s)
+--- PASS: TestRunAgainChangesNothing (0.70s)
+--- PASS: TestPipFailureFails (0.65s)
+--- PASS: TestFolderThatIsNoVenvFails (0.00s)
+--- PASS: TestMissingLauncherFails (0.00s)
+--- PASS: TestVenvPathsFollowTheOS (0.00s)
+--- PASS: TestBadFlagExits2 (0.00s)
+ok  	github.com/hieplam/horus/internal/scripts/installcomfymcp	2.711s
+```
+
+Each test reads a file on disk or the record of a fake program. The tests never start the real ComfyUI, never download the real archive and never run a real `pip install`.
+
+Stub check (mutation runs, each reverted after the run):
+
+- `install-comfyui` with the SHA-256 check switched off: `TestWrongSHA256StopsBeforeUnpacking` fails with `error = <nil>`.
+- `install-comfy-mcp` with the `pip install` call replaced by `python -c pass`: `TestMakesTheVenvAndInstallsThePinnedVersions`, `TestRunAgainChangesNothing` and `TestPipFailureFails` fail with `Expected program is missing`.
+- A command that does nothing leaves the record of the fake programs empty. The tests of the three commands each read that record or the files that the fake program makes.
+
+`GOOS=linux` and `GOOS=darwin` `go vet ./internal/scripts/... ./cmd/...` pass, so the detach file pair builds on all three systems. `gofmt -l .` prints nothing. `python scripts/lint-public.py`: `lint-public: 0 finding(s)`.
+
+Ratchet: `python tools/goal_check.py --no-ci` gives `FAIL  setup-commands - 3 of 8 commands have a test; none for checksetup, syncworkflows, newworkflow, register, runillustration`. Commands with a passing test: 0 → 3 of 8. `goal`: 1 of 8, unchanged (the row passes after task G7). The real run of the three commands on this PC is task G9.

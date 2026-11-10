@@ -91,6 +91,7 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G10 | `tools/goal_check.py` prints `PASS  no-python - 0 lines left`; the plan wrote `0 lines`. The tool is not changed. | The text of the committed tool. The row passes. |
 | 2026-11-10 | G10 | The Go files keep their first comment that names the `.ps1` or `.py` file that they port. | Rule 2 of the spec. The `no-python` row looks for the word `powershell` in Go files, not for `.ps1`. |
 | 2026-11-10 | Issue 34 | `tests/mcp_contract.py` resolves the server program one time, at the start of `run()`: a program with a path separator that is a file becomes an absolute path; a bare name is looked up on the PATH (`shutil.which`); a program that is not found stays as written, so the run fails. The session and the `errors -json` read use the same resolved program. Nothing else in the test changes: no check, no count. | The session started the program with a relative path (the MCP client resolves it against the server process), but `subprocess.run` of the error-code read did not on Windows (`WinError 2`). One resolved program for both removes the difference. The fix stays inside the place that the spec lets the contract test change. |
+| 2026-11-10 | G11 | The amber-gold colour of the envelopes (the subject says sun-yellow) is accepted. | The objects, the count and the positions match. Amber is the model's reading of yellow, and no port code chooses it. The model's honest output wins. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -1348,3 +1349,137 @@ contract: 29 of 30 passed
 ```
 
 Ratchet: forms of the server command that give 30 of 30: 2 of 3 (absolute, PATH) -> 3 of 3 (plus relative).
+
+## G11
+
+Placeholders: `<repo>` is the main checkout, `<user>` is the user folder. Commit under test: `d7696c622be8d947e6e1e1a53140ec1300928796` (main, merge of PR 36). Clean worktree of that commit. `bin/horus.exe` built from it with `go build -o bin/horus.exe ./cmd/horus`. The PC: Windows 11, GTX 1660 Ti 6 GB, ComfyUI 0.44.0. Go 1.27.3. Python 3.12 with `mcp==2.3.0`.
+
+Baseline (ratchet): `goal: 0 of 8 at G0` (7 of 8 after G10 without `--real`).
+
+### Step 1: before the run
+
+```
+$ nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv
+memory.used [MiB], utilization.gpu [%]
+0 MiB, 0 %
+$ curl -s http://127.0.0.1:8188/queue
+{"queue_running": [], "queue_pending": []}
+$ gh run list --branch main --limit 1
+completed	success	Merge pull request #36 from hieplam/fix/register-horus-root	ci	main	push	42810496659	1m42s	2026-11-10T11:48:42Z
+```
+
+### Step 2: the goal check with the real image and the CI part
+
+```
+$ HORUS_ROOT=<repo> python tools/goal_check.py --real --real-out <repo>\.scratch\g11 --server-cmd bin/horus.exe mcp
+PASS  contract - local 30 of 30; CI contract job green on windows-latest and macos-latest
+PASS  graph - TestUIToAPIGolden passes
+PASS  workflow-cli - parity: 17 of 17 cases equal
+PASS  downloader - 14 tests passed
+PASS  setup-commands - 8 of 8 commands have a passing test
+PASS  builds - 3 of 3 build
+PASS  real-image - 1536x1024 <repo>\.scratch\g11\real-image-seed7-20261110-185211.png (seed 7, 216 s)
+PASS  no-python - 0 lines left
+goal: 8 of 8 rows passed
+exit 0
+```
+
+### Step 3: the image
+
+| File | Bytes | Size | SHA-256 | Seed | Seconds |
+|---|---|---|---|---|---|
+| `<repo>\.scratch\g11eal-image-seed7-20261110-185211.png` | 2,421,991 | 1536 x 1024 | `9f8fbe697dc813d1e8ca17a7152e651fd7682df008790f51e8c217e21bee6080` | 7 | 216 |
+
+Subject of the contract test: "On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. On the right, a sky-blue server box takes them off the belt."
+
+Verdict: the image matches the subject.
+- Left: a mint-green server box with a rack front.
+- Right: a sky-blue server box with a rack front.
+- Between them: a lilac (purple) conveyor belt with four envelopes on it. Three lie near the green box and one lies near the blue box.
+- Colour: the envelopes are amber-gold, a little darker than "sun-yellow". The objects, their count and their positions are right. This is the model's reading of the colour, not a defect of the port (see Decisions).
+
+### Step 4: `check --dry-run` of every closed task of the epic
+
+```
+$ epic.mjs check 7 --dry-run
+PASS #7 via PR #20 (https://github.com/hieplam/horus/pull/20)
+$ epic.mjs check 8 --dry-run
+PASS #8 via PR #21 (https://github.com/hieplam/horus/pull/21)
+$ epic.mjs check 9 --dry-run
+PASS #9 via PR #24 (https://github.com/hieplam/horus/pull/24)
+$ epic.mjs check 10 --dry-run
+PASS #10 via PR #23 (https://github.com/hieplam/horus/pull/23)
+$ epic.mjs check 11 --dry-run
+PASS #11 via PR #26 (https://github.com/hieplam/horus/pull/26)
+$ epic.mjs check 12 --dry-run
+PASS #12 via PR #29 (https://github.com/hieplam/horus/pull/29)
+$ epic.mjs check 13 --dry-run
+PASS #13 via PR #22 (https://github.com/hieplam/horus/pull/22)
+$ epic.mjs check 14 --dry-run
+PASS #14 via PR #25 (https://github.com/hieplam/horus/pull/25)
+$ epic.mjs check 15 --dry-run
+PASS #15 via PR #30 (https://github.com/hieplam/horus/pull/30)
+$ epic.mjs check 16 --dry-run
+PASS #16 via PR #31 (https://github.com/hieplam/horus/pull/31)
+$ epic.mjs check 17 --dry-run
+PASS #17 via PR #33 (https://github.com/hieplam/horus/pull/33)
+$ epic.mjs check 27 --dry-run
+PASS #27 via PR #28 (https://github.com/hieplam/horus/pull/28)
+$ epic.mjs check 32 --dry-run
+PASS #32 via PR #36 (https://github.com/hieplam/horus/pull/36)
+$ epic.mjs check 34 --dry-run
+PASS #34 via PR #35 (https://github.com/hieplam/horus/pull/35)
+```
+
+### Step 5: supporting evidence on this tree
+
+```
+$ go test -count=1 ./...
+ok  	github.com/hieplam/horus/cmd/horus	4.237s
+ok  	github.com/hieplam/horus/internal/catalog	2.422s
+ok  	github.com/hieplam/horus/internal/comfy	5.700s
+?   	github.com/hieplam/horus/internal/comfy/comfytest	[no test files]
+ok  	github.com/hieplam/horus/internal/generate	5.478s
+ok  	github.com/hieplam/horus/internal/herr	1.351s
+ok  	github.com/hieplam/horus/internal/models	4.983s
+ok  	github.com/hieplam/horus/internal/scripts/checksetup	4.861s
+ok  	github.com/hieplam/horus/internal/scripts/downloadmodel	5.435s
+ok  	github.com/hieplam/horus/internal/scripts/installcomfymcp	5.901s
+ok  	github.com/hieplam/horus/internal/scripts/installcomfyui	6.020s
+ok  	github.com/hieplam/horus/internal/scripts/newworkflow	1.458s
+ok  	github.com/hieplam/horus/internal/scripts/register	7.402s
+ok  	github.com/hieplam/horus/internal/scripts/runillustration	3.963s
+ok  	github.com/hieplam/horus/internal/scripts/startcomfyui	12.990s
+ok  	github.com/hieplam/horus/internal/scripts/syncworkflows	2.013s
+ok  	github.com/hieplam/horus/internal/scripts/workflow	3.413s
+ok  	github.com/hieplam/horus/internal/server	2.886s
+ok  	github.com/hieplam/horus/internal/settings	1.492s
+exit 0
+$ gofmt -l .
+exit 0
+$ python scripts/lint-public.py
+lint-public: 0 finding(s)
+exit 0
+$ python tests/workflow_parity.py
+EQUAL     list
+EQUAL     check-quick
+EQUAL     check
+EQUAL     install-installed
+EQUAL     check-absent
+EQUAL     remove-plan
+EQUAL     remove-yes
+EQUAL     remove-yes-force
+EQUAL     list-after-remove
+EQUAL     check-only-vae
+EQUAL     check-bad-size
+EQUAL     check-bad-hash
+EQUAL     remove-refused
+EQUAL     check-unlisted-no-node
+EQUAL     install-no-comfyui
+EQUAL     remove-part-file
+EQUAL     list-text
+parity: 17 of 17 cases equal
+exit 0
+```
+
+Ratchet: `goal: 0 of 8 at G0 -> 8 of 8`. Real images made by the Go binary on main: 2 (G9) -> 3.

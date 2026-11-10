@@ -29,8 +29,8 @@ horus register
 
 - `go install` builds the program `horus` into the Go bin folder (`%USERPROFILE%\go\bin` on Windows, `$HOME/go/bin` on macOS and Linux). That folder must be on the PATH: see step 0 of [`setup.md`](setup.md#step-0-get-the-horus-program). After a `git pull`, run `go install ./cmd/horus` again.
 - In this repo, `.mcp.json` names the server as the command `horus` with the argument `mcp`, so an agent here finds it without `horus register`.
-- `horus register` runs `claude mcp add --scope user horus -- <path of horus> mcp`. Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
-- Limit: a session outside this repo needs the variable `HORUS_ROOT` (the root folder of this repo), and `horus register` does not set it yet (issue [#32](https://github.com/hieplam/horus/issues/32)). Without it the tools answer `INTERNAL`. Until the fix, add the entry by hand: `claude mcp add --scope user horus --env HORUS_ROOT=<root folder of this repo> -- <path of horus> mcp`.
+- `horus register` runs `claude mcp add --scope user horus -e HORUS_ROOT=<repo root> -- <path of horus> mcp`. `<repo root>` is the absolute path of this repo (the folder that has `workflows/`). Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
+- `horus register` finds the repo root from the current folder, so run it inside the repo. Use `-root <repo folder>` to name another folder, and `-horus-path <path>` to register another `horus` program. When the current folder is not in the repo and no `-root` is given, or when the folder has no `workflows/`, `horus register` fails and registers nothing.
 - Another harness (Codex, an IDE) needs one stdio server entry: command `horus` (or its full path), argument `mcp`, and `HORUS_ROOT` when it starts outside this repo.
 
 The server finds the repo through `HORUS_ROOT`, then the nearest folder at or

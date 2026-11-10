@@ -38,6 +38,7 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G2 | The golden file of the graph comes from the Python `ui_to_api` through `tools/make_graph_golden.py`. `TestUIToAPIGolden` compares the JSON values, and also the JSON text, so the node order and the input order are checked too. Task G10 deletes the tool together with the Python package. | The plan names the tool and the file. The text compare is stronger than "the two JSON values are equal" and does not weaken the row. |
 | 2026-11-10 | G2 | Autostart runs the same binary as `horus start-comfyui -server-url <url>`, with the time limit of `comfy.py` (420 s). The tail is the last 8 lines of stdout, then stderr. A line with "was not found" gives `BACKEND_NOT_INSTALLED`. | The flag is the Go-style name of `-ServerUrl` that task G6 uses. A run of the real binary with an empty ComfyUI folder gives `BACKEND_NOT_INSTALLED` (G2 section). |
 | 2026-11-10 | G2 | `internal/comfy/start_windows.go` and `start_unix.go` (`//go:build darwin \|\| linux`) are a second OS file pair. On Windows the child gets `CREATE_NO_WINDOW`, as `creationflags` in `comfy.py`. `WaitDelay` of 10 s stops a child that keeps the pipes open from blocking the call. | The spec allows OS code for starting a process. The pair of task G5 is in `internal/models`, a package that `internal/comfy` does not import. |
+| 2026-11-10 | #32 | `horus register` passes `HORUS_ROOT=<repo root>` with `-e`, after the name `horus` and before `--`. The root comes from `settings.Root()`, or from the new flag `-root`. It must be absolute and must have `workflows/`, or `register` fails and adds nothing. | `claude mcp add -e` takes many values, so it stands after the name, as the help example shows. A root without `workflows/` gives a broken entry. The Python server served the repo from every folder, so the old code is right. |
 | 2026-11-10 | G2 | `internal/server/args.go`: an integer argument outside the `int64` range is kept as a big integer. So a seed from 2^63 to 2^64-1 works, and a seed of 2^64 or more gets `INVALID_ARGUMENT` with `field=seed`, as in Python. `ImageResult.seed` is a `uint64`. | A Python `int` has no size limit. The G1 parser refused these values with a schema error. |
 | 2026-11-10 | G2 | A cancelled call (an MCP cancel) returns the error of the context and removes the job from ComfyUI (`/interrupt` or a queue delete), as `CancelledError` does in Python. A cancel during `POST /prompt` leaves the job, as in Python. | Port of the `except asyncio.CancelledError` block. |
 | 2026-11-10 | G2 | `TestNotPortedToolsAnswerInternal` no longer calls `generate_image`, because the tool is ported. `tool_generate_image_test.go` tests the tool through MCP, with and without a `progressToken`. | The test checks tools that are not ported. Its premise is false for `generate_image` now. |
@@ -1271,3 +1272,42 @@ The `no-python` row counts the tracked files, so doing nothing leaves 2,827 line
 Issue #32: `horus register` adds the user-scope entry without `HORUS_ROOT`, so the tools answer `INTERNAL` in a session outside the repo. It blocks G11 and G12. The docs name the limit and give the `claude mcp add ... --env HORUS_ROOT=...` command until the fix (see Decisions).
 
 Ratchet: lines of Python and PowerShell in the product 2,827 → 0. `goal_check.py --no-ci`: 6 → 7 of 8 rows (the row left is `real-image`, which needs `--real`).
+
+## Issue 32
+
+Placeholders: `<user>` is the user folder. Go 1.27.3, `claude` 2.1.322. Option syntax from `claude mcp add --help`: `-e, --env <env...>` (it takes many values, so it stands after the server name; the help example is `claude mcp add my-server -e API_KEY=xxx -- npx my-mcp-server`).
+
+Ratchet: tools that answer outside the repo after `horus register`: 0 of 5 catalog-based answers before, all after (see the proof on the PC in the comment on #32).
+
+### Red (the add command without `-e HORUS_ROOT=...`)
+
+```
+$ go test ./internal/scripts/register/
+--- FAIL: TestRegisterAddsTheServerInUserScope
+    register_test.go:106: no add command:
+        args mcp add --scope user horus -- /the/path/horus mcp
+--- FAIL: TestRunFindsClaudeOnThePath
+        args mcp add --scope user horus -- /x/horus mcp
+--- FAIL: TestRunTakesRootFromTheSettings
+        args mcp add --scope user horus -- /x/horus mcp
+FAIL	github.com/hieplam/horus/internal/scripts/register
+```
+
+### Green
+
+```
+$ go test -v ./internal/scripts/register/
+--- PASS: TestRegisterAddsTheServerInUserScope
+--- PASS: TestRegisterSkipsWhenClaudeKnowsTheServer
+--- PASS: TestRegisterReportsAFailedAdd
+--- PASS: TestRunFindsClaudeOnThePath
+--- PASS: TestRunWithoutClaude
+--- PASS: TestRegisterRefusesARootWithoutWorkflows
+--- PASS: TestRunWithoutARepoFails
+--- PASS: TestRunTakesRootFromTheSettings
+ok  	github.com/hieplam/horus/internal/scripts/register
+
+$ cd <temp folder outside the repo> && horus register
+horus register: <bin folder> has no workflows folder, so it is not the horus repo. Run horus register inside the repo, or pass -root <repo folder>.
+exit 1
+```

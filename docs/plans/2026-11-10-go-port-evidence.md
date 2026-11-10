@@ -92,6 +92,9 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G10 | The Go files keep their first comment that names the `.ps1` or `.py` file that they port. | Rule 2 of the spec. The `no-python` row looks for the word `powershell` in Go files, not for `.ps1`. |
 | 2026-11-10 | Issue 34 | `tests/mcp_contract.py` resolves the server program one time, at the start of `run()`: a program with a path separator that is a file becomes an absolute path; a bare name is looked up on the PATH (`shutil.which`); a program that is not found stays as written, so the run fails. The session and the `errors -json` read use the same resolved program. Nothing else in the test changes: no check, no count. | The session started the program with a relative path (the MCP client resolves it against the server process), but `subprocess.run` of the error-code read did not on Windows (`WinError 2`). One resolved program for both removes the difference. The fix stays inside the place that the spec lets the contract test change. |
 | 2026-11-10 | G11 | The amber-gold colour of the envelopes (the subject says sun-yellow) is accepted. | The objects, the count and the positions match. Amber is the model's reading of yellow, and no port code chooses it. The model's honest output wins. |
+| 2026-11-10 | Issue 43 | The old script checked 4 things that the Go command had lost or weakened: `comfy.exe` in the venv, `COMFY_BIN` in `.mcp.json`, and an exact path match of both `.mcp.json` entries with the venv. The Go command now has a `comfy-cli` line (COMFY_BIN of the entry, else `comfy` next to comfy-mcp, else on the PATH when comfy-mcp came from the PATH) and the `.mcp.json` line checks the command and COMFY_BIN. | The old code is right (standing rule). The exact path match is not ported: the spec (issue #4 port map) replaces the venv by a program found on the PATH, and `.mcp.json` in Phase 3 uses a bare command. The check asks that each program exists, which is what makes the MCP server start. |
+| 2026-11-10 | Issue 43 | `.mcp.json` values are expanded for `${VAR}` and `${VAR:-default}`, not only `${USERPROFILE}`. `USERPROFILE` and `HOME` fall back to the home folder. | The repo `.mcp.json` uses both forms (`COMFY_LOCAL_URL`). The old script expanded only `${USERPROFILE}`; the wider rule is allowed, because a `${VAR:-default}` that stays unexpanded is never a file. |
+| 2026-11-10 | Issue 43 | The model line says `verified (SHA-256 checked)` only with `-full`. Without it the line says `size checked (the SHA-256 is not checked; add -full)`. | The old script always ran the full check (it called `install-workflow-models.ps1 -CheckOnly`, which hashes) and said `verified`. The Go quick check reads sizes only, so the word must not stay. The default of `-quick` is allowed by the spec (it is in `docs/setup.md`). |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -1483,3 +1486,71 @@ exit 0
 ```
 
 Ratchet: `goal: 0 of 8 at G0 -> 8 of 8`. Real images made by the Go binary on main: 2 (G9) -> 3.
+
+## Issue 43
+
+Goal row `setup-commands`: `horus check-setup` does what `scripts/check-setup.ps1` did. Go 1.27.3, Windows 11. The old script is `git show c5379f9:scripts/check-setup.ps1`.
+
+Checks of the old script next to the Go command (before -> after):
+
+| Old script | Go command before | Go command now |
+|---|---|---|
+| 1. ComfyUI folder | `ComfyUI folder` | same |
+| 2. server answers | `ComfyUI server` | same |
+| 3. `comfy-mcp.exe` AND `comfy.exe` in the venv | only comfy-mcp (venv or PATH) | `comfy-mcp environment` plus the new line `comfy-cli` |
+| 4. `.mcp.json` command AND `COMFY_BIN` | only the command | `.mcp.json` checks the command and COMFY_BIN, with `${VAR}` and `${VAR:-default}` expanded |
+| 5. horus venv and its entry | gone (decision G7: `horus` on the PATH) | same |
+| 6. models, "verified" | "verified" after a size-only check | "verified" only with `-full` |
+
+Ratchet: checks of the old script that the Go command lacks: 1 (comfy-cli; with COMFY_BIN a second part of check 4) -> 0.
+
+### Red (the new tests against the code of origin/main)
+
+```
+$ go test -count=1 ./internal/scripts/redtmp   (old checksetup.go + new tests)
+--- FAIL: TestAllChecksPass
+--- FAIL: TestMissingComfyCliFails
+    checksetup_test.go:131: failed=0:
+        PASS  comfy-mcp environment - <venv>\Scripts\comfy-mcp.exe
+        PASS  .mcp.json - command points at <venv>\Scripts\comfy-mcp.exe
+        All checks passed.
+--- FAIL: TestMcpJSONExpandsVariablesAndChecksComfyBin
+--- FAIL: TestBareCommandOnThePath
+--- FAIL: TestModelsLinesAreIndentedAndFailureCounts
+        PASS  models for 'it-illustration' - all files present and verified
+FAIL
+```
+
+### Green
+
+```
+$ go test -count=1 -v ./internal/scripts/checksetup
+--- PASS: TestAllChecksPass
+--- PASS: TestMissingComfyCliFails
+--- PASS: TestMcpJSONExpandsVariablesAndChecksComfyBin
+--- PASS: TestBareCommandOnThePath
+--- PASS: TestOneMissingPieceGivesOneFailLine
+--- PASS: TestModelsLinesAreIndentedAndFailureCounts
+--- PASS: TestNoWorkflowFlagMeansNoModelCheck
+--- PASS: TestExecModelsStartsTheWorkflowSubcommand
+--- PASS: TestExecModelsReportsAProgramThatDoesNotStart
+--- PASS: TestRunRejectsAnUnknownFlag
+ok  	github.com/hieplam/horus/internal/scripts/checksetup
+
+$ HORUS_ROOT=<main checkout> horus check-setup   (PATH holds <user>\go\bin; read-only)
+PASS  ComfyUI folder - D:\ComfyUI_windows_portable
+PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+PASS  comfy-cli - <user>\.venvs\comfy-mcp\Scripts\comfy.exe
+PASS  .mcp.json - command points at <user>\.venvs\comfy-mcp\Scripts\comfy-mcp.exe, COMFY_BIN at <user>\.venvs\comfy-mcp\Scripts\comfy.exe
+PASS  horus on PATH - <user>\go\bin\horus.exe
+PASS  .mcp.json horus - command points at <user>\go\bin\horus.exe
+All checks passed.
+exit=0
+
+$ python tools/goal_check.py --no-ci --server-cmd bin/horus.exe mcp
+PASS  setup-commands - 8 of 8 commands have a passing test
+goal: 7 of 8 rows passed   (real-image needs --real: expected)
+```
+
+Stub check: the tests assert the line `FAIL  comfy-cli - ` and the text `size checked`, so a check that always passes, or a model line that always says "verified", fails them.

@@ -42,9 +42,7 @@ REAL_SUBJECT = ("On the left, a mint-green server box sends sun-yellow envelopes
 REAL_SEED = 7
 REAL_SIZE = (1536, 1024)  # the default size of workflows/it-illustration/manifest.json
 REAL_TIMEOUT = 3600  # seconds; the server's own limit is HORUS_GENERATE_TIMEOUT (1800 s) plus the start of ComfyUI
-PNG_SIGNATURE = b"PNG
-
-"
+PNG_SIGNATURE = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])  # the 8 bytes that start every PNG file
 ROWS = ["contract", "graph", "workflow-cli", "downloader", "setup-commands", "builds", "real-image", "no-python"]
 
 
@@ -206,8 +204,6 @@ def png_size(path: Path) -> tuple[int, int] | None:
 
 async def real_call(cmd: list[str], out: Path) -> dict:
     """Start the server with the MCP client and call generate_image one time. Returns the envelope."""
-    from datetime import timedelta
-
     from mcp import ClientSession, StdioServerParameters  # only --real needs the MCP client
     from mcp.client.stdio import stdio_client
 
@@ -217,7 +213,7 @@ async def real_call(cmd: list[str], out: Path) -> dict:
         async with stdio_client(params, errlog=errlog) as (read, write):
             async with ClientSession(read, write) as s:
                 await s.initialize()
-                res = await s.call_tool("generate_image", args, read_timeout_seconds=timedelta(seconds=REAL_TIMEOUT))
+                res = await s.call_tool("generate_image", args, read_timeout_seconds=float(REAL_TIMEOUT))
     if res.structured_content:
         return res.structured_content
     text = res.content[0].text if res.content else ""
@@ -243,7 +239,12 @@ def row_real(a: argparse.Namespace) -> tuple[bool, str]:
     folder.mkdir(parents=True, exist_ok=True)
     out = folder / f"real-image-seed{REAL_SEED}-{time.strftime('%Y%m%d-%H%M%S')}.png"
     t0 = time.monotonic()
-    env = asyncio.run(real_call(cmd, out))
+    try:
+        env = asyncio.run(real_call(cmd, out))
+    except BaseExceptionGroup as group:  # the MCP client wraps each error in a task group
+        while isinstance(group, BaseExceptionGroup) and group.exceptions:
+            group = group.exceptions[0]
+        return False, f"the MCP call failed: {type(group).__name__}: {str(group)[:160]}"
     took = time.monotonic() - t0
     if not env.get("ok"):
         err = env.get("error") or {}

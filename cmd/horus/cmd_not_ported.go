@@ -12,7 +12,6 @@ import (
 
 func init() {
 	notPorted("workflow", "list, check, install or remove the model files of a workflow (task G4)")
-	notPorted("download-model", "download one model file with size and SHA-256 checks (task G3)")
 	notPorted("check-setup", "check the setup of this machine (task G7)")
 	notPorted("sync-workflows", "copy the workflows into the ComfyUI page (task G7)")
 	notPorted("new-workflow", "make a new workflow folder from the template (task G7)")

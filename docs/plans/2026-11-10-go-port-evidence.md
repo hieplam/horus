@@ -51,3 +51,5 @@ So the row measures the contract test. It does not print a fixed line.
 
 Ratchet: `goal`: 0 of 8 rows (opening value). Contract against the Go binary: not started.
 The CI job `python-baseline` result is in the pull request.
+
+CI run 1 failed with `contract: 0 of 30 passed`: `FileNotFoundError` for the server. The test looks for `horus-mcp.exe` next to `python.exe`. On the runner the scripts folder is `Scripts` below the folder of `python.exe`. Decision: the job passes `--server-cmd horus-mcp` (the program on the PATH after `pip install -e .`). The test is not changed.

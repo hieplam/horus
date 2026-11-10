@@ -47,7 +47,8 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G7 | `check-setup -workflow` checks the size only (`-quick`). The new flag `-full` removes `-quick`, so the SHA-256 is checked too. The script always hashed. | The coordinator named `-quick`. Hashing 11 GB takes minutes, so the fast check is the default and the old behaviour is one flag away. |
 | 2026-11-10 | G7 | `check-setup` has 6 checks, and 1 more with `-workflow`: ComfyUI folder, ComfyUI server, comfy-mcp environment (found in the venv or on the PATH), `.mcp.json` comfy-mcp entry, `horus on PATH`, `.mcp.json horus` entry. An entry passes when its command is an existing file, or a name found on the PATH. The script also required that the command equals the venv path; Go does not, because the entry of the Go era is the bare name `horus`. The flag `-horus-venv-path` is gone. The flag `-models-json` is gone, because `horus workflow check` has no such flag. | Plan step 2 and issue #4 (port map). |
 | 2026-11-10 | G7 | Flags in Go style: `-comfyui-dir`, `-server-url`, `-venv-path`, `-workflow`, `-full`, `-models-dir`, `-text-encoder-dir` (check-setup); `-comfyui-dir`, `-force`, `-workflows-dir` (sync-workflows); `-name`, `-description`, `-model-family`, `-workflows-dir` (new-workflow); `-horus-path` (register); `-subject`, `-subject-file`, `-out`, `-seed`, `-width`, `-height`, `-url`, `-workflow`, `-style-file`, `-timeout` (run-illustration). A flag error exits 2. A failure prints `horus <command>: <message>` to stderr and exits 1, except `run-illustration`, which prints `{"ok":false,"error":...}` to stderr as the script did. | Rule 3 of the spec and the decision of G6. |
-| 2026-11-10 | G7 | `run-illustration` calls `generate.Generate`. `-workflow` is now a workflow name (default `it-illustration`), not a path of a `workflow.json`. The flag `--steps` is gone, because `generate_image` has no steps argument. The JSON line has `ok`, `prompt_id` (the job id), `out`, `seed`, `width`, `height` and `execution_seconds`; the keys `steps` and `comfy_output` are gone. The width and the height default to the manifest (1536 x 1024 for `it-illustration`), and the rules of the manifest apply. An existing `-out` file is replaced, as in the script. The call can start ComfyUI when it does not answer (the autostart of `internal/comfy`; `HORUS_AUTOSTART=0` turns it off). | The coordinator said that `run-illustration` must use `internal/generate` and not copy its logic. The plan asks for "the path and the seed". |
+| 2026-11-10 | G7 | `run-illustration` calls `generate.Generate`. `-workflow` takes a workflow name (default `it-illustration`) and, since issue #27, also the path of a `workflow.json`. `-steps` exists again (issue #27). The JSON line has `ok`, `prompt_id` (the job id), `out`, `seed`, `steps`, `width`, `height`, `execution_seconds` and `comfy_output` (issue #27 put `steps` and `comfy_output` back). The width and the height default to the manifest (1536 x 1024 for `it-illustration`), and the rules of the manifest apply. An existing `-out` file is replaced, as in the script. The call can start ComfyUI when it does not answer (the autostart of `internal/comfy`; `HORUS_AUTOSTART=0` turns it off). | The coordinator said that `run-illustration` must use `internal/generate` and not copy its logic. The plan asks for "the path and the seed". |
+| 2026-11-10 | #27 | `run-illustration` has `-steps`, a `-workflow` path and the keys `steps` and `comfy_output` again. The hook in `internal/generate` is the optional field `Request.Steps` (a pointer; `generate_image` never sets it). `Result` has two fields with the json tag `-` (`Steps`, `ComfyOutput`), so the tool result does not change. The step count is read from the one `KSampler` node; a workflow without one reports 0, and `-steps` on it is an error. A `-workflow` value with a path separator or the suffix `.json` must end in `workflow.json`. Its folder name is the workflow name, and the parent folder becomes `HORUS_WORKFLOWS_DIR` for this process. | The old script is right (standing rule of the epic), and the spec does not allow the three differences. |
 | 2026-11-10 | G7 | `register` runs `claude mcp get horus` in the temporary folder first, as the script did, and skips the add with `SKIP:` when Claude Code knows the server. Then it runs `claude mcp add --scope user horus -- <path of this binary> mcp`. The flag `-horus-path` overrides the path. In `cmd/horus` the package is imported as `registercmd`, because the function `register` of `main.go` has the same name. | Port of the `-Register` part, and the plan, step 3. |
 | 2026-11-10 | G7 | `new-workflow` and `sync-workflows` read the workflows folder from `-workflows-dir`, then `HORUS_WORKFLOWS_DIR`, then `<repo root>/workflows`. A test writes only into a temporary copy. The kebab-case rule is the regular expression of the script. Known difference: Go `$` does not match before a trailing newline, so a name with a trailing newline is refused now; PowerShell accepted it. | The tests must not write into the real folder. |
 
@@ -571,3 +572,40 @@ Stub check (run, then restored):
 `go vet ./...` and `go test ./...` pass, including `TestEveryPortMapRowHasACommand` (12 commands). `GOOS=linux` and `GOOS=darwin GOARCH=arm64` builds pass. `gofmt -l .` prints nothing. `python scripts/lint-public.py`: `lint-public: 0 finding(s)`. No test starts the real `claude`, the real ComfyUI or a real image: they use temporary folders, ephemeral ports and the test binary as the fake program.
 
 Ratchet: commands with a passing test: 3 → 8 of 8. `goal`: 3 → 4 of 8 (`setup-commands`; `graph` was already passing).
+
+## Issue 27
+
+Baseline before building: options of the old script that the Go command lacks: 3 (`--steps`, the workflow path, the keys `steps` and `comfy_output`).
+
+Red (the three tests written, the source files as on `origin/main`):
+
+```
+$ go test ./internal/scripts/runillustration -run 'TestSteps|TestWorkflowPath|TestJSONKeys'
+flag provided but not defined: -steps
+--- FAIL: TestWorkflowPath (0.02s)
+    runillustration_test.go:217: exit 1: {"error":"INVALID_ARGUMENT: invalid workflow name '...\elsewhere\it-illustration\workflow.json'","ok":false}
+--- FAIL: TestJSONKeys (0.03s)
+    runillustration_test.go:236: the key "steps" is missing: map[execution_seconds:3.5 height:1024 ok:true out:... prompt_id:job-1 seed:424242 width:1536]
+    runillustration_test.go:236: the key "comfy_output" is missing: ...
+FAIL	github.com/hieplam/horus/internal/scripts/runillustration
+```
+
+Green:
+
+```
+$ go test -count=1 -v ./internal/scripts/runillustration -run 'TestSteps|TestWorkflowPath|TestJSONKeys'
+--- PASS: TestSteps (0.06s)
+--- PASS: TestWorkflowPath (0.04s)
+--- PASS: TestJSONKeys (0.03s)
+ok  	github.com/hieplam/horus/internal/scripts/runillustration
+$ horus.exe mcp contract (tests/mcp_contract.py --server-cmd <horus.exe> mcp)
+contract: 22 of 30 passed
+$ python tools/goal_check.py --no-ci
+PASS  setup-commands - 8 of 8 commands have a passing test
+```
+
+`go vet ./...` and `go test ./...` pass, including the schema golden test of `generate_image`. `gofmt -l .` prints nothing. `python scripts/lint-public.py`: `lint-public: 0 finding(s)`.
+
+Stub check: `TestSteps` reads the `KSampler` node of the graph that the fake ComfyUI received. A flag that is parsed and not used leaves the workflow's own value in the graph, so `TestSteps` fails.
+
+Ratchet: options of the old script that the Go command lacks: 3 to 0. Contract checks that pass against Go: 22 to 22.

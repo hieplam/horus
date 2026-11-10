@@ -12,11 +12,6 @@ import (
 
 func init() {
 	notPorted("workflow", "list, check, install or remove the model files of a workflow (task G4)")
-	notPorted("check-setup", "check the setup of this machine (task G7)")
-	notPorted("sync-workflows", "copy the workflows into the ComfyUI page (task G7)")
-	notPorted("new-workflow", "make a new workflow folder from the template (task G7)")
-	notPorted("register", "register horus mcp with Claude Code (task G7)")
-	notPorted("run-illustration", "make one image without MCP (task G7)")
 }
 
 func notPorted(name, summary string) {

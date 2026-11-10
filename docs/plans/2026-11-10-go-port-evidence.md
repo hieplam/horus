@@ -43,6 +43,13 @@ Decisions made under the standing rules of the spec, newest last.
 | 2026-11-10 | G2 | The wait loop has package variables for the poll interval (2 s), the report interval (10 s) and the absent limit (30 s). The Go tests set them to milliseconds. The first poll reports at once, as in Python, where `last_report` starts at 0. | Tests with a fake ComfyUI must not wait 30 s. |
 | 2026-11-10 | G2 | Known difference, not fixed: `out_path` goes through `filepath.Clean`, which also removes `..`. `pathlib.Path` keeps `..`. Both name the same file. | Not forced by Go, but the file is the same and the contract test compares `Path` values. |
 | 2026-11-10 | G2 | Known difference, not fixed: the keys of `details` are in sorted order, because `details` is a Go map. Python keeps the insertion order. | Callers read `details` by key. G1 has the same rule for every error. |
+| 2026-11-10 | G7 | `check-setup` calls the model check through an interface `ModelChecker`. The real one runs `<this binary> workflow check <name> -quick -json` as a child process (the process boundary of the spec). Issue #11 (task G4) was not merged when G7 was built, so no model-file rule is copied. The folders go to the child in the variables `HORUS_COMFYUI_DIR`, `HORUS_MODELS_DIR` and `HORUS_TEXT_ENCODER_DIR`. The check drops the `HORUS_JSON` line and prints the other lines with 6 spaces in front, as the script did. The tests use a fake and the test binary as the child. | The coordinator named this design. Task G4 owns the model-file rules. |
+| 2026-11-10 | G7 | `check-setup -workflow` checks the size only (`-quick`). The new flag `-full` removes `-quick`, so the SHA-256 is checked too. The script always hashed. | The coordinator named `-quick`. Hashing 11 GB takes minutes, so the fast check is the default and the old behaviour is one flag away. |
+| 2026-11-10 | G7 | `check-setup` has 6 checks, and 1 more with `-workflow`: ComfyUI folder, ComfyUI server, comfy-mcp environment (found in the venv or on the PATH), `.mcp.json` comfy-mcp entry, `horus on PATH`, `.mcp.json horus` entry. An entry passes when its command is an existing file, or a name found on the PATH. The script also required that the command equals the venv path; Go does not, because the entry of the Go era is the bare name `horus`. The flag `-horus-venv-path` is gone. The flag `-models-json` is gone, because `horus workflow check` has no such flag. | Plan step 2 and issue #4 (port map). |
+| 2026-11-10 | G7 | Flags in Go style: `-comfyui-dir`, `-server-url`, `-venv-path`, `-workflow`, `-full`, `-models-dir`, `-text-encoder-dir` (check-setup); `-comfyui-dir`, `-force`, `-workflows-dir` (sync-workflows); `-name`, `-description`, `-model-family`, `-workflows-dir` (new-workflow); `-horus-path` (register); `-subject`, `-subject-file`, `-out`, `-seed`, `-width`, `-height`, `-url`, `-workflow`, `-style-file`, `-timeout` (run-illustration). A flag error exits 2. A failure prints `horus <command>: <message>` to stderr and exits 1, except `run-illustration`, which prints `{"ok":false,"error":...}` to stderr as the script did. | Rule 3 of the spec and the decision of G6. |
+| 2026-11-10 | G7 | `run-illustration` calls `generate.Generate`. `-workflow` is now a workflow name (default `it-illustration`), not a path of a `workflow.json`. The flag `--steps` is gone, because `generate_image` has no steps argument. The JSON line has `ok`, `prompt_id` (the job id), `out`, `seed`, `width`, `height` and `execution_seconds`; the keys `steps` and `comfy_output` are gone. The width and the height default to the manifest (1536 x 1024 for `it-illustration`), and the rules of the manifest apply. An existing `-out` file is replaced, as in the script. The call can start ComfyUI when it does not answer (the autostart of `internal/comfy`; `HORUS_AUTOSTART=0` turns it off). | The coordinator said that `run-illustration` must use `internal/generate` and not copy its logic. The plan asks for "the path and the seed". |
+| 2026-11-10 | G7 | `register` runs `claude mcp get horus` in the temporary folder first, as the script did, and skips the add with `SKIP:` when Claude Code knows the server. Then it runs `claude mcp add --scope user horus -- <path of this binary> mcp`. The flag `-horus-path` overrides the path. In `cmd/horus` the package is imported as `registercmd`, because the function `register` of `main.go` has the same name. | Port of the `-Register` part, and the plan, step 3. |
+| 2026-11-10 | G7 | `new-workflow` and `sync-workflows` read the workflows folder from `-workflows-dir`, then `HORUS_WORKFLOWS_DIR`, then `<repo root>/workflows`. A test writes only into a temporary copy. The kebab-case rule is the regular expression of the script. Known difference: Go `$` does not match before a trailing newline, so a name with a trailing newline is refused now; PowerShell accepted it. | The tests must not write into the real folder. |
 
 ## Baseline (2026-11-10, commit `c5379f9`)
 
@@ -515,3 +522,52 @@ Stub check (mutation runs, each reverted after the run):
 `GOOS=linux` and `GOOS=darwin GOARCH=arm64` `go vet ./...` pass, so the start file pair builds on the three systems. `gofmt -l .` prints nothing. `python scripts/lint-public.py`: `lint-public: 0 finding(s)`.
 
 Ratchet: `goal`: 1 → 2 of 8 on the base of G2 (`graph`). On `main` with G3 it is 3 of 8. Contract checks that pass against Go: 11 → 22. The plan asks for at least 11 + 8 = 19.
+
+## G7
+
+Baseline before building: `python tools/goal_check.py --no-ci` on `origin/main` (`7096ebd`) has `FAIL  setup-commands - 3 of 8 commands have a test; none for checksetup, syncworkflows, newworkflow, register, runillustration`, `goal: 3 of 8`. Commands with a passing test: 3 of 8.
+
+Red (before building, in the main checkout at `7096ebd`):
+
+```
+$ go test ./internal/scripts/checksetup ./internal/scripts/syncworkflows ./internal/scripts/newworkflow ./internal/scripts/register ./internal/scripts/runillustration
+stat <repo>\internal\scripts\syncworkflows: directory not found
+FAIL	./internal/scripts/syncworkflows [setup failed]
+stat <repo>\internal\scripts\newworkflow: directory not found
+FAIL	./internal/scripts/newworkflow [setup failed]
+stat <repo>\internal\scripts\register: directory not found
+FAIL	./internal/scripts/register [setup failed]
+stat <repo>\internal\scripts\runillustration: directory not found
+FAIL	./internal/scripts/runillustration [setup failed]
+FAIL
+```
+
+Green:
+
+```
+$ go test -count=1 ./internal/scripts/checksetup ./internal/scripts/syncworkflows ./internal/scripts/newworkflow ./internal/scripts/register ./internal/scripts/runillustration
+ok  	github.com/hieplam/horus/internal/scripts/checksetup	2.592s
+ok  	github.com/hieplam/horus/internal/scripts/syncworkflows	0.686s
+ok  	github.com/hieplam/horus/internal/scripts/newworkflow	0.553s
+ok  	github.com/hieplam/horus/internal/scripts/register	3.168s
+ok  	github.com/hieplam/horus/internal/scripts/runillustration	2.068s
+$ python tools/goal_check.py --no-ci
+PASS  setup-commands - 8 of 8 commands have a passing test
+goal: 4 of 8 rows passed
+```
+
+What the tests prove (each one reads a file on disk, the record of a fake program, or the output of the command):
+- `check-setup`: with a ComfyUI folder, a fake ComfyUI server, a comfy-mcp program, a `.mcp.json` and a `horus` on the PATH, 6 `PASS` lines and `All checks passed.`. With one piece removed (the ComfyUI folder, the server, `horus` on the PATH, a `.mcp.json` entry), exactly the matching `FAIL` line and `N check(s) failed.`. The model check is tested with a fake, and the real `ExecModels` with the test binary as the child: the record shows the arguments `workflow check it-illustration -quick -json` and the folder variables.
+- `sync-workflows`: the file `horus-<name>.json` in the pane folder has the bytes of the repo copy. A pane copy that differs gives `CONFLICT` and stays as it was. With `-force` it is replaced and the `.bak` holds the old bytes.
+- `new-workflow`: the README on disk has the three placeholders filled. 10 names that are not kebab-case are refused and leave the folder unchanged. An existing folder is never overwritten.
+- `register`: the fake `claude` records `mcp get horus` in the ask folder, then `mcp add --scope user horus -- /the/path/horus mcp`. A known server gives `SKIP:` and no add. A failed add gives an error and no `OK:` line.
+- `run-illustration`: against the fake ComfyUI it writes a PNG (first 8 bytes read), prints one JSON line with `out`, `seed`, `prompt_id`, and the caption of the job is the subject as written. A failed job gives one JSON line on stderr, exit 1 and no file.
+
+Stub check (run, then restored):
+- `Sync` that does not write the pane copy: `TestSyncCopiesEachWorkflowIntoThePane`, `TestSyncReportsAConflictAndLeavesTheCopy` and `TestSyncForceReplacesAndKeepsABackup` fail.
+- `Register` that runs `claude mcp list` instead of `mcp add`: `TestRegisterAddsTheServerInUserScope` and `TestRunFindsClaudeOnThePath` fail.
+- `Create` that writes an empty README: `TestCreateFillsTheTemplate` and `TestRun` fail.
+
+`go vet ./...` and `go test ./...` pass, including `TestEveryPortMapRowHasACommand` (12 commands). `GOOS=linux` and `GOOS=darwin GOARCH=arm64` builds pass. `gofmt -l .` prints nothing. `python scripts/lint-public.py`: `lint-public: 0 finding(s)`. No test starts the real `claude`, the real ComfyUI or a real image: they use temporary folders, ephemeral ports and the test binary as the fake program.
+
+Ratchet: commands with a passing test: 3 → 8 of 8. `goal`: 3 → 4 of 8 (`setup-commands`; `graph` was already passing).

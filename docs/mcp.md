@@ -171,4 +171,5 @@ The contract test starts the server over stdio with the official MCP client.
 A fake ComfyUI in the test process answers, so it needs no GPU and no network.
 It checks the tools, the schemas, the envelope, each main error code, the
 caption, cancel on timeout, and install and uninstall on stand-in model files.
-It ends with `contract: N of 27 passed` and exits 0 only when all pass.
+It ends with `contract: N of 30 passed` and exits 0 only when all pass.
+The total is 28 server checks plus 2 for each shipped workflow.

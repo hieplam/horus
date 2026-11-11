@@ -8,8 +8,10 @@ With --phase 2, it checks the 8 goal rows of Phase 2 (docs/specs/2026-11-11-rest
 layout, same-behaviour, os-boundary, direction, process-tree, backend, token, commands.
 The rows backend and commands pass only with --real, because their oracle needs the
 owner's PC (the real image, horus doctor, horus setup).
-The rows os-boundary, direction and token run go test ./internal/archtest. They pass
-only when it passes and no allow list file internal/archtest/allow_<rule>.txt exists
+The rows os-boundary, direction and token run the three tests of internal/archtest
+(TestRules, TestPlanted, TestProblems) with go test -v. They pass only when each of the
+three reports "--- PASS", so an empty package, a missing test or a skipped test fails.
+They also need that no allow list file internal/archtest/allow_<rule>.txt exists
 (task T8 removed the allow list mechanism, so a new entry is not possible).
 With --real, the row commands runs horus doctor and horus setup it-illustration (no -yes)
 of the --server-cmd program. It fails on a FAIL line of doctor, on a step in the plan,
@@ -63,6 +65,7 @@ ROWS = ["contract", "graph", "workflow-cli", "downloader", "setup-commands", "bu
 ROWS2 = ["layout", "same-behaviour", "os-boundary", "direction", "process-tree", "backend", "token", "commands"]
 PACKAGE_LIST = ROOT / "tools" / "phase2_packages.txt"
 ARCHTEST_DIR = "internal/archtest"
+ARCHTEST_TESTS = ["TestRules", "TestPlanted", "TestProblems"]  # the tests that enforce the rules and prove them with planted files
 BASELINE_COMMIT = "3e27da4"  # main before the first move task; the contract files are compared with it
 BASELINE_TESTS = 157 # Go test functions at BASELINE_COMMIT (go test -list . ./...); same-behaviour never goes below it
 
@@ -155,6 +158,31 @@ def go_test(pkgs: list[str], extra: list[str]) -> tuple[bool, str, str]:
         return False, "missing: go.mod", ""
     code, out = run([go, "test", *extra, *pkgs])
     return code == 0, last_line(out), out
+
+
+def go_test_ran(pkgs: list[str], names: list[str] | None = None) -> tuple[bool, str, str]:
+    """Like go_test, but it also proves that tests ran. With names, each of them must report
+    "--- PASS" (an empty package, a missing test and a skipped test fail). Without names,
+    each package must have at least one test (a package with [no test files] fails)."""
+    extra = ["-count=1", "-v"]
+    if names:
+        extra += ["-run", "^(" + "|".join(names) + ")$"]
+    ok, detail, out = go_test(pkgs, extra)
+    if not ok:
+        return False, detail, out
+    if names:
+        lacking = [n for n in names if not re.search(rf"^--- PASS: {n} ", out, re.M)]
+        if lacking:
+            return False, "no passing test: " + ", ".join(lacking), out
+        return True, f"{len(names)} named tests pass", out
+    empty = [p for p in pkgs if not re.search(rf"^ok\s+\S*{re.escape(p.lstrip('./'))}\s", out, re.M)
+             or not re.search(r"^--- PASS", out, re.M)]
+    nopass = [ln for ln in out.splitlines() if "[no test files]" in ln]
+    if nopass:
+        return False, "no test files: " + "; ".join(ln.split()[1] for ln in nopass if len(ln.split()) > 1), out
+    if not re.search(r"^--- PASS", out, re.M):
+        return False, "no test passed", out
+    return True, "tests pass", out
 
 
 def row_graph(a: argparse.Namespace) -> tuple[bool, str]:
@@ -424,7 +452,7 @@ def row2_archtest(rule: str):
         if not (ROOT / ARCHTEST_DIR).is_dir():
             return False, f"missing: {ARCHTEST_DIR} (task T1)"
         lists = allow_files()
-        ok, detail, _ = go_test([f"./{ARCHTEST_DIR}"], [])
+        ok, detail, _ = go_test_ran([f"./{ARCHTEST_DIR}"], ARCHTEST_TESTS)
         text = f"{len(lists)} allow list files" + (" (" + ", ".join(lists) + ")" if lists else "")
         return ok and not lists, f"{text}; archtest: {'ok' if ok else detail}"
     return check
@@ -443,7 +471,7 @@ def row2_process_tree(a: argparse.Namespace) -> tuple[bool, str]:
 def row2_backend(a: argparse.Namespace) -> tuple[bool, str]:
     if not (ROOT / "internal" / "backend").is_dir():
         return False, "missing: internal/backend (task T7)"
-    ok, detail, _ = go_test(["./internal/backend"], [])
+    ok, detail, _ = go_test_ran(["./internal/backend"])
     if not ok:
         return False, detail
     if not a.real:
@@ -492,7 +520,7 @@ def row2_commands(a: argparse.Namespace) -> tuple[bool, str]:
     missing = [p for p in ("internal/cli", "internal/doctor") if not (ROOT / p).is_dir()]
     if missing:
         return False, "missing: " + ", ".join(missing) + " (tasks T8 and T9)"
-    ok, detail, _ = go_test(["./internal/cli", "./internal/doctor", "./internal/provision"], [])
+    ok, detail, _ = go_test_ran(["./internal/cli", "./internal/doctor", "./internal/provision"])
     if not ok:
         return False, detail
     if not a.real:

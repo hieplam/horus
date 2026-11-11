@@ -91,6 +91,7 @@ commands.
 | 2026-11-11 | T9: the Red of the plan (`git grep -n -E "internal/(scripts|server|models)" -- '*.md' ':!docs/plans' ':!docs/specs'`) already printed nothing on `origin/main`. The Red of T9 is the same search with the stale texts that the docs still held: `horus workflow \(child\)`, `scripts/<command>`, `horus start-comfyui" does` and `start "horus workflow`. It printed 7 lines on `origin/main`. The Green runs both commands and both print nothing. | The earlier tasks had already removed the old package paths from the text, but the layout list of `AGENTS.md` and the three diagrams of `docs/mcp.md` still described the Phase 1 design. A Red that prints nothing proves nothing (the empty-implementation test). Standing rule: use the equivalent command that proves the same goal. | Agent (T9) |
 | 2026-11-11 | T9: `docs/mcp.md` says that the token is in the memory of `horus mcp` while an install runs, and that only `internal/download` reads it (environment first, then the `.env` file in the repo root). Before, it said that the server never reads `HF_TOKEN`. | After the decision on the process boundary, the download runs in the server process. The old sentence was false. D7 of #4 (only the download code reads the token) stays true. | Agent (T9) |
 | 2026-11-11 | T9: `docs/setup.md` tells that `horus setup <workflow>` stops at the next step on Ctrl+C and that an install ends with `FAIL: context canceled`, that ComfyUI 0.44 locks its database so one install folder cannot run two ComfyUI, and that a PC can keep the model files in a folder that `extra_model_paths.yaml` maps. It tells a reader to use `horus doctor` and `horus setup`, and says that the old names still work. Every `horus check-setup` in the docs outside the plans and specs became `horus doctor`, except the sentences that name the old name. | Plan T9 step 3, and the decisions of T6, T7 and T8 that a reader sees. | Agent (T9) |
+| 2026-11-11 | The rows `os-boundary`, `direction` and `token` need `--- PASS` for `TestRules`, `TestPlanted` and `TestProblems` in `go test -v -run` of `internal/archtest`. The rows `backend` and `commands` need that each of their packages has a test file and a passing test, before they ask for `--real`. | A package with no test file exits 0, so the exit code alone passes an empty implementation (issue #80). The three names are the tests that enforce the rules and prove them with planted bad files. | Agent (#80) |
 
 ## Baseline
 
@@ -698,3 +699,35 @@ The command names, flags and package paths in the docs were copied from `horus -
 Stub check: without the edits, the second Red search still prints 7 lines, and `horus doctor` has 0 lines in the three files. An edit that only removed the old words and kept the old diagrams would leave the diagrams without the `provision service` and `generate service` participants. The diagram labels equal the names in the text.
 
 Ratchet: stale package and process names in the docs 7 -> 0. Lines with `horus doctor` in the three files 0 -> 13.
+
+## Issue 80
+
+Goal: the rows `os-boundary`, `direction` and `token` fail on a stub `internal/archtest`.
+
+Red (before the change; `internal/archtest` replaced by one file `package archtest`, not committed):
+
+    python tools/goal_check.py --phase 2 --only os-boundary direction token
+    PASS  os-boundary - 0 allow list files; archtest: ok
+    PASS  direction - 0 allow list files; archtest: ok
+    PASS  token - 0 allow list files; archtest: ok
+    goal: 3 of 3 rows passed
+
+Green (after the change, same stub):
+
+    FAIL  os-boundary - 0 allow list files; archtest: no passing test: TestRules, TestPlanted, TestProblems
+    FAIL  direction - 0 allow list files; archtest: no passing test: TestRules, TestPlanted, TestProblems
+    FAIL  token - 0 allow list files; archtest: no passing test: TestRules, TestPlanted, TestProblems
+    goal: 0 of 3 rows passed
+
+Green (real tree):
+
+    PASS  os-boundary - 0 allow list files; archtest: ok
+    PASS  direction - 0 allow list files; archtest: ok
+    PASS  token - 0 allow list files; archtest: ok
+    goal: 3 of 3 rows passed
+
+Stub check: the stub is the Red. A check that reads only the exit code passes it.
+
+Same question for the other rows. `backend` and `commands` took exit 0 of `go test`, so an empty package passed that step. They now use `go_test_ran`, which fails on `[no test files]` and on a run with no passing test. `layout`, `same-behaviour` and `process-tree` were judged. `same-behaviour` fails on a stub because the contract tests run on the binary. `process-tree` has a weak spot that issue #81 fixes: any test with `Tree` in its name passes.
+
+Ratchet: checks of the three rows that pass on an empty archtest: 3 -> 0.

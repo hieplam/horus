@@ -28,7 +28,7 @@ func runMCP(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := mcpserver.Run(ctx); err != nil && ctx.Err() == nil {
+	if err := mcpserver.Run(ctx, newImages("")); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "horus mcp: %v\n", err)
 		return 1
 	}

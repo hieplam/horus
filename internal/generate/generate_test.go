@@ -1,5 +1,7 @@
-// Tests of the port of horus/generate.py, against a fake ComfyUI on an
-// ephemeral port and workflows in a temporary folder.
+// Tests of the port of horus/generate.py, against a fake of the interface
+// ComfyUI (fake_test.go) and workflows in a temporary folder. The same path
+// through the real adapter and a fake ComfyUI over HTTP is tested in
+// cmd/horus (image_test.go).
 package generate
 
 import (
@@ -16,8 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hieplam/horus/internal/comfy"
-	"github.com/hieplam/horus/internal/comfy/comfytest"
 	"github.com/hieplam/horus/internal/herr"
 	"github.com/hieplam/horus/internal/settings"
 )
@@ -56,7 +56,8 @@ func editJSON(t *testing.T, path string, edit func(m map[string]any)) {
 }
 
 type env struct {
-	fake *comfytest.Fake
+	fake *fakeComfy
+	svc  *Service
 	out  string
 }
 
@@ -90,8 +91,8 @@ func setup(t *testing.T) *env {
 	PollInterval, ReportInterval, AbsentLimit = 5*time.Millisecond, 50*time.Millisecond, 100*time.Millisecond
 	t.Cleanup(func() { PollInterval, ReportInterval, AbsentLimit = oldPoll, oldReport, oldAbsent })
 
-	f := comfytest.New(t, filepath.Join("..", "..", "tests", "fixtures", "object_info.json"))
-	return &env{fake: f, out: filepath.Join(tmp, "images")}
+	f := newFake(t, filepath.Join("..", "..", "tests", "fixtures", "object_info.json"))
+	return &env{fake: f, svc: New(f), out: filepath.Join(tmp, "images")}
 }
 
 type reports struct {
@@ -112,7 +113,7 @@ func (r *reports) all() []string {
 }
 
 func (e *env) opts(r *reports) Options {
-	o := Options{Client: comfy.New(e.fake.URL()), Timeout: 5 * time.Second}
+	o := Options{Timeout: 5 * time.Second}
 	if r != nil {
 		o.Report = r.report
 	}
@@ -154,7 +155,7 @@ func TestGenerateWritesThePNG(t *testing.T) {
 	e := setup(t)
 	out := filepath.Join(e.out, "queue.png")
 	var r reports
-	res, err := Generate(context.Background(), Request{Workflow: "it-illustration", Subject: "  " + subject + "\n",
+	res, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: "  " + subject + "\n",
 		Seed: int64(7), Width: int64(1024), Height: int64(768), OutPath: &out}, e.opts(&r))
 	if err != nil {
 		t.Fatal(err)
@@ -193,19 +194,19 @@ func TestGenerateWritesThePNG(t *testing.T) {
 	}
 
 	// The same out_path again: OUTPUT_EXISTS, and no new job.
-	_, err = Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject, OutPath: &out}, e.opts(nil))
+	_, err = e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject, OutPath: &out}, e.opts(nil))
 	if i := info(t, err); i.Code != "OUTPUT_EXISTS" || i.Details["path"] != out || len(e.fake.Jobs()) != 1 {
 		t.Fatalf("got %+v", i)
 	}
 	// overwrite=true replaces it.
-	if _, err := Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject, OutPath: &out, Overwrite: true}, e.opts(nil)); err != nil {
+	if _, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject, OutPath: &out, Overwrite: true}, e.opts(nil)); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestDefaultPathAndSeed(t *testing.T) {
 	e := setup(t)
-	res, err := Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
+	res, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +246,7 @@ func TestArgumentChecks(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			c.req.Workflow = "it-illustration"
-			_, err := Generate(context.Background(), c.req, e.opts(nil))
+			_, err := e.svc.Generate(context.Background(), c.req, e.opts(nil))
 			i := info(t, err)
 			if i.Code != "INVALID_ARGUMENT" || i.Details["field"] != c.field || i.ActionBy != "caller" {
 				t.Fatalf("got %+v", i)
@@ -259,18 +260,18 @@ func TestArgumentChecks(t *testing.T) {
 		t.Fatal("a refused call submitted a job")
 	}
 	maxSeed, _ := new(big.Int).SetString("18446744073709551615", 10)
-	res, err := Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject, Seed: maxSeed}, e.opts(nil))
+	res, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject, Seed: maxSeed}, e.opts(nil))
 	if err != nil || res.Seed != 1<<64-1 {
 		t.Fatalf("seed 2^64-1: %v %v", res, err)
 	}
-	if _, err := Generate(context.Background(), Request{Workflow: "nope", Subject: subject}, e.opts(nil)); codeOf(err) != "WORKFLOW_NOT_FOUND" {
+	if _, err := e.svc.Generate(context.Background(), Request{Workflow: "nope", Subject: subject}, e.opts(nil)); codeOf(err) != "WORKFLOW_NOT_FOUND" {
 		t.Fatalf("unknown workflow: %v", err)
 	}
 }
 
 func TestWorkflowNotInstalled(t *testing.T) {
 	e := setup(t)
-	_, err := Generate(context.Background(), Request{Workflow: "absent-style", Subject: subject}, e.opts(nil))
+	_, err := e.svc.Generate(context.Background(), Request{Workflow: "absent-style", Subject: subject}, e.opts(nil))
 	i := info(t, err)
 	if i.Code != "WORKFLOW_NOT_INSTALLED" || !reflect.DeepEqual(i.Details["missing"], []string{"absent-model.safetensors"}) ||
 		i.NextStep != "Call install_workflow with workflow='absent-style', then call generate_image again." || len(e.fake.Jobs()) != 0 {
@@ -283,7 +284,7 @@ func TestNodeCountMismatch(t *testing.T) {
 	editJSON(t, filepath.Join(settings.WorkflowsDir(), "it-illustration", "manifest.json"), func(m map[string]any) {
 		m["graph"].(map[string]any)["node_count"] = 11
 	})
-	_, err := Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
+	_, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
 	if i := info(t, err); i.Code != "INTERNAL" || i.Message != "converted 10 of 11 nodes" {
 		t.Fatalf("got %+v", i)
 	}
@@ -291,8 +292,8 @@ func TestNodeCountMismatch(t *testing.T) {
 
 func TestOutOfMemory(t *testing.T) {
 	e := setup(t)
-	e.fake.SetMode(comfytest.OOM)
-	_, err := Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
+	e.fake.SetMode(OOM)
+	_, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
 	if i := info(t, err); i.Code != "OUT_OF_MEMORY" || !i.Retryable || i.ActionBy != "caller" {
 		t.Fatalf("got %+v", i)
 	}
@@ -300,15 +301,17 @@ func TestOutOfMemory(t *testing.T) {
 
 func TestNoImage(t *testing.T) {
 	e := setup(t)
-	e.fake.SetMode(comfytest.NoImage)
-	_, err := Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
+	e.fake.SetMode(NoImage)
+	_, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
 	if i := info(t, err); i.Code != "GENERATION_FAILED" || i.Message != "the job finished without an image" {
 		t.Fatalf("got %+v", i)
 	}
 }
 
-// TestTimeoutCancelsTheJob: a running job over the time limit is interrupted,
-// a pending one is deleted from the queue.
+// TestTimeoutCancelsTheJob: a running job and a pending job over the time
+// limit are cancelled, and the reports name their state. The adapter
+// interrupts a running job and deletes a pending one (internal/comfy,
+// TestClientJobCalls).
 func TestTimeoutCancelsTheJob(t *testing.T) {
 	e := setup(t)
 	o := e.opts(nil)
@@ -316,20 +319,20 @@ func TestTimeoutCancelsTheJob(t *testing.T) {
 	var r reports
 	o.Report = r.report
 
-	e.fake.SetMode(comfytest.Slow)
-	_, err := Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, o)
+	e.fake.SetMode(Slow)
+	_, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, o)
 	i := info(t, err)
-	if i.Code != "GENERATION_TIMEOUT" || i.Details["job_id"] != "job-1" || !reflect.DeepEqual(e.fake.Interrupts(), []string{"job-1"}) {
-		t.Fatalf("running: %+v interrupts=%v", i, e.fake.Interrupts())
+	if i.Code != "GENERATION_TIMEOUT" || i.Details["job_id"] != "job-1" || !reflect.DeepEqual(e.fake.Cancels(), []string{"job-1"}) {
+		t.Fatalf("running: %+v cancels=%v", i, e.fake.Cancels())
 	}
 	if !hasReport(r.all(), "rendering, ") {
 		t.Fatalf("reports: %v", r.all())
 	}
 
-	e.fake.SetMode(comfytest.Pending)
-	_, err = Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, o)
-	if codeOf(err) != "GENERATION_TIMEOUT" || !reflect.DeepEqual(e.fake.Deleted(), []string{"job-2"}) {
-		t.Fatalf("pending: %v deleted=%v", err, e.fake.Deleted())
+	e.fake.SetMode(Pending)
+	_, err = e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, o)
+	if codeOf(err) != "GENERATION_TIMEOUT" || !reflect.DeepEqual(e.fake.Cancels(), []string{"job-1", "job-2"}) {
+		t.Fatalf("pending: %v cancels=%v", err, e.fake.Cancels())
 	}
 	if !hasReport(r.all(), "waiting in the backend queue, position 2, ") {
 		t.Fatalf("reports: %v", r.all())
@@ -338,8 +341,8 @@ func TestTimeoutCancelsTheJob(t *testing.T) {
 
 func TestJobLeftTheQueue(t *testing.T) {
 	e := setup(t)
-	e.fake.SetMode(comfytest.Absent)
-	_, err := Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
+	e.fake.SetMode(Absent)
+	_, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
 	if i := info(t, err); i.Code != "GENERATION_FAILED" || !strings.Contains(i.NextStep, "cleared its queue") {
 		t.Fatalf("got %+v", i)
 	}
@@ -347,7 +350,7 @@ func TestJobLeftTheQueue(t *testing.T) {
 
 func TestCancelledCallCancelsTheJob(t *testing.T) {
 	e := setup(t)
-	e.fake.SetMode(comfytest.Slow)
+	e.fake.SetMode(Slow)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		// Cancel in the wait loop: after the first poll of /history for the job.
@@ -356,24 +359,41 @@ func TestCancelledCallCancelsTheJob(t *testing.T) {
 		}
 		cancel()
 	}()
-	_, err := Generate(ctx, Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
-	if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(e.fake.Interrupts(), []string{"job-1"}) {
-		t.Fatalf("got %v interrupts=%v", err, e.fake.Interrupts())
+	_, err := e.svc.Generate(ctx, Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
+	if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(e.fake.Cancels(), []string{"job-1"}) {
+		t.Fatalf("got %v cancels=%v", err, e.fake.Cancels())
 	}
 }
 
 func TestBackendDownAutostartOff(t *testing.T) {
 	e := setup(t)
 	o := e.opts(nil)
-	e.fake.Server.Close()
+	e.fake.SetDown()
 	var r reports
 	o.Report = r.report
-	_, err := Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, o)
+	_, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, o)
 	if i := info(t, err); i.Code != "BACKEND_UNAVAILABLE" || i.ActionBy != "human" {
 		t.Fatalf("got %+v", i)
 	}
 	if msgs := r.all(); len(msgs) != 1 || !strings.HasPrefix(msgs[0], "starting the image backend") {
 		t.Fatalf("reports: %v", msgs)
+	}
+}
+
+// TestRunningAndFreeMemoryAskTheBackend: the two calls that the tools
+// list_workflows and uninstall_workflow make through the service.
+func TestRunningAndFreeMemoryAskTheBackend(t *testing.T) {
+	e := setup(t)
+	if up, err := e.svc.Running(context.Background()); !up || err != nil {
+		t.Fatalf("up: %v %v", up, err)
+	}
+	e.svc.FreeMemory(context.Background())
+	if e.fake.Frees() != 1 {
+		t.Fatalf("frees: %d", e.fake.Frees())
+	}
+	e.fake.SetDown()
+	if up, err := e.svc.Running(context.Background()); up || err != nil {
+		t.Fatalf("down: %v %v", up, err)
 	}
 }
 

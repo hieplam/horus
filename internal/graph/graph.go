@@ -1,6 +1,12 @@
-// The UI-to-API graph conversion and the missing-model check. Part of the
-// port of horus/comfy.py (ui_to_api, missing_model_files, _combo_options).
-package comfy
+// Package graph converts a ComfyUI graph from the UI format to the API format,
+// and finds the model files of a graph that the server does not list. It is
+// pure: no input and no output. It ports ui_to_api, missing_model_files and
+// _combo_options of horus/comfy.py.
+//
+// It also holds the data types that internal/generate (the service) and
+// internal/comfy (the adapter) both need: the API graph, the node
+// information of the server, and the result of a job (job.go).
+package graph
 
 import (
 	"bytes"
@@ -23,7 +29,8 @@ var NoteTypes = map[string]bool{"Note": true, "MarkdownNote": true}
 // ModelExt are the file name endings of model files.
 var ModelExt = []string{".safetensors", ".sft", ".gguf", ".ckpt", ".pt", ".pth", ".bin", ".onnx"}
 
-func isModelFile(s string) bool {
+// IsModelFile reports if the name s ends with one of ModelExt.
+func IsModelFile(s string) bool {
 	low := strings.ToLower(s)
 	for _, e := range ModelExt {
 		if strings.HasSuffix(low, e) {
@@ -158,9 +165,9 @@ type uiGraph struct {
 	Links [][]json.RawMessage `json:"links"`
 }
 
-// pyStr is str(v) of Python for a JSON scalar: a string as is, a number as
+// PyStr is str(v) of Python for a JSON scalar: a string as is, a number as
 // written, null as None, true and false as True and False.
-func pyStr(raw json.RawMessage) string {
+func PyStr(raw json.RawMessage) string {
 	t := strings.TrimSpace(string(raw))
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
@@ -222,9 +229,9 @@ func UIToAPI(workflow []byte, info ObjectInfo) (*API, error) {
 			}
 			link, ok := links[strings.TrimSpace(string(slot.Link))]
 			if !ok || len(link) < 3 {
-				return nil, fmt.Errorf("node %s: link %s is not in the link table", pyStr(n.ID), slot.Link)
+				return nil, fmt.Errorf("node %s: link %s is not in the link table", PyStr(n.ID), slot.Link)
 			}
-			if err := inputs.Set(slot.Name, []any{pyStr(link[1]), link[2]}); err != nil {
+			if err := inputs.Set(slot.Name, []any{PyStr(link[1]), link[2]}); err != nil {
 				return nil, err
 			}
 			linked[slot.Name] = true
@@ -258,7 +265,7 @@ func UIToAPI(workflow []byte, info ObjectInfo) (*API, error) {
 			}
 			value := values[0]
 			values = values[1:]
-			if truthy(opts.ControlAfterGenerate) && len(values) > 0 {
+			if Truthy(opts.ControlAfterGenerate) && len(values) > 0 {
 				values = values[1:] // the UI stores "fixed" or "randomize" after the seed
 			}
 			if !linked[sp.name] {
@@ -267,7 +274,7 @@ func UIToAPI(workflow []byte, info ObjectInfo) (*API, error) {
 				}
 			}
 		}
-		api.add(pyStr(n.ID), &Node{ClassType: n.Type, Inputs: inputs})
+		api.add(PyStr(n.ID), &Node{ClassType: n.Type, Inputs: inputs})
 	}
 	return api, nil
 }
@@ -288,7 +295,7 @@ func MissingModelFiles(api *API, info ObjectInfo) ([]string, error) {
 		}
 		for _, name := range node.Inputs.Keys() {
 			var value string
-			if json.Unmarshal(node.Inputs.Raw(name), &value) != nil || !isModelFile(value) {
+			if json.Unmarshal(node.Inputs.Raw(name), &value) != nil || !IsModelFile(value) {
 				continue
 			}
 			options, ok := comboOptions(byName[name])

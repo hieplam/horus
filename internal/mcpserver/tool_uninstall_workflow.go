@@ -7,7 +7,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hieplam/horus/internal/catalog"
-	"github.com/hieplam/horus/internal/comfy"
 	"github.com/hieplam/horus/internal/herr"
 	"github.com/hieplam/horus/internal/models"
 )
@@ -19,7 +18,7 @@ type UninstallResult struct {
 	FreedBytes int64         `json:"freed_bytes"`
 }
 
-func uninstallWorkflow() tool {
+func uninstallWorkflow(images Images) tool {
 	return tool{
 		name:  "uninstall_workflow",
 		title: "Uninstall an image workflow",
@@ -47,7 +46,7 @@ func uninstallWorkflow() tool {
 			}
 			confirm := c.args.boolean("confirm")
 			if confirm {
-				comfy.New("").Free(ctx) // an open model file cannot be deleted on Windows
+				images.FreeMemory(ctx) // an open model file cannot be deleted on Windows
 			}
 			res, err := models.Remove(ctx, w, confirm, c.args.boolean("remove_shared"))
 			if err != nil {

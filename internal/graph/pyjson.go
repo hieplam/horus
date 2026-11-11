@@ -1,18 +1,47 @@
-// JSON text in the form of Python's json.dumps with its defaults. Part of the
-// port of horus/comfy.py, which puts json.dumps(reply) in backend_message.
-package comfy
+// JSON text in the form of Python's json.dumps with its defaults, and the
+// Python truth value of a JSON value. horus/comfy.py puts json.dumps(reply)
+// in backend_message.
+package graph
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"unicode/utf16"
 )
 
-// pyDumpsValue marshals v and writes it as json.dumps(v) does: ", " and ": "
+// Truthy is the Python truth value of a JSON value.
+func Truthy(raw json.RawMessage) bool {
+	t := strings.TrimSpace(string(raw))
+	switch t {
+	case "", "null", "false", "0", `""`, "{}", "[]", "0.0":
+		return false
+	}
+	if t[0] == '{' || t[0] == '[' {
+		var v any
+		if json.Unmarshal(raw, &v) == nil {
+			switch x := v.(type) {
+			case map[string]any:
+				return len(x) > 0
+			case []any:
+				return len(x) > 0
+			}
+		}
+	}
+	if t[0] == '-' || (t[0] >= '0' && t[0] <= '9') {
+		var f float64
+		if json.Unmarshal(raw, &f) == nil {
+			return f != 0
+		}
+	}
+	return true
+}
+
+// PyDumps marshals v and writes it as json.dumps(v) does: ", " and ": "
 // between items, and every character outside ASCII as \uXXXX. The key order
 // of v is kept.
-func pyDumpsValue(v any) string {
+func PyDumps(v any) string {
 	raw, err := json.Marshal(v)
 	if err != nil {
 		return ""

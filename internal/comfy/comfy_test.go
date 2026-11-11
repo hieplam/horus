@@ -5,6 +5,7 @@ package comfy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -18,11 +19,29 @@ import (
 
 	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/comfy/comfytest"
+	"github.com/hieplam/horus/internal/graph"
 	"github.com/hieplam/horus/internal/herr"
 	"github.com/hieplam/horus/internal/settings"
 )
 
 func fixturePath() string { return filepath.Join("..", "..", "tests", "fixtures", "object_info.json") }
+
+func readFile(t *testing.T, parts ...string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(parts...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func codeOf(err error) string {
+	var he *herr.Error
+	if errors.As(err, &he) {
+		return he.Code
+	}
+	return ""
+}
 
 func status(t *testing.T, s string) Status {
 	t.Helper()
@@ -122,11 +141,11 @@ func TestClientJobCalls(t *testing.T) {
 	if err != nil || len(info) != 10 {
 		t.Fatalf("ObjectInfo: %d %v", len(info), err)
 	}
-	api, err := UIToAPI(readFile(t, "..", "..", "workflows", "it-illustration", "workflow.json"), info)
+	api, err := graph.UIToAPI(readFile(t, "..", "..", "workflows", "it-illustration", "workflow.json"), info)
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := c.Submit(ctx, api, "client")
+	id, err := c.Submit(ctx, api)
 	if err != nil || id != "job-1" || f.Job(id).Graph["3394534790677934"] == nil {
 		t.Fatalf("Submit: %s %v", id, err)
 	}
@@ -134,10 +153,13 @@ func TestClientJobCalls(t *testing.T) {
 		t.Fatalf("first poll must be empty: %v %v", e, err)
 	}
 	e, err := c.History(ctx, id)
-	if err != nil || e == nil || !e.Status.Completed || len(e.Images()) != 1 || e.Images()[0].Filename != "job-1.png" {
+	if err != nil || e == nil || !e.Done || len(e.Images) != 1 || e.Images[0].Filename != "job-1.png" || e.Images[0].Type != "output" {
 		t.Fatalf("History: %+v %v", e, err)
 	}
-	png, err := c.View(ctx, e.Images()[0])
+	if e.BackendSeconds == nil || *e.BackendSeconds != 3.5 {
+		t.Fatalf("backend seconds of a done job: %v", e.BackendSeconds)
+	}
+	png, err := c.View(ctx, e.Images[0])
 	if err != nil || string(png[:8]) != "\x89PNG\r\n\x1a\n" {
 		t.Fatalf("View: %v", err)
 	}
@@ -146,9 +168,12 @@ func TestClientJobCalls(t *testing.T) {
 	}
 
 	f.SetMode(comfytest.Slow)
-	slow, _ := c.Submit(ctx, api, "client")
+	slow, _ := c.Submit(ctx, api)
+	if e, err := c.History(ctx, slow); err != nil || e != nil {
+		t.Fatalf("a running job that /history does not list yet: %+v %v", e, err)
+	}
 	f.SetMode(comfytest.Pending)
-	pending, _ := c.Submit(ctx, api, "client")
+	pending, _ := c.Submit(ctx, api)
 	if s, _ := c.QueueState(ctx, slow); s != "running" {
 		t.Fatalf("slow: %s", s)
 	}
@@ -166,9 +191,65 @@ func TestClientJobCalls(t *testing.T) {
 	}
 
 	f.SetMode(comfytest.Reject)
-	_, err = c.Submit(ctx, api, "client")
+	_, err = c.Submit(ctx, api)
 	if codeOf(err) != "WORKFLOW_NOT_INSTALLED" {
 		t.Fatalf("a rejected graph with a model file: %v", err)
+	}
+}
+
+// TestHistoryOfAFailedJobIsItsError: History maps a job with status "error"
+// to the horus error of JobError, here OUT_OF_MEMORY. The service
+// internal/generate returns that error as it is.
+func TestHistoryOfAFailedJobIsItsError(t *testing.T) {
+	f := comfytest.New(t, fixturePath())
+	c := New(f.URL())
+	ctx := context.Background()
+	f.SetMode(comfytest.OOM)
+	id, err := c.Submit(ctx, &graph.API{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = c.History(ctx, id) // the first poll is empty
+	e, err := c.History(ctx, id)
+	var he *herr.Error
+	if e != nil || !errors.As(err, &he) {
+		t.Fatalf("got %+v %v", e, err)
+	}
+	if i := he.Info(); i.Code != "OUT_OF_MEMORY" || !i.Retryable || i.ActionBy != "caller" || i.Details["job_id"] != id {
+		t.Fatalf("got %+v", i)
+	}
+
+	f.SetMode(comfytest.NoImage)
+	id, _ = c.Submit(ctx, &graph.API{})
+	_, _ = c.History(ctx, id)
+	if e, err := c.History(ctx, id); err != nil || e == nil || !e.Done || len(e.Images) != 0 {
+		t.Fatalf("a done job without an image: %+v %v", e, err)
+	}
+}
+
+// TestCancelledCallGivesTheContextError: a request of a cancelled call
+// returns the error of the context, not BACKEND_UNAVAILABLE.
+func TestCancelledCallGivesTheContextError(t *testing.T) {
+	f := comfytest.New(t, fixturePath())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := New(f.URL()).History(ctx, "job-1"); !errors.Is(err, context.Canceled) || codeOf(err) != "" {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// TestEmptyURLReadsTheSettingAtEachRequest: the client that cmd/horus makes
+// at the start follows HORUS_COMFYUI_URL, as comfy.New("") at each call did.
+func TestEmptyURLReadsTheSettingAtEachRequest(t *testing.T) {
+	f := comfytest.New(t, fixturePath())
+	c := New("")
+	useSettings(t, map[string]string{"HORUS_COMFYUI_URL": freeURL(t)})
+	if up, err := c.IsUp(context.Background()); up || err != nil {
+		t.Fatalf("nothing listens: %v %v", up, err)
+	}
+	useSettings(t, map[string]string{"HORUS_COMFYUI_URL": f.URL() + "/"})
+	if up, err := c.IsUp(context.Background()); !up || err != nil {
+		t.Fatalf("the fake listens: %v %v", up, err)
 	}
 }
 
@@ -178,7 +259,7 @@ func TestSubmitHTTPErrorWithoutJSON(t *testing.T) {
 		_, _ = w.Write([]byte("Internal Server Error"))
 	}))
 	defer srv.Close()
-	_, err := New(srv.URL).Submit(context.Background(), &API{}, "c")
+	_, err := New(srv.URL).Submit(context.Background(), &graph.API{})
 	if codeOf(err) != "GENERATION_FAILED" || !strings.Contains(err.Error(), "HTTP 500") {
 		t.Fatalf("got %v", err)
 	}
@@ -189,7 +270,7 @@ func TestSubmitWithoutPromptID(t *testing.T) {
 		_, _ = w.Write([]byte(`{"number": 1}`))
 	}))
 	defer srv.Close()
-	_, err := New(srv.URL).Submit(context.Background(), &API{}, "c")
+	_, err := New(srv.URL).Submit(context.Background(), &graph.API{})
 	if codeOf(err) != "INTERNAL" {
 		t.Fatalf("got %v", err)
 	}

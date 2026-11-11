@@ -1,4 +1,4 @@
-// Tests of the ComfyUI client, autostart and the job error mapping. Part of
+// Tests of the ComfyUI client and the job error mapping. Part of
 // the port of horus/comfy.py.
 package comfy
 
@@ -6,12 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -251,6 +249,12 @@ func TestEmptyURLReadsTheSettingAtEachRequest(t *testing.T) {
 	if up, err := c.IsUp(context.Background()); !up || err != nil {
 		t.Fatalf("the fake listens: %v %v", up, err)
 	}
+	if got := c.Address(); got != f.URL() {
+		t.Errorf("Address = %s, want %s", got, f.URL())
+	}
+	if got := New("http://127.0.0.1:9/").Address(); got != "http://127.0.0.1:9" {
+		t.Errorf("Address of a fixed URL = %s", got)
+	}
 }
 
 func TestSubmitHTTPErrorWithoutJSON(t *testing.T) {
@@ -309,122 +313,4 @@ func useSettings(t *testing.T, env map[string]string) {
 	}
 	settings.Reset()
 	t.Cleanup(settings.Reset)
-}
-
-func TestEnsureUpAutostartOff(t *testing.T) {
-	useSettings(t, map[string]string{"HORUS_AUTOSTART": "0"})
-	called := false
-	old := startCommand
-	startCommand = func(ctx context.Context, u string) (*exec.Cmd, error) { called = true; return nil, fmt.Errorf("no") }
-	t.Cleanup(func() { startCommand = old })
-	c := New(freeURL(t))
-	started, err := c.EnsureUp(context.Background())
-	info := err.(*herr.Error).Info()
-	if started || info.Code != "BACKEND_UNAVAILABLE" || info.ActionBy != "human" || !strings.Contains(info.Message, "HORUS_AUTOSTART is off") || called {
-		t.Fatalf("got %v %+v called=%v", started, info, called)
-	}
-}
-
-func TestEnsureUpWhenUpStartsNothing(t *testing.T) {
-	useSettings(t, nil)
-	f := comfytest.New(t, fixturePath())
-	old := startCommand
-	startCommand = func(ctx context.Context, u string) (*exec.Cmd, error) { t.Fatal("must not start"); return nil, nil }
-	t.Cleanup(func() { startCommand = old })
-	if started, err := New(f.URL()).EnsureUp(context.Background()); started || err != nil {
-		t.Fatalf("got %v %v", started, err)
-	}
-}
-
-// helper runs this test binary as the start command, in the mode named.
-func helper(mode string) func(ctx context.Context, u string) (*exec.Cmd, error) {
-	return func(ctx context.Context, u string) (*exec.Cmd, error) {
-		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestHelperStart$")
-		cmd.Env = append(os.Environ(), "HORUS_TEST_HELPER="+mode, "HORUS_TEST_URL="+u)
-		return cmd, nil
-	}
-}
-
-// TestHelperStart is the fake `horus start-comfyui`. It runs only as a child
-// of the autostart tests.
-func TestHelperStart(t *testing.T) {
-	switch os.Getenv("HORUS_TEST_HELPER") {
-	case "":
-		return
-	case "notfound":
-		fmt.Println("line 1")
-		fmt.Fprintln(os.Stderr, "ComfyUI was not found in C:/nowhere. Run horus install-comfyui first.")
-		os.Exit(1)
-	case "fail":
-		for i := 1; i <= 12; i++ {
-			fmt.Printf("line %d\n", i)
-		}
-		os.Exit(1)
-	case "ok":
-		fmt.Println("OK: ComfyUI answers at " + os.Getenv("HORUS_TEST_URL"))
-		os.Exit(0)
-	}
-}
-
-func TestEnsureUpStartFails(t *testing.T) {
-	useSettings(t, nil)
-	old := startCommand
-	t.Cleanup(func() { startCommand = old })
-	c := New(freeURL(t))
-
-	startCommand = helper("notfound")
-	_, err := c.EnsureUp(context.Background())
-	info := err.(*herr.Error).Info()
-	tail := info.Details["start_output_tail"].([]string)
-	if info.Code != "BACKEND_NOT_INSTALLED" || len(tail) != 2 || tail[0] != "line 1" {
-		t.Fatalf("not found: %+v", info)
-	}
-
-	startCommand = helper("fail")
-	_, err = c.EnsureUp(context.Background())
-	info = err.(*herr.Error).Info()
-	tail = info.Details["start_output_tail"].([]string)
-	if info.Code != "BACKEND_UNAVAILABLE" || len(tail) != 8 || tail[0] != "line 5" || tail[7] != "line 12" {
-		t.Fatalf("fail: %+v", info)
-	}
-}
-
-func TestEnsureUpStartsTheServer(t *testing.T) {
-	useSettings(t, nil)
-	u := freeURL(t)
-	old := startCommand
-	t.Cleanup(func() { startCommand = old })
-	var srv *http.Server
-	startCommand = func(ctx context.Context, url string) (*exec.Cmd, error) {
-		if url != u {
-			t.Errorf("start-comfyui got %s, want %s", url, u)
-		}
-		l, err := net.Listen("tcp", strings.TrimPrefix(u, "http://"))
-		if err != nil {
-			return nil, err
-		}
-		srv = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("{}")) })}
-		go func() { _ = srv.Serve(l) }()
-		return helper("ok")(ctx, url)
-	}
-	started, err := New(u).EnsureUp(context.Background())
-	if srv != nil {
-		defer srv.Close()
-	}
-	if !started || err != nil {
-		t.Fatalf("got %v %v", started, err)
-	}
-}
-
-// TestStartCommandIsHorusStartComfyUI checks that autostart runs the same
-// binary with `start-comfyui -server-url <url>`.
-func TestStartCommandIsHorusStartComfyUI(t *testing.T) {
-	cmd, err := startCommand(context.Background(), "http://127.0.0.1:8188")
-	if err != nil {
-		t.Fatal(err)
-	}
-	exe, _ := os.Executable()
-	if cmd.Path != exe || !reflect.DeepEqual(cmd.Args[1:], []string{"start-comfyui", "-server-url", "http://127.0.0.1:8188"}) {
-		t.Fatalf("got %s %v", cmd.Path, cmd.Args)
-	}
 }

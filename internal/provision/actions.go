@@ -315,7 +315,7 @@ func (s *Service) Install(ctx context.Context, req Request, w Watch) (*Result, e
 	if err != nil {
 		return end(res, err, "")
 	}
-	if dir, ok := s.files.ComfyUI(); !ok {
+	if dir, ok := s.backend.Installed(); !ok {
 		return end(res, failure{fmt.Sprintf("ComfyUI was not found in %s. Run horus install-comfyui first, or pass -comfyui-dir.", dir), ErrNoComfyUI}, "")
 	}
 	files, err := selectFiles(m.Files, req.Only)

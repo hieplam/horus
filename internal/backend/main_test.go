@@ -40,7 +40,7 @@ func TestMain(m *testing.M) {
 	if os.Getenv("HORUS_BACKEND_HELPER") == "start" {
 		// The fake python gets its mode from the environment of this starter.
 		os.Setenv("HORUS_FAKE_PY", os.Getenv("HORUS_HELPER_PY"))
-		p :=&Portable{Dir: os.Getenv("HORUS_COMFYUI_DIR"), URL: os.Getenv("HORUS_COMFYUI_URL"),
+		p := &Portable{Dir: os.Getenv("HORUS_COMFYUI_DIR"), URL: os.Getenv("HORUS_COMFYUI_URL"),
 			Timeout: 20 * time.Second, PollInterval: 20 * time.Millisecond}
 		if err := p.Start(context.Background(), os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "Start:", err)

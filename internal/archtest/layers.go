@@ -37,10 +37,8 @@ var layers = map[string]string{
 	// moves to. Remove a line when its package is gone.
 	"internal/scripts/checksetup":      service, // internal/doctor
 	"internal/scripts/installcomfymcp": service, // internal/provision
-	"internal/scripts/installcomfyui":  adapter, // internal/backend
 	"internal/scripts/newworkflow":     service, // internal/devtools
 	"internal/scripts/register":        service, // internal/provision
-	"internal/scripts/startcomfyui":    adapter, // internal/backend
 	"internal/scripts/syncworkflows":   service, // internal/devtools
 }
 

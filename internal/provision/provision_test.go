@@ -34,7 +34,7 @@ func newMemFiles() *memFiles {
 	return &memFiles{root: filepath.Join(string(filepath.Separator), "m"), files: map[string][]byte{}}
 }
 
-func (m *memFiles) ComfyUI() (string, bool)     { return m.root, true }
+func (m *memFiles) Installed() (string, bool)   { return m.root, true }
 func (m *memFiles) Dirs(folder string) []string { return []string{filepath.Join(m.root, folder)} }
 func (m *memFiles) Own(folder string) string    { return filepath.Join(m.root, folder) }
 func (m *memFiles) Mapped(string) []string      { return nil }
@@ -140,7 +140,7 @@ func TestRoundGBAsTheScriptRoundsIt(t *testing.T) {
 
 func TestPartSize(t *testing.T) {
 	files := newMemFiles()
-	s := New(files, nil, nil, "")
+	s := New(files, nil, nil, files, "")
 	dest := filepath.Join(files.root, "f.bin")
 	if s.PartSize("") != 0 || s.PartSize(dest) != 0 {
 		t.Error("no file must be 0")
@@ -160,7 +160,7 @@ func TestListCountsTheFilesOnDisk(t *testing.T) {
 	dir := workflows(t)
 	files := newMemFiles()
 	files.files[filepath.Join(files.root, "vae", "demo-vae.safetensors")] = vaeData
-	rows, err := New(files, nil, nil, "").List(context.Background(), dir)
+	rows, err := New(files, nil, nil, files, "").List(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestListCountsTheFilesOnDisk(t *testing.T) {
 		rows[0].Installed != "no (1 of 2 files)" || rows[0].State() != "partially_installed" || rows[0].Roles != "vae, text_encoder" {
 		t.Fatalf("rows %+v", rows)
 	}
-	if _, err := New(files, nil, nil, "").List(context.Background(), filepath.Join(dir, "nope")); err == nil ||
+	if _, err := New(files, nil, nil, files, "").List(context.Background(), filepath.Join(dir, "nope")); err == nil ||
 		!strings.HasPrefix(err.Error(), "No workflows folder: ") {
 		t.Errorf("a missing folder: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestInstallDownloadsEachFileAndKeepsTheKindOfAFailure(t *testing.T) {
 		return false, nil
 	}}
 	var started, downloading, failed []string
-	res, err := New(files, dl, fakeComfy{}, "").Install(context.Background(), Request{WorkflowsDir: dir, Workflow: "demo"}, Watch{
+	res, err := New(files, dl, fakeComfy{}, files, "").Install(context.Background(), Request{WorkflowsDir: dir, Workflow: "demo"}, Watch{
 		Started:     func(license string, n int) { started = append(started, fmt.Sprint(license, n)) },
 		Downloading: func(role, dest string) { downloading = append(downloading, role+" "+filepath.Base(dest)) },
 		Failed:      func(err error) { failed = append(failed, err.Error()) },
@@ -231,7 +231,7 @@ func TestInstallStopsWhenTheContextEnds(t *testing.T) {
 		return false, &DownloadError{Kind: DownloadFailed, Msg: "Download stopped: " + ctx.Err().Error()}
 	}}
 	files.mapped = nil
-	res, err := New(files, dl, fakeComfy{}, "").Install(ctx, Request{WorkflowsDir: dir, Workflow: "demo"}, Watch{})
+	res, err := New(files, dl, fakeComfy{}, files, "").Install(ctx, Request{WorkflowsDir: dir, Workflow: "demo"}, Watch{})
 	if !errors.Is(err, context.Canceled) || len(dl.calls) != 1 || len(files.mapped) != 0 {
 		t.Fatalf("err %v, %d downloads, mapped %v", err, len(dl.calls), files.mapped)
 	}
@@ -245,7 +245,7 @@ func TestInstallStopsWhenTheContextEnds(t *testing.T) {
 
 func TestInstallRefusesWithoutComfyUI(t *testing.T) {
 	files := &noComfyUI{newMemFiles()}
-	_, err := New(files, nil, fakeComfy{}, "").Install(context.Background(), Request{WorkflowsDir: workflows(t), Workflow: "demo"}, Watch{})
+	_, err := New(files, nil, fakeComfy{}, files, "").Install(context.Background(), Request{WorkflowsDir: workflows(t), Workflow: "demo"}, Watch{})
 	if !errors.Is(err, ErrNoComfyUI) || !strings.HasPrefix(err.Error(), "ComfyUI was not found in ") {
 		t.Fatalf("err %v", err)
 	}
@@ -253,7 +253,7 @@ func TestInstallRefusesWithoutComfyUI(t *testing.T) {
 
 type noComfyUI struct{ *memFiles }
 
-func (n *noComfyUI) ComfyUI() (string, bool) { return "/c", false }
+func (n *noComfyUI) Installed() (string, bool) { return "/c", false }
 
 func TestMappings(t *testing.T) {
 	own := map[string]string{"vae": "/c/models/vae", "loras": "/c/models/loras", "te": "/c/models/te"}
@@ -299,17 +299,17 @@ func TestCheckWithAServerThatAnswersNoJSON(t *testing.T) {
 	files.files[filepath.Join(files.root, "text_encoders", "demo-te.safetensors")] = teData
 	var syn graph.ObjectInfo
 	jsonErr := json.Unmarshal([]byte("<html>"), &syn)
-	res, err := New(files, nil, fakeComfy{err: jsonErr}, "").Check(context.Background(), Request{WorkflowsDir: dir, Workflow: "demo"})
+	res, err := New(files, nil, fakeComfy{err: jsonErr}, files, "").Check(context.Background(), Request{WorkflowsDir: dir, Workflow: "demo"})
 	if err == nil || statuses(res) != "OK file vae, OK file text_encoder, OK graph , NO_NODE server , NO_NODE server , NOT_SEEN server vae, NOT_SEEN server text_encoder" {
 		t.Errorf("not JSON: %v, %s", err, statuses(res))
 	}
-	res, err = New(files, nil, fakeComfy{err: errors.New("no answer")}, "http://h:1/").Check(context.Background(), Request{WorkflowsDir: dir, Workflow: "demo"})
+	res, err = New(files, nil, fakeComfy{err: errors.New("no answer")}, files, "http://h:1/").Check(context.Background(), Request{WorkflowsDir: dir, Workflow: "demo"})
 	if err != nil || statuses(res) != "OK file vae, OK file text_encoder, OK graph , SKIP server " || res.Items[3].Detail != "no answer at http://h:1" {
 		t.Errorf("no answer: %v, %s, %+v", err, statuses(res), res.Items)
 	}
 	info := graph.ObjectInfo{"vaeloader": json.RawMessage(`{"input":{"required":{"vae_name":[["sub\\demo-vae.safetensors"]]}}}`),
 		"CLIPLoader": json.RawMessage(`{"input":{"required":{"clip_name":[["DEMO-TE.safetensors"]]}}}`)}
-	res, err = New(files, nil, fakeComfy{info: info}, "").Check(context.Background(), Request{WorkflowsDir: dir, Workflow: "demo", Quick: true})
+	res, err = New(files, nil, fakeComfy{info: info}, files, "").Check(context.Background(), Request{WorkflowsDir: dir, Workflow: "demo", Quick: true})
 	if err != nil || statuses(res) != "OK file vae, OK file text_encoder, OK graph , OK server , OK server vae, OK server text_encoder" {
 		t.Errorf("a server with the files: %v, %s", err, statuses(res))
 	}

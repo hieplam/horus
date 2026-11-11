@@ -6,9 +6,9 @@
 // It decides: which file is missing, which file to download and where, which
 // folder to add to extra_model_paths.yaml, which file may be deleted, and
 // which status each item gets. It does the input and output through the
-// interfaces below: the model files (ModelFiles), the downloader (Downloader)
-// and the running ComfyUI (ComfyUI). It reads the workflows folder through
-// internal/catalog. It knows no flag, no MCP and no output text: a handler
+// interfaces below: the model files (ModelFiles), the downloader (Downloader),
+// the running ComfyUI (ComfyUI) and the ComfyUI install (Backend). It reads
+// the workflows folder through internal/catalog. It knows no flag, no MCP and no output text: a handler
 // writes the lines from the typed Result.
 package provision
 
@@ -25,9 +25,6 @@ import (
 // ModelFiles is what the service needs from the model files on the disk.
 // cmd/horus gives it a *modelfiles.Store. A test gives it a fake.
 type ModelFiles interface {
-	// ComfyUI gives the ComfyUI portable folder, and reports if ComfyUI is
-	// installed there.
-	ComfyUI() (dir string, installed bool)
 	// Dirs gives the folders where a model file of this folder is looked
 	// for, in order, as full paths. A new download goes to the first one.
 	Dirs(folder string) []string
@@ -91,18 +88,28 @@ type ComfyUI interface {
 	ObjectInfo(ctx context.Context) (graph.ObjectInfo, error)
 }
 
+// Backend is what the service needs from the ComfyUI install. cmd/horus
+// gives the service the backend of internal/backend, the one place that
+// knows the layout of the install.
+type Backend interface {
+	// Installed gives the install folder, and reports if ComfyUI is
+	// installed there.
+	Installed() (dir string, ok bool)
+}
+
 // Service sets up the model files of the workflows.
 type Service struct {
 	files     ModelFiles
 	dl        Downloader
 	comfy     ComfyUI
+	backend   Backend
 	serverURL string
 }
 
 // New makes the service. serverURL is the address of comfy, for the text of
 // a check that gets no answer; "" means the HORUS_COMFYUI_URL setting.
-func New(files ModelFiles, dl Downloader, comfy ComfyUI, serverURL string) *Service {
-	return &Service{files: files, dl: dl, comfy: comfy, serverURL: serverURL}
+func New(files ModelFiles, dl Downloader, comfy ComfyUI, backend Backend, serverURL string) *Service {
+	return &Service{files: files, dl: dl, comfy: comfy, backend: backend, serverURL: serverURL}
 }
 
 func (s *Service) server() string {

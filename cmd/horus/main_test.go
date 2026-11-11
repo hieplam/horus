@@ -6,7 +6,8 @@ import "testing"
 // portMap is one command for each row of the port map in issue #4 (Phase 1),
 // plus errors. install-workflow-models is dropped (spec, design decisions).
 var portMap = []string{"mcp", "workflow", "download-model", "check-setup", "install-comfyui", "start-comfyui",
-	"install-comfy-mcp", "sync-workflows", "new-workflow", "register", "run-illustration", "errors"}
+	"install-comfy-mcp", "sync-workflows", "new-workflow", "register", "run-illustration", "errors",
+	"stop-comfyui"} // stop-comfyui: new in Phase 2 (task T7)
 
 func TestEveryPortMapRowHasACommand(t *testing.T) {
 	for _, name := range portMap {

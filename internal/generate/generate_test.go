@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -58,6 +59,7 @@ func editJSON(t *testing.T, path string, edit func(m map[string]any)) {
 type env struct {
 	fake *fakeComfy
 	svc  *Service
+	back *fakeBackend
 	out  string
 }
 
@@ -92,7 +94,8 @@ func setup(t *testing.T) *env {
 	t.Cleanup(func() { PollInterval, ReportInterval, AbsentLimit = oldPoll, oldReport, oldAbsent })
 
 	f := newFake(t, filepath.Join("..", "..", "tests", "fixtures", "object_info.json"))
-	return &env{fake: f, svc: New(f), out: filepath.Join(tmp, "images")}
+	b := &fakeBackend{comfy: f}
+	return &env{fake: f, svc: New(f, b), back: b, out: filepath.Join(tmp, "images")}
 }
 
 type reports struct {
@@ -377,6 +380,96 @@ func TestBackendDownAutostartOff(t *testing.T) {
 	}
 	if msgs := r.all(); len(msgs) != 1 || !strings.HasPrefix(msgs[0], "starting the image backend") {
 		t.Fatalf("reports: %v", msgs)
+	}
+	if i := info(t, err); i.Message != "ComfyUI does not answer at http://fake, and HORUS_AUTOSTART is off" || e.back.Starts() != 0 {
+		t.Fatalf("message %q, %d starts", i.Message, e.back.Starts())
+	}
+}
+
+func autostartOn(t *testing.T) {
+	t.Helper()
+	t.Setenv("HORUS_AUTOSTART", "1")
+	settings.Reset()
+}
+
+// TestDownBackendStartsOneTime: a generate call on a ComfyUI that is down
+// calls Start of the backend exactly one time, then makes the image. The
+// next call finds ComfyUI up and starts nothing.
+func TestDownBackendStartsOneTime(t *testing.T) {
+	e := setup(t)
+	autostartOn(t)
+	e.fake.SetDown()
+	var r reports
+	o := e.opts(&r)
+	res, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject, OutPath: ptr(filepath.Join(e.out, "a.png"))}, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.back.Starts() != 1 || !res.StartedBackend {
+		t.Fatalf("%d starts, started_backend %v; want 1 start and true", e.back.Starts(), res.StartedBackend)
+	}
+	if msgs := r.all(); len(msgs) == 0 || !strings.HasPrefix(msgs[0], "starting the image backend") {
+		t.Fatalf("reports: %v", msgs)
+	}
+	res, err = e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject, OutPath: ptr(filepath.Join(e.out, "b.png"))}, o)
+	if err != nil || e.back.Starts() != 1 || res.StartedBackend {
+		t.Fatalf("second call: %v, %d starts, started_backend %v", err, e.back.Starts(), res.StartedBackend)
+	}
+}
+
+// TestUpBackendStartsNothing: when ComfyUI answers, the backend is not called.
+func TestUpBackendStartsNothing(t *testing.T) {
+	e := setup(t)
+	autostartOn(t)
+	if _, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if e.back.Starts() != 0 {
+		t.Fatalf("%d starts", e.back.Starts())
+	}
+}
+
+// TestStartOfAComfyUIThatIsNotInstalled: BACKEND_NOT_INSTALLED, with the
+// lines of the start and its error in start_output_tail.
+func TestStartOfAComfyUIThatIsNotInstalled(t *testing.T) {
+	e := setup(t)
+	autostartOn(t)
+	e.fake.SetDown()
+	e.back.lines = "line 1\n"
+	e.back.start = func() error {
+		return notInstalled{"ComfyUI was not found in C:/nowhere. Run horus install-comfyui first."}
+	}
+	_, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
+	i := info(t, err)
+	tail, _ := i.Details["start_output_tail"].([]string)
+	if i.Code != "BACKEND_NOT_INSTALLED" || i.Message != "horus could not start ComfyUI at http://fake" || len(tail) != 2 ||
+		tail[0] != "line 1" || !strings.HasPrefix(tail[1], "ComfyUI was not found") || e.back.Starts() != 1 {
+		t.Fatalf("got %+v, %d starts", i, e.back.Starts())
+	}
+}
+
+// TestFailedStartKeepsTheLastEightLines: another failed start is
+// BACKEND_UNAVAILABLE with the last 8 lines. A start that returns but leaves
+// ComfyUI down is BACKEND_UNAVAILABLE too.
+func TestFailedStartKeepsTheLastEightLines(t *testing.T) {
+	e := setup(t)
+	autostartOn(t)
+	e.fake.SetDown()
+	for i := 1; i <= 11; i++ {
+		e.back.lines += fmt.Sprintf("line %d\r\n", i)
+	}
+	e.back.start = func() error { return errors.New("line 12") }
+	_, err := e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
+	i := info(t, err)
+	tail, _ := i.Details["start_output_tail"].([]string)
+	if i.Code != "BACKEND_UNAVAILABLE" || len(tail) != 8 || tail[0] != "line 5" || tail[7] != "line 12" {
+		t.Fatalf("fail: %+v", i)
+	}
+
+	e.back.lines, e.back.start = "OK: ComfyUI answers\n", func() error { return nil } // still down
+	_, err = e.svc.Generate(context.Background(), Request{Workflow: "it-illustration", Subject: subject}, e.opts(nil))
+	if i := info(t, err); i.Code != "BACKEND_UNAVAILABLE" || e.back.Starts() != 2 {
+		t.Fatalf("still down: %+v, %d starts", i, e.back.Starts())
 	}
 }
 

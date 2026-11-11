@@ -41,6 +41,13 @@ commands.
 | 2026-11-11 | `internal/download` exports the constant `DefaultTokenVar`. `internal/scripts/workflow/install.go` no longer sets `TokenEnvVar`, because the downloader already defaults to the same variable. `workflow_test.go` clears the variable by `download.DefaultTokenVar`. | The token rule flags a string that names the variable. A constant of the download package names it once, in the one allowed place. The lookup (environment first, then the `.env` file) did not change. | Agent (T4) |
 | 2026-11-11 | The entry `internal/scripts/workflow -> internal/scripts/downloadmodel` of `allow_direction.txt` is renamed to `internal/scripts/workflow -> internal/download`. The line of `layers.go` for the old package is deleted, because `internal/download` is already in the target table. | A rename is not a new entry. T6 removes it. | Agent (T4) |
 | 2026-11-11 | `tools/goal_check.py`: the Phase 1 row `downloader` now tests `./internal/download`. | The old path does not exist. It still needs 9 passed tests (13 pass). | Agent (T4) |
+| 2026-11-11 | `internal/generate` declares the interface `ComfyUI` with 9 methods: `IsUp`, `EnsureUp`, `ObjectInfo`, `Submit`, `History`, `QueueState`, `Cancel`, `View`, `Free`. `*comfy.Client` implements it. The low-level `GetJSON` and `PostJSON` of the client are not in it. The service keeps the steps: the argument checks, the graph conversion, the graph inputs, the node count and model file checks, the poll every 2 s, the time limits, the progress text, the cancel on a timeout or a cancelled call, the choice of the first image, and the PNG file. The adapter keeps the wire format: the JSON of `/history` and `/queue`, the `client_id` of a job, and the mapping of a rejected graph and of a failed job to a horus error. | Design rule 2. Before, the service read `comfy.Status` and called `comfy.JobError` itself, so it knew the shape of `/history`. Now `History` returns the job, or the mapped error of a failed job. The `client_id` was a value that the service only passed through, so the adapter makes it (`Submit(ctx, api)`). `IsUp` and `EnsureUp` stay two calls, so the service can report "starting the image backend" before a start, and T7 can replace `EnsureUp` with the backend. `QueueState` keeps its documented text form (`running`, `pending:<n>`, `absent`) and its tests. | Agent (T5) |
+| 2026-11-11 | The types that the service and the adapter both need are in `internal/graph`: `API`, `Node`, `ObjectInfo` (moved), and `Job` and `Image` (new, `job.go`). `graph` also exports the helpers that the adapter uses: `PyDumps`, `PyStr`, `IsModelFile` and `Truthy` (moved from `comfy.go`). | An adapter imports base packages only, so it cannot name a type that the service declares. A Go interface needs the same named types on both sides. `graph` is the base package of the ComfyUI graph and its job. | Agent (T5) |
+| 2026-11-11 | `generate.Service` also has `Running` (for `backend_running` of `list_workflows`) and `FreeMemory` (before `uninstall_workflow` deletes files). `internal/mcpserver` declares the interface `Images` (`Generate`, `Running`, `FreeMemory`), and `cmd/horus` gives it a `*generate.Service`. `internal/mcpserver` imports no adapter. | `list_workflows` and `uninstall_workflow` called `comfy.New("")` because they need the state of ComfyUI and the unload of its models. The handler gets them through a service, not through the adapter. The entry `internal/mcpserver -> internal/comfy` is gone. For T6: `FreeMemory` belongs to the remove step of `provision`, and T6 can move it there. For T7: `Running` can ask the backend. | Agent (T5) |
+| 2026-11-11 | `comfy.New("")` reads `HORUS_COMFYUI_URL` at each request, not at the time it is made. | Before, every tool call made a new client and read the setting then. `cmd/horus` now makes one client at the start. The client keeps the old behaviour. `TestEmptyURLReadsTheSettingAtEachRequest` proves it. | Agent (T5) |
+| 2026-11-11 | T5 creates `internal/cli` with `cli.go` (the package comment) and `run_illustration.go`. `cli.RunIllustration` gets a function `imagesAt(url)` from `cmd/horus`, because the flag `-url` picks the ComfyUI. Exported names start with `Illustration` (`IllustrationOptions`, `IllustrationResult`) so that later commands in the same package do not collide. | T4 did not create the package (see the T4 row above). `run-illustration` calls the service `generate`, so its handler adds no entry. | Agent (T5) |
+| 2026-11-11 | Tests that need the wire format moved to `cmd/horus`, the wiring: `TestGenerateImageTool` and `TestGenerateImageToolErrors` (from `internal/mcpserver`, through `mcpserver.New(newImages(""))`), and 7 tests of `run-illustration` (`run_illustration_test.go`, through `cli.RunIllustration` with `imagesAt`). 3 new tests there prove that the parts fit on the timeout, the cancel and out of memory. The 12 tests of `internal/generate` keep their names and cases, on a fake of `ComfyUI` (`fake_test.go`). `internal/mcpserver` gets 2 handler tests on a fake `Images`. `TestFlagErrors` moved to `internal/cli`. | A test file follows the rules of its package (T1 decision). `cmd/horus` can import every package. Each behaviour that a test proved stays proved: the parts that the adapter now does (the mapping of a failed job, the backend time, a cancelled call) got tests in `internal/comfy`. | Agent (T5) |
+| 2026-11-11 | `tools/goal_check.py`: the Phase 1 row `graph` now tests `./internal/graph`. The Phase 1 row `setup-commands` finds `runillustration` in `internal/cli` (`SETUP_PACKAGES`). | The old paths do not exist. The rows prove the same things. | Agent (T5) |
 
 ## Baseline
 
@@ -205,3 +212,59 @@ Green: `go test ./...` passes. `python tools/goal_check.py --phase 2` prints:
 `python tests/mcp_contract.py --server-cmd <bin>/horus.exe mcp` prints `contract: 30 of 30 passed`. `python tests/workflow_parity.py --horus bin/horus.exe` prints `parity: 17 of 17 cases equal`. `gofmt -l .` prints nothing. `lint-public: 0 finding(s)`. `go vet ./...` is clean for windows, darwin/arm64 and linux/amd64.
 
 Ratchet: `token` allow list 4 -> 0. Packages off target 11 -> 10. Go test functions 164 -> 164. The `direction` list keeps 10 entries (one renamed).
+
+## T5
+
+Red, before the change (at `09fec43`, and the same on `50545a1`):
+
+    go list ./internal/graph
+    stat ...\internal\graph: directory not found      (exit 1)
+
+    internal\archtest\allow_direction.txt:4:internal/generate -> internal/comfy
+    internal\archtest\allow_direction.txt:10:internal/scripts/runillustration -> internal/comfy
+    internal\archtest\allow_direction.txt:13:internal/mcpserver -> internal/comfy
+
+    go list -f '{{join .Imports "\n"}}' ./internal/generate   (one line of 17)
+    github.com/hieplam/horus/internal/comfy
+
+Baseline of the goal tool before the change: `direction - 10 entries on the allow list`, 164 Go test functions.
+
+Green: `go list -f '{{join .Imports "\n"}}' ./internal/generate | grep -E "internal/comfy|net/http|os/exec"` prints nothing (grep exit 1). `go test ./...` passes. `gofmt -l .` prints nothing. `go vet ./...` is clean for windows, darwin/arm64 and linux/amd64. `lint-public: 0 finding(s)`.
+
+    python tests/mcp_contract.py --server-cmd <bin>\horus.exe mcp
+    contract: 30 of 30 passed
+
+    python tests/workflow_parity.py
+    parity: 17 of 17 cases equal
+
+    go test -count=1 -v -run TestUIToAPIGolden ./internal/graph
+    --- PASS: TestUIToAPIGolden (0.00s)
+
+    git diff origin/main --stat -- tests/ '*golden*'
+    (no output)
+    git hash-object tests/fixtures/ui_to_api.golden.json
+    536efff1e26c28834cef99295023b2d44c75f043   (the same before and after)
+
+    python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>\horus.exe mcp
+    FAIL  layout - 9 packages off target, 5 listed packages missing
+    PASS  same-behaviour - contract: local 30 of 30; CI part skipped (--no-ci); parity: 17 of 17; go test ./...: ok; 174 Go test functions (baseline 157); 0 changed contract files
+    FAIL  os-boundary - 3 entries on the allow list; archtest: ok
+    FAIL  direction - 7 entries on the allow list; archtest: ok
+    PASS  process-tree - tree test: ok; 0 taskkill references
+    FAIL  backend - missing: internal/backend (task T7)
+    PASS  token - 0 entries on the allow list; archtest: ok
+    FAIL  commands - missing: internal/doctor (tasks T8 and T9)
+    goal: 3 of 8 rows passed
+
+    python tools/goal_check.py --no-ci   (Phase 1)
+    goal: 7 of 8 rows passed   (only real-image fails: it needs --real on the GPU machine)
+
+Stub check: the old import back in a file that is not committed (`internal/generate/stub_check.go` with `import _ "github.com/hieplam/horus/internal/comfy"`):
+
+    --- FAIL: TestRules (0.03s)
+        archtest_test.go:74: direction: internal/generate -> internal/comfy: the service layer must not import the adapter layer (internal/generate/stub_check.go). Fix the code: the allow list only becomes shorter
+    FAIL	github.com/hieplam/horus/internal/archtest
+
+Before the allow list was shortened, the new code made archtest fail the other way: `"internal/generate -> internal/comfy" no longer breaks the rule: remove this entry from allow_direction.txt` (and the same for `runillustration` and `mcpserver`).
+
+Ratchet: `direction` allow list 10 -> 7 (the entries of `generate`, `runillustration` and `mcpserver` are gone; no entry of `mcpserver` stays for T6). Packages off target 10 -> 9 (`internal/scripts/runillustration` is gone). Listed packages missing 7 -> 5 (`internal/graph`, `internal/cli`). Go test functions 164 -> 174.

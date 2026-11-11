@@ -8,9 +8,12 @@ With --phase 2, it checks the 8 goal rows of Phase 2 (docs/specs/2026-11-11-rest
 layout, same-behaviour, os-boundary, direction, process-tree, backend, token, commands.
 The rows backend and commands pass only with --real, because their oracle needs the
 owner's PC (the real image, horus doctor, horus setup).
-The rows os-boundary, direction and token read the allow lists
-internal/archtest/allow_os-boundary.txt, allow_direction.txt and allow_token.txt
-(task T1 creates them) and print their lengths.
+The rows os-boundary, direction and token run go test ./internal/archtest. They pass
+only when it passes and no allow list file internal/archtest/allow_<rule>.txt exists
+(task T8 removed the allow list mechanism, so a new entry is not possible).
+With --real, the row commands runs horus doctor and horus setup it-illustration (no -yes)
+of the --server-cmd program. It fails on a FAIL line of doctor, on a step in the plan,
+or when a file that the plan names changed.
 
 It prints one line
 for each row, "PASS  <row> - <detail>" or "FAIL  <row> - <detail>", and then
@@ -45,7 +48,9 @@ GO_DIRS = [r"C:\Program Files\Go\bin", "/usr/local/go/bin"]
 SETUP_COMMANDS = ["installcomfyui", "startcomfyui", "installcomfymcp", "checksetup",
                   "syncworkflows", "newworkflow", "register", "runillustration"]
 # The package of a setup command that moved out of internal/scripts in Phase 2.
-SETUP_PACKAGES = {"runillustration": "internal/cli", "installcomfyui": "internal/backend", "startcomfyui": "internal/backend"}
+SETUP_PACKAGES = {"runillustration": "internal/cli", "installcomfyui": "internal/backend", "startcomfyui": "internal/backend",
+                  "checksetup": "internal/doctor", "installcomfymcp": "internal/provision", "register": "internal/provision",
+                  "syncworkflows": "internal/devtools", "newworkflow": "internal/devtools"}
 BUILD_TARGETS = [("windows", "amd64"), ("darwin", "arm64"), ("linux", "amd64")]
 CI_OSES = ["windows-latest", "macos-latest"]
 REAL_SUBJECT = ("On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. "
@@ -58,7 +63,6 @@ ROWS = ["contract", "graph", "workflow-cli", "downloader", "setup-commands", "bu
 ROWS2 = ["layout", "same-behaviour", "os-boundary", "direction", "process-tree", "backend", "token", "commands"]
 PACKAGE_LIST = ROOT / "tools" / "phase2_packages.txt"
 ARCHTEST_DIR = "internal/archtest"
-ALLOW_LIST = {"os-boundary": "allow_os-boundary.txt", "direction": "allow_direction.txt", "token": "allow_token.txt"}
 BASELINE_COMMIT = "3e27da4"  # main before the first move task; the contract files are compared with it
 BASELINE_TESTS = 157 # Go test functions at BASELINE_COMMIT (go test -list . ./...); same-behaviour never goes below it
 
@@ -177,7 +181,7 @@ def row_downloader(a: argparse.Namespace) -> tuple[bool, str]:
 
 def row_setup(a: argparse.Namespace) -> tuple[bool, str]:
     moved = sorted({"./" + p for p in SETUP_PACKAGES.values()})
-    ok, detail, _ = go_test(["./internal/scripts/...", *moved], [])
+    ok, detail, _ = go_test(moved, [])
     if not ok:
         return False, detail
     go = go_exe()
@@ -410,23 +414,19 @@ def row2_same(a: argparse.Namespace) -> tuple[bool, str]:
     return ok, "; ".join(parts)
 
 
-def allow_length(rule: str) -> tuple[int | None, str]:
-    path = ROOT / ARCHTEST_DIR / ALLOW_LIST[rule]
-    if not path.is_file():
-        return None, f"missing: {ARCHTEST_DIR}/{ALLOW_LIST[rule]} (task T1)"
-    lines = [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines()]
-    return len([ln for ln in lines if ln and not ln.startswith("#")]), ""
+def allow_files() -> list[str]:
+    """The allow list files of archtest that exist. Task T8 removed the mechanism, so there must be none."""
+    return sorted(p.name for p in (ROOT / ARCHTEST_DIR).glob("allow_*.txt"))
 
 
 def row2_archtest(rule: str):
     def check(a: argparse.Namespace) -> tuple[bool, str]:
         if not (ROOT / ARCHTEST_DIR).is_dir():
-            return False, f"missing: {ARCHTEST_DIR} (task T1); allow list length unknown"
-        n, err = allow_length(rule)
-        if n is None:
-            return False, err
+            return False, f"missing: {ARCHTEST_DIR} (task T1)"
+        lists = allow_files()
         ok, detail, _ = go_test([f"./{ARCHTEST_DIR}"], [])
-        return ok and n == 0, f"{n} entries on the allow list; archtest: {'ok' if ok else detail}"
+        text = f"{len(lists)} allow list files" + (" (" + ", ".join(lists) + ")" if lists else "")
+        return ok and not lists, f"{text}; archtest: {'ok' if ok else detail}"
     return check
 
 
@@ -455,24 +455,70 @@ def row2_backend(a: argparse.Namespace) -> tuple[bool, str]:
     return ok_r, detail_r + ("; started through the backend" if ok_r else "")
 
 
+SETUP_LINE = re.compile(r"^(PRESENT|MISSING)\s+(.*)$")  # a fact of the plan of horus setup
+STEPS_LINE = re.compile(r"^Plan: (\d+) step", re.M)  # the number of steps of the plan
+
+
+def setup_paths(out: str) -> list[Path]:
+    """The paths that the plan of horus setup names: each model file, and main.py and
+    extra_model_paths.yaml of the ComfyUI folder."""
+    paths = []
+    for ln in out.splitlines():
+        m = SETUP_LINE.match(ln.strip())
+        if not m:
+            continue
+        rest = m.group(2)
+        if rest.startswith("ComfyUI in "):
+            comfy = Path(rest[len("ComfyUI in "):]) / "ComfyUI"
+            paths += [comfy / "main.py", comfy / "extra_model_paths.yaml"]
+        elif ") " in rest:
+            paths.append(Path(rest.split(") ", 1)[1]))
+    return paths
+
+
+def file_states(paths: list[Path]) -> list[tuple]:
+    """(path, size, mtime) of each path, or (path, None, None) when it does not exist."""
+    states = []
+    for p in paths:
+        try:
+            st = p.stat()
+            states.append((str(p), st.st_size, st.st_mtime_ns))
+        except OSError:
+            states.append((str(p), None, None))
+    return states
+
+
 def row2_commands(a: argparse.Namespace) -> tuple[bool, str]:
     missing = [p for p in ("internal/cli", "internal/doctor") if not (ROOT / p).is_dir()]
     if missing:
         return False, "missing: " + ", ".join(missing) + " (tasks T8 and T9)"
-    ok, detail, _ = go_test(["./internal/cli", "./internal/doctor"], [])
+    ok, detail, _ = go_test(["./internal/cli", "./internal/doctor", "./internal/provision"], [])
     if not ok:
         return False, detail
     if not a.real:
         return False, "Go tests ok; needs --real on the owner's PC for horus doctor and horus setup"
     exe = (a.server_cmd or ["horus"])[0]
+    # The plan first: it names the files that doctor and setup must not change.
+    code, first = run([exe, "setup", "it-illustration"], timeout=300)
+    paths = setup_paths(first)
+    if code != 0 or not paths:
+        return False, f"horus setup it-illustration: exit {code}, {len(paths)} paths in the plan: {last_line(first)}"
+    before = file_states(paths)
     code, out = run([exe, "doctor"], timeout=300)
     fails = len(re.findall(r"^FAIL\b", out, re.M))
     if code != 0 or fails:
         return False, f"horus doctor: exit {code}, {fails} FAIL lines"
-    code, out = run([exe, "setup", "it-illustration"], timeout=300)
-    if code != 0 or not re.search(r"nothing (is )?missing", out, re.I):
-        return False, f"horus setup it-illustration: exit {code}, the plan does not say that nothing is missing"
-    return True, "horus doctor: 0 FAIL lines; horus setup it-illustration: nothing is missing"
+    code, second = run([exe, "setup", "it-illustration"], timeout=300)
+    m = STEPS_LINE.search(second)
+    steps = int(m.group(1)) if m else -1
+    if code != 0 or steps != 0 or not re.search(r"nothing (is )?missing", second, re.I):
+        return False, f"horus setup it-illustration: exit {code}, {steps} steps in the plan"
+    changed = [b[0] for b, c in zip(before, file_states(paths)) if b != c]
+    if changed or second != first:
+        return False, "a file changed: " + (", ".join(changed) or "the plan text differs between two runs")
+    present = sum(1 for _, size, _ in before if size is not None)
+    return True, (f"horus doctor: 0 FAIL lines; horus setup it-illustration: 0 steps, nothing is missing; "
+                  f"{present} of {len(paths)} named files present and unchanged")
 
 
 CHECKS2 = {"layout": row2_layout, "same-behaviour": row2_same, "os-boundary": row2_archtest("os-boundary"),

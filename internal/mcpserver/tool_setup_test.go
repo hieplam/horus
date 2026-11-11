@@ -354,3 +354,54 @@ func TestUninstallPlanAndRemoveOnTheService(t *testing.T) {
 		}
 	}
 }
+
+// stateSetup is a setup service with present of the 3 files of
+// it-illustration on disk, for list_workflows and describe_workflow.
+type stateSetup struct{ present int }
+
+func (s stateSetup) List(context.Context, string) ([]provision.Row, error) {
+	return []provision.Row{{Name: "it-illustration", Files: 3, Present: s.present, Bytes: 3}}, nil
+}
+func (s stateSetup) Check(_ context.Context, req provision.Request) (*provision.Result, error) {
+	res := &provision.Result{Action: "check", Workflow: req.Workflow, Checked: true, CheckFiles: 3}
+	for i, role := range []string{"diffusion", "text_encoder", "vae"} {
+		status := provision.StatusMissing
+		if i < s.present {
+			status = provision.StatusOK
+		}
+		res.Items = append(res.Items, provision.Item{Status: status, Kind: "file", Role: role, File: role + ".safetensors", Bytes: 1})
+	}
+	return res, nil
+}
+func (stateSetup) Install(context.Context, provision.Request, provision.Watch) (*provision.Result, error) {
+	return nil, errors.New("not in this test")
+}
+func (stateSetup) Remove(context.Context, provision.Request) (*provision.Result, error) {
+	return nil, errors.New("not in this test")
+}
+func (stateSetup) PartSize(string) int64 { return 0 }
+
+// TestBothToolsGiveTheSameInstallState: list_workflows and describe_workflow
+// give the same install_state for the same disk (issue #88).
+func TestBothToolsGiveTheSameInstallState(t *testing.T) {
+	useRepoWorkflows(t)
+	for _, c := range []struct {
+		present int
+		want    string
+	}{{0, "not_installed"}, {1, "partially_installed"}, {3, "installed"}} {
+		cs := connect(t, New(&fakeImages{}, stateSetup{present: c.present}), nil)
+		list, _ := envelopeOf(t, callTool(t, cs, "list_workflows", map[string]any{}))["result"].(map[string]any)
+		listed := ""
+		flows, _ := list["workflows"].([]any)
+		for _, w := range flows {
+			if m, _ := w.(map[string]any); m["name"] == "it-illustration" {
+				listed, _ = m["install_state"].(string)
+			}
+		}
+		desc, _ := envelopeOf(t, callTool(t, cs, "describe_workflow", map[string]any{"workflow": "it-illustration"}))["result"].(map[string]any)
+		described, _ := desc["install_state"].(string)
+		if listed != c.want || described != c.want {
+			t.Errorf("%d of 3 files: list_workflows %q, describe_workflow %q, want %q", c.present, listed, described, c.want)
+		}
+	}
+}

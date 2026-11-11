@@ -103,16 +103,26 @@ type Row struct {
 	Roles       string  `json:"roles"`
 }
 
-// State is the install state of the MCP tools: "installed",
-// "partially_installed" or "not_installed". A nil row is "not_installed".
+// State is the install state of the MCP tools for the row (InstallState). A
+// nil row is "not_installed".
 func (r *Row) State() string {
-	if r == nil || r.Files == 0 {
+	if r == nil {
+		return InstallState(0, 0)
+	}
+	return InstallState(r.Present, r.Files)
+}
+
+// InstallState is the install state of the MCP tools: "installed" when all
+// files of a workflow are present, "partially_installed" when some are, and
+// "not_installed" when none are or the workflow has no files. It is the one
+// place of this rule, for list_workflows and describe_workflow.
+func InstallState(present, files int) string {
+	switch {
+	case files == 0:
 		return "not_installed"
-	}
-	if r.Present == r.Files {
+	case present == files:
 		return "installed"
-	}
-	if r.Present > 0 {
+	case present > 0:
 		return "partially_installed"
 	}
 	return "not_installed"

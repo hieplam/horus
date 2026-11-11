@@ -103,6 +103,7 @@ commands.
 | 2026-11-11 | #86: the handler `cli.RunDoctor` runs the model check. It calls the doctor service for the checks 1 to 7, then (with `-workflow`) `Check` of the setup service through `cli.Setup`, and writes the lines with `printer.check` of `horus workflow` and an indent of 6 spaces. `internal/doctor` lost `Models`, `Options.Workflow`, `Options.Quick` and `Result.Lines`. `doctorAt` gives the two services, and the glue `workflowCheck` is gone. This replaces the T8 decision on the glue. | The fix of the issue, and its Verify block names a test of `RunDoctor` on a fake `Setup`. The handler sees both services, so no service gets text and the wiring holds no logic (design rule 5). A doctor interface for a typed model check would only move the same composition into a service and hide nothing (design rule 1). One printer writes the check lines of both commands, so the lines stay equal. | Agent (#86) |
 | 2026-11-11 | #86: the detail `cannot run the model check: <error>` is gone, with its case in the test. A failed `Check` of the setup service gives `FAIL: <error>` (indented) and `FAIL  models for '<name>' - see lines above. Fix: horus workflow install <name>`, as before. | The old glue always returned a nil error, so the program never printed that detail. The output of the binary does not change (`diff` of 6 cases prints nothing, `## Issue 86`). | Agent (#86) |
 | 2026-11-11 | #86: the tests moved. `TestModelsLinesAndFailureCount` and `TestNoWorkflowFlagMeansNoModelCheck` (`internal/doctor`) became `TestDoctorModelCheckLinesAndExitCode` and `TestDoctorWithoutWorkflowRunsNoModelCheck` (`internal/cli`, on a fake `Setup`). `TestWorkflowCheckGivesTheLinesAndTheExitCode` (`cmd/horus`, the glue) became `TestDoctorModelCheckOfAnUnknownWorkflow`. `TestDoctorThroughTheWiring` runs `RunDoctor` on `doctorAt`. | A test follows its code. Go test functions 207 -> 207. | Agent (#86) |
+| 2026-11-11 | #88: the pure function `provision.InstallState(present, files int) string` owns the rule of `install_state`. `Row.State()` (for `list_workflows`) and the handler of `describe_workflow` both call it. The handler still counts the files with the state `present` from the rows of its check. | The fix of the issue: one rule has one place (design rule 1), and the service owns its decisions. The name of the issue fits, and a function with two integers is the smallest interface for both callers. Counting the rows that the handler shows is mapping of the typed result, not a rule. | Agent (#88) |
 
 ## Baseline
 
@@ -1075,3 +1076,55 @@ Stub check: `RunDoctor` with the model check switched off (`if false && workflow
     < PASS  models for 'it-illustration' - all files present, size checked (the SHA-256 is not checked; drop -quick)
 
 Ratchet: calls from the wiring into a handler to feed a service: 1 -> 0. Go test functions: 207 -> 207.
+
+## Issue 88
+
+Goal: one place decides `install_state`, and both tools give the same value for the same disk.
+
+Red (before the change, on `64e93a6`):
+
+    git grep -n 'state = "partially_installed"\|return "partially_installed"' -- internal ':!*_test.go'
+    internal/mcpserver/tool_describe_workflow.go:94:				state = "partially_installed"
+    internal/provision/result.go:116:		return "partially_installed"
+
+    git grep -n "partially_installed" -- internal/mcpserver ':!*_test.go' ':!*testdata*'
+    internal/mcpserver/schema.go:103:var tInstallState = tEnum("installed", "partially_installed", "not_installed")
+    internal/mcpserver/tool_describe_workflow.go:94:				state = "partially_installed"
+
+Green (after the change):
+
+    git grep -n 'state = "partially_installed"\|return "partially_installed"' -- internal ':!*_test.go'
+    internal/provision/result.go:126:		return "partially_installed"
+
+    git grep -n "partially_installed" -- internal/mcpserver ':!*_test.go' ':!*testdata*'
+    internal/mcpserver/schema.go:103:var tInstallState = tEnum("installed", "partially_installed", "not_installed")
+
+    go test -count=1 -run "TestBothToolsGiveTheSameInstallState|TestRowState" -v ./internal/mcpserver/ ./internal/provision/
+    --- PASS: TestBothToolsGiveTheSameInstallState (0.02s)
+    ok  	github.com/hieplam/horus/internal/mcpserver	1.791s
+    --- PASS: TestRowState (0.00s)
+    ok  	github.com/hieplam/horus/internal/provision	0.801s
+
+`TestBothToolsGiveTheSameInstallState` (`internal/mcpserver`, on a fake `Setup`) calls `list_workflows` and `describe_workflow` for 0, 1 and 3 of the 3 files of `it-illustration` on disk. Both tools give `not_installed`, `partially_installed` and `installed`. `TestRowState` also checks `InstallState` for each row.
+
+The other checks:
+
+    go test -count=1 ./...                          ok for every package
+    tests/mcp_contract.py                           contract: 30 of 30 passed
+    tests/workflow_parity.py                        parity: 17 of 17 cases equal
+    tools/goal_check.py --phase 2 --no-ci           goal: 6 of 8 rows passed (backend and commands need --real)
+    scripts/lint-public.py                          lint-public: 0 finding(s)
+    gofmt -l .                                      (no output)
+    GOOS=darwin GOARCH=arm64 go vet ./...           ok
+    GOOS=linux GOARCH=amd64 go vet ./...            ok
+    git status -- internal/mcpserver/testdata       (no change to tools.golden.json)
+
+Stub check: `describe_workflow` returns a fixed `installed` (not committed):
+
+    go test -count=1 -run TestBothToolsGiveTheSameInstallState ./internal/mcpserver/
+    --- FAIL: TestBothToolsGiveTheSameInstallState (0.03s)
+        tool_setup_test.go:404: 0 of 3 files: list_workflows "not_installed", describe_workflow "installed", want "not_installed"
+        tool_setup_test.go:404: 1 of 3 files: list_workflows "partially_installed", describe_workflow "installed", want "partially_installed"
+    FAIL	github.com/hieplam/horus/internal/mcpserver	1.874s
+
+Ratchet: copies of the `install_state` rule: 2 -> 1. Go test functions: 208 -> 209.

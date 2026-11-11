@@ -94,7 +94,7 @@ image before you call the run a success.
 | The image looks burnt or oversaturated | CFG is too high for a distilled model. | Set CFG to 1.0. |
 | `CUDA driver version is insufficient for CUDA runtime version` at the first sampler step (FLUX 3 int8 on an older NVIDIA driver) | The int8 checkpoint asks for an attention kernel that is built for a newer CUDA runtime than the driver supports. | Add the core node `ModelAttentionBackend` with `pytorch attention`. Or update the NVIDIA driver. Then run again. |
 | A node class is unknown | The custom node pack is not installed. | Call `workflow_deps` to find the pack. Install it with `install_node`. Call `restart_comfyui`. Validate again. |
-| A model is missing from a dropdown or from `search_models` | The file is in the wrong folder, or ComfyUI did not rescan after the download. | Move the file to the right `models/` subfolder. Restart ComfyUI. Run `horus check-setup`. |
+| A model is missing from a dropdown or from `search_models` | The file is in the wrong folder, or ComfyUI did not rescan after the download. | Move the file to the right `models/` subfolder. Restart ComfyUI. Run `horus doctor`. |
 | A fetched template fails `local_check` | The template needs a newer ComfyUI or a node pack that is not installed. | Tell the user what is missing. Update ComfyUI or install the pack, or choose another template. |
 
 ## Rules for agents

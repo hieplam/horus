@@ -9,8 +9,9 @@ MCP tools and the `horus` program of this repo. The user does not need to know C
 | Task | Read |
 |---|---|
 | Set up or repair a machine | [`docs/setup.md`](docs/setup.md) |
-| `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed, or `horus` is not on the PATH. Run `horus check-setup`, then the command that its FAIL line names (`go install ./cmd/horus` for `horus`, [step 0 of setup](docs/setup.md#step-0-get-the-horus-program)). Then ask the user to restart `claude`. |
-| List workflows, install or remove the files of one | `horus workflow list`, then `install <name>`, `check <name>`, `remove <name>` ([how](docs/setup.md#manage-workflows-list-install-check-remove)) |
+| `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed, or `horus` is not on the PATH. Run `horus doctor`, then the command that its FAIL line names (`go install ./cmd/horus` for `horus`, [step 0 of setup](docs/setup.md#step-0-get-the-horus-program)). Then ask the user to restart `claude`. |
+| Set up one workflow on a machine | `horus setup <workflow>` prints the plan and changes nothing. `horus setup <workflow> -yes` runs the plan: ComfyUI first, then the model files. The older names (`check-setup`, `install-comfyui`, `workflow install`) still work. Use `doctor` and `setup`. |
+| Stop the ComfyUI that horus started | `horus stop-comfyui`. It refuses a ComfyUI that a person started. |
 | Make an image with an existing workflow | `workflows/<name>/README.md` |
 | A new style, a new model, a new workflow | [`docs/style-to-workflow.md`](docs/style-to-workflow.md) |
 | A run fails | [`docs/running-workflows.md`](docs/running-workflows.md) |
@@ -65,18 +66,43 @@ Name the item, say what it does, and say what breaks if it is wrong. Good:
 "The VAE must be `flux2-vae` because FLUX 3 uses the FLUX.2 latent space. A
 different VAE decodes to coloured noise." Bad: "Configure the VAE."
 
+## Design rules
+
+The full rules and the layer table are in
+[`docs/specs/2026-11-11-restructure.md`](docs/specs/2026-11-11-restructure.md).
+
+1. **Simple.** Add no design pattern that hides no complexity.
+2. **Deep modules.** A package hides its work behind a small interface.
+3. **Pure functions first.** Code that does no input and no output gets no interface.
+4. **Interfaces only at input and output.** The service declares the interface that it needs. A test gives it a fake.
+5. **One direction.** A handler calls a service. A service calls an adapter through an interface. No call goes back.
+
+`go test ./internal/archtest` enforces the direction, the OS boundary (OS-specific code lives only in `internal/platform` and `internal/backend`) and the token rule (only `internal/download` reads `HF_TOKEN`). The test has no allow list. Fix the code, not the test.
+
 ## Layout
 
 ```
 README.md                         entry point for people
 AGENTS.md                         this file
-ROADMAP.md                        what comes next (horus as an MCP server)
-docs/                             setup, style-to-workflow, concepts, running, models
-cmd/horus/                        the horus program: one file for each subcommand (mcp, workflow, check-setup, ...)
-internal/                         the Go packages of horus (server, herr, catalog, comfy, generate, models, settings, scripts/<command>)
+ROADMAP.md                        what comes next
+docs/                             setup, style-to-workflow, concepts, running, models, mcp
+docs/specs/, docs/plans/          the spec, the plan and the evidence log of each phase
+cmd/horus/                        wiring: main.go (the command table) and wiring.go (creates the adapters and gives them to the services)
+internal/cli/                     handler: one file for each command group (flags in, text out)
+internal/mcpserver/               handler: the 5 MCP tools, the envelope, the progress notifications
+internal/generate/                service: make one image
+internal/provision/               service: set up a machine (backend, model files, comfy-mcp, register, the plan of `horus setup`)
+internal/doctor/                  service: the checks of `horus doctor`
+internal/devtools/                service: new-workflow and sync-workflows
+internal/comfy/                   adapter: the ComfyUI REST client (comfy/comfytest is the fake ComfyUI for tests)
+internal/download/                adapter: download with resume, size and SHA-256 check; the only code that reads HF_TOKEN
+internal/modelfiles/              adapter: find, check and remove model files, extra_model_paths.yaml
+internal/backend/                 adapter: Install, Start, Stop and Layout of a ComfyUI install (Windows portable build)
+internal/catalog/, graph/, herr/, settings/, platform/    base: manifests, graph conversion, error codes, settings, processes and OS facts
+internal/archtest/                the test of the design rules
 scripts/                          lint-public.py (a Python check before a pull request)
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), workflow_parity.py, requirements.txt
-tools/                            goal_check.py: the goal check of the Go port
+tools/                            goal_check.py: the goal check of each phase
 workflows/<name>/                 manifest.json, workflow.json, models.json, README.md, examples/
 workflows/_template/README.md     template for a new workflow README
 prompts/<family>/<name>.md        one saved prompt each, with its result

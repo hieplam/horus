@@ -169,7 +169,7 @@ folder, bytes, and SHA-256. Anyone can then download the same files again.
 ### 8. Make ComfyUI see it
 
 1. Restart ComfyUI so that it rescans the model folders.
-2. Run `horus check-setup`.
+2. Run `horus doctor`.
 3. Call `search_models` and confirm that each new file appears.
 
 If a file does not appear, it is in the wrong folder. Move it to the correct

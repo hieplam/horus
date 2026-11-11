@@ -65,8 +65,14 @@ You only install the programs. The full setup, with ComfyUI and the models, is
 4. Check the machine. Every line must show `PASS`.
 
    ```
-   horus check-setup
+   horus doctor
    ```
+
+   To see what a workflow still needs, run `horus setup it-illustration`. It
+   prints the plan and changes nothing. `horus setup it-illustration -yes` runs
+   the plan: ComfyUI first, then the model files. `horus stop-comfyui` stops a
+   ComfyUI that horus started. The older command names (`check-setup`,
+   `install-comfyui`, `workflow install`) still work.
 
 5. Start `claude` in this folder. Approve the project servers `comfy-mcp` and `horus`.
 6. Type `/mcp`. Both servers must show as connected.
@@ -80,7 +86,7 @@ You only install the programs. The full setup, with ComfyUI and the models, is
 
 Claude Code reads `.mcp.json` by itself, but it does not build or install the
 programs. If you skip step 3, `/mcp` shows the server as failed. An agent in this
-repo reads [`AGENTS.md`](AGENTS.md), which tells it to run `horus check-setup` and
+repo reads [`AGENTS.md`](AGENTS.md), which tells it to run `horus doctor` and
 the install command that a FAIL line names.
 
 ## Give other agents an image tool

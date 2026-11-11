@@ -11,10 +11,26 @@ Terms:
 - **Workflow:** one image model and its ComfyUI graph, a folder under `workflows/`. A workflow has no style of its own. The server offers each folder that has a `manifest.json`.
 - **Envelope:** the one result shape that every tool returns (below).
 
-Four parts take part. The **agent** calls the tools. **`horus mcp`** is the
-server that answers. **`horus workflow`** is another copy of the same program
-that the server starts as a **child process** for one job and waits for. It does
-the work on model files. **ComfyUI** is the program that makes the picture.
+The server is one process: `horus mcp`. It starts no other horus process.
+Inside this one process, the code has three layers. A **handler**
+(`internal/mcpserver`) receives the tool call. A **service** does the job. An
+**adapter** talks to one outside thing. The handler calls a service. The service
+calls an adapter through an interface that the service declares. No call goes
+the other way. The spec
+[`docs/specs/2026-11-11-restructure.md`](specs/2026-11-11-restructure.md) gives
+the full rules, and `go test ./internal/archtest` enforces them.
+
+Five parts take part in the diagrams below.
+
+- The **agent** calls the tools.
+- **`horus mcp`** is the handler. It answers the agent.
+- The **provision service** (`internal/provision`) sets up the model files of a workflow. It lists, checks, installs and removes them.
+- The **generate service** (`internal/generate`) makes one image.
+- **ComfyUI** is the program that makes the picture.
+
+The adapters are `internal/modelfiles` (the model files on the disk),
+`internal/download` (the download from huggingface.co), `internal/comfy` (the
+ComfyUI client) and `internal/backend` (the install of ComfyUI).
 
 Each diagram below is one thing that an agent asks for, in order from top to
 bottom. A line is an action, named by what it does.
@@ -25,15 +41,18 @@ bottom. A line is an action, named by what it does.
 sequenceDiagram
   participant A as Agent
   participant S as horus mcp
-  participant W as horus workflow (child)
+  participant P as provision service
+  participant D as Model files on disk
   A->>S: call list_workflows
   S->>S: read workflows/*/manifest.json (title, summary, sizes)
-  S->>W: start "horus workflow list -json"
-  W-->>S: print HORUS_JSON with the install state of each workflow
+  S->>P: list the workflows
+  P->>D: check the size of each model file
+  P-->>S: return the install state of each workflow
   S-->>A: return the list: for each workflow, installed or not
   A->>S: call describe_workflow
-  S->>W: start "horus workflow check -quick -json"
-  W-->>S: print HORUS_JSON with the state of each model file
+  S->>P: check the model files of one workflow (size only)
+  P->>D: check the size of each model file
+  P-->>S: return the state of each model file
   S-->>A: return the manifest and the state of each file
 ```
 
@@ -43,21 +62,21 @@ sequenceDiagram
 sequenceDiagram
   participant A as Agent
   participant S as horus mcp
-  participant W as horus workflow (child)
+  participant P as provision service
   participant H as huggingface.co
   participant D as Model files on disk
   A->>S: call install_workflow
-  S->>W: start "horus workflow install -json"
-  W->>H: download each file (the token goes only in a header)
-  W->>D: write file.part, check size and SHA-256, rename to the final name
-  S-->>A: send a progress message every 5 s while W runs
-  W-->>S: print HORUS_JSON with the result of each file
+  S->>P: install the model files of the workflow
+  P->>H: download each file (the token goes only in a header)
+  P->>D: write file.part, check size and SHA-256, rename to the final name
+  S-->>A: send a progress message every 5 s while P runs
+  P-->>S: return the result of each file
   S-->>A: return installed, or an error code
-  Note over S,W: If the agent cancels, S kills W. The .part file stays and the next install resumes it.
+  Note over S,P: If the agent cancels, the context ends the download. The .part file stays and the next install resumes it.
 ```
 
-`uninstall_workflow` works the same way with `horus workflow remove`: the child
-deletes the files and prints one `HORUS_JSON` line.
+`uninstall_workflow` works the same way: the provision service refuses a file
+that another workflow lists, then the model files adapter deletes the files.
 
 ### 3. The agent makes a picture (`generate_image`)
 
@@ -65,27 +84,33 @@ deletes the files and prints one `HORUS_JSON` line.
 sequenceDiagram
   participant A as Agent
   participant S as horus mcp
+  participant G as generate service
+  participant B as backend (install of ComfyUI)
   participant C as ComfyUI (127.0.0.1:8188)
   participant F as Output folder
   A->>S: call generate_image with a subject
-  S->>C: ask GET /system_stats: are you running?
-  opt ComfyUI does not answer
-    S->>C: start it through the backend, as "horus start-comfyui" does (Windows only)
+  S->>G: make one image
+  G->>C: ask GET /system_stats: are you running?
+  opt ComfyUI does not answer and HORUS_AUTOSTART is not 0
+    G->>B: start ComfyUI (Windows only)
+    B->>C: start the process and wait until it answers
   end
-  S->>C: ask GET /object_info: do you list the model files of this workflow?
-  S->>C: send the graph with POST /prompt
+  G->>C: ask GET /object_info: do you list the model files of this workflow?
+  G->>C: send the graph with POST /prompt
   loop every 2 s until the job ends
-    S->>C: ask GET /history/<id>: done yet?
+    G->>C: ask GET /history/<id>: done yet?
   end
-  S->>C: fetch the image with GET /view
-  S->>F: save the PNG
+  G->>C: fetch the image with GET /view
+  G->>F: save the PNG
+  G-->>S: return the path and the seed
   S-->>A: return the path of the PNG
 ```
 
-In this diagram `horus mcp` never starts `horus workflow`: a picture needs the
-model files to be installed already. If ComfyUI does not list them, the call
-returns `WORKFLOW_NOT_INSTALLED`, which tells the agent to run
-`install_workflow` first.
+In this diagram the generate service never calls the provision service: a
+picture needs the model files to be installed already. If ComfyUI does not list
+them, the call returns `WORKFLOW_NOT_INSTALLED`, which tells the agent to run
+`install_workflow` first. The backend starts ComfyUI so that it keeps running
+after `horus mcp` ends. `horus stop-comfyui` stops it.
 
 ## Install and connect
 
@@ -105,7 +130,9 @@ above the current folder that has a `workflows` folder, then the folder of the
 program. It needs ComfyUI and the setup of [`setup.md`](setup.md). When ComfyUI
 does not answer, `generate_image` starts it in the same way as `horus start-comfyui`
 (the backend of `internal/backend`, in the process of the server).
-`horus stop-comfyui` stops a ComfyUI that horus started, and no other one.
+`horus stop-comfyui` stops a ComfyUI that horus started, and no other one. The
+backend writes the file `horus-comfyui.state.json` in the ComfyUI folder when
+it starts ComfyUI, and `horus stop-comfyui` reads it.
 
 ## The tools
 
@@ -233,8 +260,10 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | `HORUS_WORKFLOWS_DIR` | `workflows` in this repo | Another workflows folder (tests use it). |
 | `HORUS_LOG_FILE` | none | Also write the server log to this file. Each call logs its tool name and its `progressToken`. |
 
-The server never reads `HF_TOKEN`. Only the download code (`horus download-model`,
-which `horus workflow install` calls) reads it, and sends it only to `huggingface.co` hosts.
+Only the code of `internal/download` reads `HF_TOKEN`, and `go test ./internal/archtest`
+enforces that. It reads the environment variable first, then the line in the `.env` file of the
+repo root. It sends the token only to `huggingface.co` hosts. The server runs the download in its own
+process, so the token is in the memory of `horus mcp` while an install runs. The server starts no program that gets the token.
 
 ## Test the server
 

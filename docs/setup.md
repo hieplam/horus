@@ -8,11 +8,20 @@ The commands are subcommands of one program, `horus`. Step 0 builds it. Run all
 commands in a terminal, from the root folder of this repo. Each command prints
 its flags with `-h`, for example `horus workflow -h`.
 
+**The two commands to use.** `horus doctor` checks the machine and prints one
+`PASS` or `FAIL` line for each check. `horus setup <workflow>` prints what the
+machine needs for a workflow and changes nothing. `horus setup <workflow> -yes`
+installs ComfyUI first, then the model files. The steps below also name the
+older commands (`horus check-setup`, `horus install-comfyui`, `horus workflow
+install`). They still work and do the same job.
+
 **macOS and Linux.** `horus` builds and runs there too. Two commands are
-Windows-only in this phase: `horus install-comfyui` and `horus start-comfyui`.
-On macOS and Linux they exit with "not supported on this OS yet". There you
+Windows-only in this phase: `horus install-comfyui`, `horus start-comfyui` and
+`horus stop-comfyui`. On macOS and Linux they exit with "not supported on this
+OS yet". The install step of `horus setup <workflow> -yes` is Windows-only for
+the same reason. There you
 install and start ComfyUI by hand (see the ComfyUI README). A later phase adds
-these two commands for macOS. The `comfy-mcp` entry of `.mcp.json` names a
+these commands for macOS. The `comfy-mcp` entry of `.mcp.json` names a
 Windows path, so on macOS and Linux you add that server to Claude Code by hand.
 All other steps are the same.
 
@@ -100,12 +109,26 @@ horus start-comfyui
 To use another drive, add `-install-dir E:\AI\ComfyUI_windows_portable` to the first
 command and `-comfyui-dir E:\AI\ComfyUI_windows_portable` to the second.
 
+**The short way.** `horus setup it-illustration` does steps 1 and 4 in one
+command. Run it first without `-yes`. It prints the plan: one line for each
+model file (`PRESENT` or `MISSING`), then the numbered steps that it will run.
+It changes nothing. When the plan is right, run `horus setup it-illustration
+-yes`. With `-yes` it installs ComfyUI if it is missing, then downloads only the
+model files that the plan lists. Press Ctrl+C to stop it. The download that runs
+ends, the `.part` file stays, and the next run resumes it. A second run prints
+`Plan: 0 steps. Nothing is missing.` It does not start ComfyUI, so run
+`horus start-comfyui` yourself.
+
 **What it makes.** The first command downloads the official ComfyUI portable build
 (2 GB), checks its SHA-256 hash, and unpacks it. The portable build has its own Python.
 The second command starts the server and waits until `http://127.0.0.1:8188` answers.
 The first start can take a few minutes. Open that address in a browser to see ComfyUI.
+ComfyUI keeps running when the terminal closes. `horus stop-comfyui` stops it,
+but only a ComfyUI that horus started. It reads the file
+`horus-comfyui.state.json` in the ComfyUI folder. When a person started the
+ComfyUI that answers, `horus stop-comfyui` refuses and stops nothing.
 
-Both commands are Windows-only in this phase. On macOS and Linux, install and start
+These commands are Windows-only in this phase. On macOS and Linux, install and start
 ComfyUI by hand.
 
 **If it fails.**
@@ -114,7 +137,9 @@ ComfyUI by hand.
 - `Not enough free space`: choose a drive with more space.
 - `SHA-256 mismatch`: the command deleted the bad file. Run the command again.
 - `already installed`: this is not an error. The command skips the install.
+- Ctrl+C during `horus install-comfyui` or `horus setup -yes`: the command stops. Run it again.
 - ComfyUI stops at start with `WinError 1114`: install the Visual C++ Redistributable, then run `horus start-comfyui` again.
+- `Another ComfyUI is already using this database`: ComfyUI 0.44 locks its database in the folder `ComfyUI\user`. Two ComfyUI programs cannot run from one install folder. Stop the first one, or install a second copy in another folder and set `HORUS_COMFYUI_DIR` and `HORUS_COMFYUI_URL` for it.
 - Other start errors: read `horus-comfyui.err.log` in the ComfyUI folder.
 
 ## Step 2: install the comfy MCP server
@@ -161,6 +186,11 @@ the file:
 
 Also set the `HORUS_*` paths in this file if you chose other drives.
 
+**Who reads the token.** Only the download code of `horus` reads `HF_TOKEN`. It
+reads the environment variable first, then the `.env` file in the repo root. It
+sends the token only to `huggingface.co` hosts. The horus MCP server reads it in
+its own process while `install_workflow` runs.
+
 **If it fails later (in step 4).** The download shows the HTTP code.
 
 | Code | Meaning | Fix |
@@ -173,7 +203,7 @@ Also set the `HORUS_*` paths in this file if you chose other drives.
 ```
 horus workflow install it-illustration
 horus sync-workflows
-horus check-setup -workflow it-illustration
+horus doctor -workflow it-illustration
 ```
 
 If the text encoder must go to another drive, add `-text-encoder-dir E:\AI\models\text_encoders`
@@ -182,9 +212,9 @@ to the first command. Add `-models-dir` to move all model folders.
 **What it makes.**
 
 - The first command reads `workflows\it-illustration\models.json`. It downloads each model file to a `.part` file, checks the size and SHA-256 hash, and renames it only when the hash matches. It skips a file that is already correct. It never overwrites a file that differs.
-- When a model folder is outside ComfyUI, the command adds it to `extra_model_paths.yaml`. It makes a backup first. **Restart ComfyUI after this change:** stop the old server, then run `horus start-comfyui`.
+- When a model folder is outside ComfyUI, the command adds it to `extra_model_paths.yaml`. It makes a backup first. **Restart ComfyUI after this change:** run `horus stop-comfyui` (it stops a ComfyUI that horus started; stop any other one yourself), then run `horus start-comfyui`.
 - The second command copies the workflow into ComfyUI as `horus-it-illustration.json`. You see it in the Workflows pane of the ComfyUI page.
-- The third command is the smoke test (a quick check that everything is in place). It prints one `PASS` or `FAIL` line for each check (ComfyUI folder, ComfyUI server, comfy-mcp, comfy-cli, `.mcp.json`, horus). It exits with code 0 only if all checks pass. With `-workflow` it also checks each model file, and that needs a few minutes, because it hashes 11 GB. With `-quick` it checks the file sizes only.
+- The third command (`horus doctor`, the new name of `horus check-setup`) is the smoke test (a quick check that everything is in place). It prints one `PASS` or `FAIL` line for each check (ComfyUI folder, ComfyUI server, comfy-mcp, comfy-cli, `.mcp.json`, horus). It exits with code 0 only if all checks pass. With `-workflow` it also checks each model file, and that needs a few minutes, because it hashes 11 GB. With `-quick` it checks the file sizes only.
 
 To check only, without a download, run `horus workflow check it-illustration`.
 See [manage workflows](#manage-workflows-list-install-check-remove) for the other actions.
@@ -194,6 +224,7 @@ See [manage workflows](#manage-workflows-list-install-check-remove) for the othe
 - `Not enough free space`: the command needs the file size plus 1 GiB. Free space, or use `-text-encoder-dir` or `-models-dir` to choose another drive.
 - `HTTP 401` or `HTTP 403`: see the table in step 3.
 - `Download did not finish`: run the same command again. It resumes the `.part` file.
+- Ctrl+C during the install: the command prints `FAIL: context canceled` after the download that runs. No next file starts. The `.part` file stays. Run the command again.
 - `SHA-256 mismatch`: the command deleted the bad download. Run the command again.
 - `Refusing to overwrite`: a file with that name exists and is different. Move it or delete it yourself, then run again.
 - `CONFLICT` from `horus sync-workflows`: the copy in ComfyUI differs from the repo copy. Compare both. Then run `horus sync-workflows -force` to use the repo copy. The old copy is kept as `.bak`.
@@ -218,11 +249,11 @@ report that ComfyUI is running at `http://127.0.0.1:8188`.
 
 **If it fails.**
 
-- `horus` failed: Claude Code did not find `horus` on the PATH. Do step 0 again, open a new terminal, then restart `claude`. `horus check-setup` shows the line `horus on PATH`.
-- `comfy-mcp` failed (`CONNECTION_CLOSED`): the program in `.mcp.json` does not exist. Run step 2 with the default path, then restart `claude`. `horus check-setup` tells you whether the path matches.
+- `horus` failed: Claude Code did not find `horus` on the PATH. Do step 0 again, open a new terminal, then restart `claude`. `horus doctor` shows the line `horus on PATH`.
+- `comfy-mcp` failed (`CONNECTION_CLOSED`): the program in `.mcp.json` does not exist. Run step 2 with the default path, then restart `claude`. `horus doctor` tells you whether the path matches.
 - `Pending approval` in `claude mcp list`: approve the server in an interactive `claude` session. To be asked again, run `claude mcp reset-project-choices`.
 - `UnicodeEncodeError: 'charmap' codec` from `comfy-mcp`: set `PYTHONUTF8=1`. The `.mcp.json` file already does this.
-- `server_info` shows `running: false`: run `horus start-comfyui`.
+- `server_info` shows `running: false`: run `horus start-comfyui`. The horus tool `generate_image` also starts ComfyUI by itself (Windows only).
 
 For Codex, add the same two servers to its configuration: the `comfy-mcp` program
 of step 2, and the command `horus` with the argument `mcp`. Then restart Codex.
@@ -272,10 +303,13 @@ The first image can take several minutes, because ComfyUI loads 11 GB of models.
 ## Check an existing machine at any time
 
 ```
-horus check-setup                                      # ComfyUI, comfy-mcp, comfy-cli, horus on the PATH and .mcp.json
-horus check-setup -workflow it-illustration            # also the size and the SHA-256 of each model file
-horus check-setup -workflow it-illustration -quick     # also the size of each model file only
+horus doctor                                      # ComfyUI, comfy-mcp, comfy-cli, horus on the PATH and .mcp.json
+horus doctor -workflow it-illustration            # also the size and the SHA-256 of each model file
+horus doctor -workflow it-illustration -quick     # also the size of each model file only
+horus setup it-illustration                       # what this machine still needs for the workflow (changes nothing)
 ```
+
+`horus check-setup` is the older name of `horus doctor` and prints the same lines.
 
 ## Manage workflows: list, install, check, remove
 
@@ -298,6 +332,11 @@ horus workflow remove it-illustration -only vae -yes  # deletes one file (a role
 | `install` | Downloads each missing file, checks the SHA-256, then runs `check`. A file that is present and correct is skipped. | Overwrite a file that differs. |
 | `check` | Checks size and SHA-256 of each file (`-quick`: size only). Checks that `models.json` lists every model file that `workflow.json` loads. When ComfyUI runs, checks that the server has every node class and lists every model file. | Change a file. |
 | `remove` | Without `-yes`, prints the plan. With `-yes`, deletes the files and unfinished `.part` downloads. | Delete a file that another workflow lists (unless `-force`), or a file whose size differs from `models.json`. |
+
+A model folder can be outside ComfyUI. On a PC where the model files live on
+another drive, `extra_model_paths.yaml` in the ComfyUI folder maps that folder,
+and the model files are not in the ComfyUI folder. The command finds them
+through that file.
 
 The command finds a model file in the `-models-dir` folder, in ComfyUI's own
 `models` folder, and in every folder that `extra_model_paths.yaml` maps. So a

@@ -191,7 +191,8 @@ func TestInstallDownloadsEachFileAndKeepsTheKindOfAFailure(t *testing.T) {
 	dl := &fakeDownloader{fn: func(_ context.Context, f Fetch, out io.Writer) (bool, error) {
 		if strings.HasSuffix(f.Dest, "demo-te.safetensors") {
 			fmt.Fprint(out, "Downloading demo-te.safetensors\nAttempt 1 of 4 did not finish (the server returned error: 401, 0 of 21 bytes).\n")
-			return false, &DownloadError{Kind: DownloadUnauthorized, Msg: "Download did not finish after 4 attempts."}
+			return false, &DownloadError{Kind: DownloadUnauthorized, Msg: "Download did not finish after 4 attempts.",
+				Reasons: []string{"Attempt 1 of 4 did not finish (the server returned error: 401, 0 of 21 bytes)."}}
 		}
 		files.files[f.Dest] = vaeData
 		return false, nil
@@ -222,6 +223,36 @@ func TestInstallDownloadsEachFileAndKeepsTheKindOfAFailure(t *testing.T) {
 	}
 	if res.Checked {
 		t.Error("a failed download must not run the check")
+	}
+}
+
+// TestFailedDetailComesFromTheReasonsNotFromTheText: the detail of a FAILED
+// item is built from DownloadError.Reasons. The fake downloader writes no
+// text, so a service that still reads the text gives only the FAIL part.
+func TestFailedDetailComesFromTheReasonsNotFromTheText(t *testing.T) {
+	dir := workflows(t)
+	files := newMemFiles()
+	hint := "The server answered with an error. HTTP 401 = token missing or wrong. HTTP 403 = license not accepted for this account."
+	dl := &fakeDownloader{fn: func(_ context.Context, f Fetch, out io.Writer) (bool, error) {
+		return false, &DownloadError{Kind: DownloadForbidden, Msg: "Download did not finish after 4 attempts.",
+			Reasons: []string{"Attempt 1 of 4 did not finish (the server returned error: 403, 0 of 21 bytes).", hint}}
+	}}
+	var out strings.Builder
+	res, err := New(files, dl, fakeComfy{}, files, "").Install(context.Background(),
+		Request{WorkflowsDir: dir, Workflow: "demo", Only: []string{"text_encoder"}}, Watch{Out: &out})
+	if err == nil || len(res.Items) != 1 || res.Items[0].Status != StatusFailed {
+		t.Fatalf("err %v, items %s", err, statuses(res))
+	}
+	want := "Attempt 1 of 4 did not finish (the server returned error: 403, 0 of 21 bytes). | " + hint +
+		" | FAIL: Download did not finish after 4 attempts."
+	if got := res.Items[0].Detail; got != want {
+		t.Errorf("detail\n%q\nwant\n%q", got, want)
+	}
+	if out.Len() != 0 {
+		t.Errorf("the service wrote to Out: %q", out.String())
+	}
+	if got := failDetail(errors.New("not a download error")); got != "FAIL: not a download error" {
+		t.Errorf("detail of another error %q", got)
 	}
 }
 

@@ -7,8 +7,8 @@
 //   - NoConsole starts a child without a console window.
 //   - Programs finds a program on the PATH and runs it to its end.
 //   - FreeSpace gives the free bytes of a folder.
-//   - IsRooted, VenvBin, ExeName and PythonLauncher give the paths and the
-//     program names of this OS.
+//   - IsRooted, VenvBin, ExeName and PythonCommand give the paths and the
+//     program names of this OS. They are pure functions.
 //   - BlockDelete makes the delete of a file fail, for a test.
 //   - ErrNotSupported is the error of a step that this OS does not have yet.
 //
@@ -101,21 +101,15 @@ func VenvBin(venv, name string) string {
 	return filepath.Join(venv, "bin", name)
 }
 
-// PythonLauncher returns the command that starts Python version (for
-// example "3.12") on this OS: `py.exe -3.12` on Windows, `python3.12`
-// elsewhere. It returns an error that tells the user what to install when
-// the program is not on the PATH.
-func PythonLauncher(version string) ([]string, error) {
+// PythonCommand gives the command that starts Python version (for example
+// "3.12") on this OS: the program name and its first arguments, `py.exe
+// -3.12` on Windows, `python3.12` elsewhere. notFound is the text that tells
+// the user what to install when the program is not on the PATH. It does not
+// look at the PATH: the caller finds the program.
+func PythonCommand(version string) (cmd []string, notFound string) {
 	if runtime.GOOS == "windows" {
-		p, err := exec.LookPath("py.exe")
-		if err != nil {
-			return nil, fmt.Errorf("The Python Launcher (py.exe) was not found. Install Python %s from python.org.", version)
-		}
-		return []string{p, "-" + version}, nil
+		return []string{"py.exe", "-" + version},
+			fmt.Sprintf("The Python Launcher (py.exe) was not found. Install Python %s from python.org.", version)
 	}
-	p, err := exec.LookPath("python" + version)
-	if err != nil {
-		return nil, fmt.Errorf("python%s was not found. Install Python %s.", version, version)
-	}
-	return []string{p}, nil
+	return []string{"python" + version}, fmt.Sprintf("python%s was not found. Install Python %s.", version, version)
 }

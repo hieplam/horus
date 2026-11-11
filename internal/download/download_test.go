@@ -415,6 +415,39 @@ func TestHTTP401And403GiveTwoOutcomes(t *testing.T) {
 	}
 }
 
+// TestFailedAttemptsGiveTheirLinesAsReasons: the error of a download whose
+// attempts failed holds the attempt lines and the hint lines of Out, in
+// order. A failure before the first attempt has no reason.
+func TestFailedAttemptsGiveTheirLinesAsReasons(t *testing.T) {
+	f := newFake(t, func(w http.ResponseWriter, r *http.Request, _ int) { w.WriteHeader(401) })
+	j := newJob(t, f, "https://huggingface.co/a/b/resolve/main/model.safetensors", content(100))
+	j.MaxAttempts = 2
+	_, err := j.run(t)
+	var e *Error
+	if !errors.As(err, &e) {
+		t.Fatalf("err %v, want an *Error", err)
+	}
+	hint := "The server answered with an error. HTTP 401 = token missing or wrong. HTTP 403 = license not accepted for this account."
+	want := []string{
+		"Attempt 1 of 2 did not finish (the server returned error: 401, 0 of 100 bytes).", hint,
+		"Attempt 2 of 2 did not finish (the server returned error: 401, 0 of 100 bytes).", hint,
+	}
+	if strings.Join(e.Reasons, "\n") != strings.Join(want, "\n") {
+		t.Errorf("reasons\n%q\nwant\n%q", e.Reasons, want)
+	}
+	for _, l := range want {
+		if !strings.Contains(j.out.String(), l+"\n") {
+			t.Errorf("Out lacks the line %q:\n%s", l, j.out)
+		}
+	}
+
+	j.SHA256 = "not-hex"
+	_, err = j.run(t)
+	if !errors.As(err, &e) || len(e.Reasons) != 0 {
+		t.Errorf("a failure before the first attempt: %v, reasons %q", err, e.Reasons)
+	}
+}
+
 // Case 9: the token header goes only to huggingface.co hosts over https.
 func TestTokenGoesOnlyToHuggingFaceHosts(t *testing.T) {
 	body := content(1_000)

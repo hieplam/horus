@@ -79,6 +79,10 @@ const (
 type DownloadError struct {
 	Kind DownloadKind
 	Msg  string
+	// Reasons are the lines that tell why the attempts failed, in order (the
+	// downloader also wrote them to out). They go before the text of the
+	// error in the detail of the FAILED item.
+	Reasons []string
 }
 
 func (e *DownloadError) Error() string { return e.Msg }

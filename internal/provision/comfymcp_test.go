@@ -152,6 +152,62 @@ func TestFolderThatIsNoVenvFails(t *testing.T) {
 	}
 }
 
+// lookPrograms is platform.Programs with a fake LookPath: it finds each
+// name of found, and no other name.
+type lookPrograms struct {
+	platform.Programs
+	found  map[string]string
+	looked *[]string
+}
+
+func (p lookPrograms) LookPath(name string) (string, error) {
+	*p.looked = append(*p.looked, name)
+	if path, ok := p.found[name]; ok {
+		return path, nil
+	}
+	return "", fmt.Errorf("%s: not found", name)
+}
+
+// TestDefaultLauncherNotOnThePathFails: with no Launcher option, the
+// service looks for the Python command of this OS through Programs, not on
+// the real PATH. Not found, it fails with the text of platform.PythonCommand
+// and runs no program.
+func TestDefaultLauncherNotOnThePathFails(t *testing.T) {
+	r := newMCPRig(t)
+	r.opts.Launcher = nil
+	var looked []string
+	err := InstallComfyMCP(context.Background(), lookPrograms{looked: &looked}, r.opts)
+	cmd, notFound := platform.PythonCommand("3.12")
+	if err == nil || err.Error() != notFound {
+		t.Fatalf("error = %v, want %q", err, notFound)
+	}
+	if len(looked) != 1 || looked[0] != cmd[0] {
+		t.Errorf("looked up %q, want [%s]", looked, cmd[0])
+	}
+	if b, _ := os.ReadFile(r.record); len(b) != 0 {
+		t.Errorf("a program ran: %q", b)
+	}
+}
+
+// TestDefaultLauncherIsTheProgramThatLookPathFinds: the service runs the
+// path that Programs.LookPath gives, with the first arguments of
+// platform.PythonCommand.
+func TestDefaultLauncherIsTheProgramThatLookPathFinds(t *testing.T) {
+	r := newMCPRig(t)
+	exe := r.opts.Launcher[0]
+	r.opts.Launcher = nil
+	cmd, _ := platform.PythonCommand("3.12")
+	var looked []string
+	if err := InstallComfyMCP(context.Background(), lookPrograms{found: map[string]string{cmd[0]: exe}, looked: &looked}, r.opts); err != nil {
+		t.Fatal(err)
+	}
+	lead := strings.Join(cmd[1:], " ")
+	first := strings.TrimSpace(lead + " -c import sys")
+	if calls := r.calls(); len(calls) < 2 || calls[0] != first || calls[1] != strings.TrimSpace(lead+" -m venv "+r.opts.VenvPath) {
+		t.Errorf("calls = %q, want %q first", calls, first)
+	}
+}
+
 func TestMissingLauncherFails(t *testing.T) {
 	r := newMCPRig(t)
 	r.opts.Launcher = []string{filepath.Join(t.TempDir(), "no-such-python")}

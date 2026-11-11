@@ -75,11 +75,18 @@ func (k Kind) String() string {
 type Error struct {
 	Kind Kind
 	Msg  string
+	// Reasons are the lines of Out that tell why the attempts failed, in
+	// order: each "Attempt <n> of <m> did not finish ..." line, and after an
+	// HTTP error the hint line about HTTP 401 and 403. Empty when no attempt
+	// failed.
+	Reasons []string
 }
 
 func (e *Error) Error() string { return e.Msg }
 
-func fail(k Kind, format string, a ...any) *Error { return &Error{k, fmt.Sprintf(format, a...)} }
+func fail(k Kind, format string, a ...any) *Error {
+	return &Error{Kind: k, Msg: fmt.Sprintf(format, a...)}
+}
 
 // defaultTokenVar is the name of the variable that holds the Hugging Face
 // token. This package reads the token itself; no other package passes it.
@@ -121,7 +128,14 @@ var hexSHA = regexp.MustCompile(`^[A-Fa-f0-9]{64}$`)
 
 // Download downloads one file as download-model.ps1 does. On failure the error
 // is an *Error.
-func Download(ctx context.Context, o Options) (Result, error) {
+func Download(ctx context.Context, o Options) (res Result, err error) {
+	var reasons []string
+	defer func() {
+		var e *Error
+		if errors.As(err, &e) {
+			e.Reasons = reasons
+		}
+	}()
 	if o.Out == nil {
 		o.Out = io.Discard
 	}
@@ -141,6 +155,11 @@ func Download(ctx context.Context, o Options) (Result, error) {
 		o.Transport = http.DefaultTransport
 	}
 	say := func(format string, a ...any) { fmt.Fprintf(o.Out, format+"\n", a...) }
+	// reason says a line and keeps it for Error.Reasons.
+	reason := func(format string, a ...any) {
+		reasons = append(reasons, fmt.Sprintf(format, a...))
+		say(format, a...)
+	}
 
 	if o.ExpectedBytes <= 0 {
 		return Result{}, fail(KindFailed, "-expected-bytes must be greater than 0.")
@@ -236,9 +255,9 @@ func Download(ctx context.Context, o Options) (Result, error) {
 		if ctx.Err() != nil {
 			return Result{}, fail(KindFailed, "Download stopped: %v. The partial file is kept for the next run: %s", ctx.Err(), part)
 		}
-		say("Attempt %d of %d did not finish (%s, %d of %d bytes).", attempt, o.MaxAttempts, why(err, status), have, o.ExpectedBytes)
+		reason("Attempt %d of %d did not finish (%s, %d of %d bytes).", attempt, o.MaxAttempts, why(err, status), have, o.ExpectedBytes)
 		if status >= 400 {
-			say("The server answered with an error. HTTP 401 = token missing or wrong. HTTP 403 = license not accepted for this account.")
+			reason("The server answered with an error. HTTP 401 = token missing or wrong. HTTP 403 = license not accepted for this account.")
 		}
 		if attempt < o.MaxAttempts {
 			o.Sleep(time.Duration(5*attempt) * time.Second)

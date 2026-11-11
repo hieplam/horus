@@ -11,6 +11,7 @@ package provision
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -42,7 +43,7 @@ type ComfyMCPOptions struct {
 	PythonVersion string
 	// Launcher is the program that starts Python of the wanted version, with
 	// its leading arguments. Empty: py.exe -<version> on Windows,
-	// python<version> elsewhere.
+	// python<version> elsewhere, found with Programs.LookPath.
 	Launcher []string
 	// Stdout gets the lines of the steps and the output of python and pip.
 	// Stderr gets the errors of python and pip. nil drops them.
@@ -78,10 +79,12 @@ func InstallComfyMCP(ctx context.Context, programs Programs, o ComfyMCPOptions) 
 		}
 		launcher := o.Launcher
 		if len(launcher) == 0 {
-			var err error
-			if launcher, err = platform.PythonLauncher(o.PythonVersion); err != nil {
-				return err
+			cmd, notFound := platform.PythonCommand(o.PythonVersion)
+			p, err := programs.LookPath(cmd[0])
+			if err != nil {
+				return errors.New(notFound)
 			}
+			launcher = append([]string{p}, cmd[1:]...)
 		}
 		lead := launcher[1:len(launcher):len(launcher)]
 		if code, err := run(launcher[0], nil, nil, append(lead, "-c", "import sys")...); err != nil || code != 0 {

@@ -155,7 +155,8 @@ func states(files any) string {
 
 func TestModelToolsOnASandbox(t *testing.T) {
 	s := newSandbox(t, "real")
-	cs := connect(t, New(), nil)
+	images := &fakeImages{} // the backend is down: list says backend_running false
+	cs := connect(t, New(images), nil)
 
 	env := envelopeOf(t, callTool(t, cs, "list_workflows", map[string]any{}))
 	r, _ := env["result"].(map[string]any)
@@ -165,6 +166,11 @@ func TestModelToolsOnASandbox(t *testing.T) {
 	rows := r["workflows"].([]any)
 	if len(rows) != 1 || rows[0].(map[string]any)["install_state"] != "installed" || rows[0].(map[string]any)["download_bytes"] != float64(172) {
 		t.Fatalf("list rows: %v", rows)
+	}
+	images.setRunning(true)
+	env = envelopeOf(t, callTool(t, cs, "list_workflows", map[string]any{}))
+	if r, _ := env["result"].(map[string]any); env["ok"] != true || r["backend_running"] != true {
+		t.Fatalf("list with the backend up: %v", env)
 	}
 
 	res := callTool(t, cs, "describe_workflow", map[string]any{"workflow": "it-illustration"})
@@ -190,14 +196,17 @@ func TestModelToolsOnASandbox(t *testing.T) {
 	e, _ := env["error"].(map[string]any)
 	d, _ := e["details"].(map[string]any)
 	if e["code"] != "CONFIRMATION_REQUIRED" || states(d["files"]) != "would_delete,would_delete,would_delete" ||
-		d["would_free_bytes"] != float64(172) || s.present() != 3 {
-		t.Fatalf("uninstall plan: %v, %d files on disk", env, s.present())
+		d["would_free_bytes"] != float64(172) || s.present() != 3 || images.frees() != 0 {
+		t.Fatalf("uninstall plan: %v, %d files on disk, %d frees", env, s.present(), images.frees())
 	}
 
 	env = envelopeOf(t, callTool(t, cs, "uninstall_workflow", map[string]any{"workflow": "it-illustration", "confirm": true}))
 	r, _ = env["result"].(map[string]any)
 	if env["ok"] != true || states(r["files"]) != "deleted,deleted,deleted" || r["freed_bytes"] != float64(172) || s.present() != 0 {
 		t.Fatalf("uninstall: %v, %d files on disk", env, s.present())
+	}
+	if images.frees() != 1 {
+		t.Fatalf("a confirmed uninstall frees the models first: %d frees", images.frees())
 	}
 
 	env = envelopeOf(t, callTool(t, cs, "list_workflows", map[string]any{}))
@@ -242,7 +251,7 @@ func TestInstallReportsProgressAndACancelStopsTheChild(t *testing.T) {
 	t.Cleanup(func() { ProgressInterval, models.WaitDelay = oldTick, oldWait })
 
 	got := make(chan string, 100)
-	cs := connect(t, New(), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
+	cs := connect(t, New(&fakeImages{}), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
 		select {
 		case got <- fmt.Sprintf("%v/%v %s", r.Params.Progress, r.Params.Total, r.Params.Message):
 		default:

@@ -1,5 +1,10 @@
-// Package comfy is the HTTP client for the local ComfyUI, and the UI-to-API
-// graph conversion. It ports horus/comfy.py.
+// Package comfy is the adapter for the local ComfyUI: its HTTP client. It
+// ports horus/comfy.py. *Client implements the interface generate.ComfyUI.
+// The pure graph conversion is in internal/graph.
+//
+// The wire format stays in this package: the JSON of /history and /queue, the
+// client_id of a job, and the mapping of a rejected graph or a failed job to a
+// horus error (jobs.go).
 //
 // ComfyUI endpoints used:
 //
@@ -17,6 +22,7 @@ package comfy
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,22 +37,31 @@ import (
 	"unicode/utf8"
 
 	"github.com/hieplam/horus/internal/catalog"
+	"github.com/hieplam/horus/internal/graph"
 	"github.com/hieplam/horus/internal/herr"
 	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
 )
 
-// Client talks to one ComfyUI server.
+// Client talks to one ComfyUI server. An empty URL means the
+// HORUS_COMFYUI_URL setting, read at each request.
 type Client struct {
 	URL string
 }
 
-// New makes a client for url, or for the HORUS_COMFYUI_URL setting when url is empty.
+// New makes a client for url. An empty url makes a client for the
+// HORUS_COMFYUI_URL setting: it reads the setting at each request, so a
+// client that cmd/horus makes at the start sees the setting of each call.
 func New(u string) *Client {
-	if u == "" {
-		u = settings.ComfyURL()
-	}
 	return &Client{URL: strings.TrimRight(u, "/")}
+}
+
+// base is the address of the server for this request.
+func (c *Client) base() string {
+	if c.URL != "" {
+		return c.URL
+	}
+	return settings.ComfyURL()
 }
 
 // HTTPError is an answer with a status of 400 or more. comfy.py lets
@@ -76,7 +91,7 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte, tim
 	if body != nil {
 		rd = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.URL+path, rd)
+	req, err := http.NewRequestWithContext(ctx, method, c.base()+path, rd)
 	if err != nil {
 		return nil, c.unavailable(err)
 	}
@@ -99,7 +114,7 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte, tim
 }
 
 func (c *Client) unavailable(err error) error {
-	return herr.New("BACKEND_UNAVAILABLE", "ComfyUI does not answer at "+c.URL, map[string]any{"reason": err.Error()})
+	return herr.New("BACKEND_UNAVAILABLE", "ComfyUI does not answer at "+c.base(), map[string]any{"reason": err.Error()})
 }
 
 // GetJSON reads a JSON answer into v.
@@ -180,11 +195,11 @@ func (c *Client) EnsureUp(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if !settings.Autostart() {
-		return false, herr.New("BACKEND_UNAVAILABLE", fmt.Sprintf("ComfyUI does not answer at %s, and HORUS_AUTOSTART is off", c.URL), nil)
+		return false, herr.New("BACKEND_UNAVAILABLE", fmt.Sprintf("ComfyUI does not answer at %s, and HORUS_AUTOSTART is off", c.base()), nil)
 	}
 	sctx, cancel := context.WithTimeout(ctx, StartTimeout)
 	defer cancel()
-	cmd, err := startCommand(sctx, c.URL)
+	cmd, err := startCommand(sctx, c.base())
 	if err != nil {
 		return false, err
 	}
@@ -215,7 +230,7 @@ func (c *Client) EnsureUp(ctx context.Context) (bool, error) {
 				code = "BACKEND_NOT_INSTALLED"
 			}
 		}
-		return false, herr.New(code, "horus could not start ComfyUI at "+c.URL, map[string]any{"start_output_tail": lines})
+		return false, herr.New(code, "horus could not start ComfyUI at "+c.base(), map[string]any{"start_output_tail": lines})
 	}
 	return true, nil
 }
@@ -226,8 +241,8 @@ func (c *Client) Free(ctx context.Context) {
 }
 
 // ObjectInfo reads /object_info.
-func (c *Client) ObjectInfo(ctx context.Context) (ObjectInfo, error) {
-	var info ObjectInfo
+func (c *Client) ObjectInfo(ctx context.Context) (graph.ObjectInfo, error) {
+	var info graph.ObjectInfo
 	data, err := c.open(ctx, http.MethodGet, "/object_info", nil, 60*time.Second)
 	if err != nil {
 		return nil, err
@@ -240,10 +255,19 @@ func (c *Client) ObjectInfo(ctx context.Context) (ObjectInfo, error) {
 
 // -- jobs ---------------------------------------------------------------------
 
-// Submit posts the graph and returns the prompt_id.
-func (c *Client) Submit(ctx context.Context, api *API, clientID string) (string, error) {
+// uuid4 is a random UUID (version 4): the client_id of a job.
+func uuid4() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// Submit posts the graph with a new client_id and returns the prompt_id.
+func (c *Client) Submit(ctx context.Context, api *graph.API) (string, error) {
 	var reply catalog.Object
-	err := c.PostJSON(ctx, "/prompt", map[string]any{"prompt": api, "client_id": clientID}, 60*time.Second, &reply)
+	err := c.PostJSON(ctx, "/prompt", map[string]any{"prompt": api, "client_id": uuid4()}, 60*time.Second, &reply)
 	var he *HTTPError
 	if errors.As(err, &he) {
 		if json.Unmarshal(he.Body, &reply) != nil {
@@ -253,7 +277,7 @@ func (c *Client) Submit(ctx context.Context, api *API, clientID string) (string,
 	} else if err != nil {
 		return "", err
 	}
-	if truthy(reply.Raw("node_errors")) || truthy(reply.Raw("error")) {
+	if graph.Truthy(reply.Raw("node_errors")) || graph.Truthy(reply.Raw("error")) {
 		return "", RejectedGraphError(&reply)
 	}
 	var id any
@@ -261,11 +285,11 @@ func (c *Client) Submit(ctx context.Context, api *API, clientID string) (string,
 	if s, ok := id.(string); ok && s != "" {
 		return s, nil
 	}
-	return "", herr.New("INTERNAL", "ComfyUI returned no prompt_id", map[string]any{"reply": headRunes(pyDumpsValue(&reply), 500)})
+	return "", herr.New("INTERNAL", "ComfyUI returned no prompt_id", map[string]any{"reply": headRunes(graph.PyDumps(&reply), 500)})
 }
 
-// Image is one output image of a job.
-type Image struct {
+// image is one output image of a job in /history.
+type image struct {
 	Filename  string `json:"filename"`
 	Subfolder string `json:"subfolder"`
 	Type      string `json:"type"`
@@ -285,24 +309,26 @@ type Status struct {
 }
 
 // Images returns the images of all output nodes, in the order of the nodes.
-func (e *Entry) Images() []Image {
-	var out []Image
+func (e *Entry) Images() []graph.Image {
+	var out []graph.Image
 	if e.Outputs == nil {
 		return out
 	}
 	for _, k := range e.Outputs.Keys() {
 		var node struct {
-			Images []Image `json:"images"`
+			Images []image `json:"images"`
 		}
 		if json.Unmarshal(e.Outputs.Raw(k), &node) == nil {
-			out = append(out, node.Images...)
+			for _, img := range node.Images {
+				out = append(out, graph.Image{Filename: img.Filename, Subfolder: img.Subfolder, Type: img.Type})
+			}
 		}
 	}
 	return out
 }
 
-// History returns the job, or nil when /history does not know it yet.
-func (c *Client) History(ctx context.Context, promptID string) (*Entry, error) {
+// entry reads the job from /history, or nil when /history does not know it yet.
+func (c *Client) entry(ctx context.Context, promptID string) (*Entry, error) {
 	var all map[string]json.RawMessage
 	if err := c.GetJSON(ctx, "/history/"+promptID, 30*time.Second, &all); err != nil {
 		return nil, err
@@ -316,6 +342,23 @@ func (c *Client) History(ctx context.Context, promptID string) (*Entry, error) {
 		return nil, err
 	}
 	return &e, nil
+}
+
+// History polls the job one time. It returns nil when /history does not know
+// the job yet, and the horus error of JobError when the job failed. A job that
+// is done has its images and its backend time.
+func (c *Client) History(ctx context.Context, promptID string) (*graph.Job, error) {
+	e, err := c.entry(ctx, promptID)
+	if err != nil || e == nil {
+		return nil, err
+	}
+	if e.Status.StatusStr == "error" {
+		return nil, JobError(promptID, e.Status)
+	}
+	if !e.Status.Completed {
+		return &graph.Job{}, nil
+	}
+	return &graph.Job{Done: true, Images: e.Images(), BackendSeconds: ExecutionSeconds(e)}, nil
 }
 
 // QueueState is "running", "pending:<position>" or "absent".
@@ -364,7 +407,7 @@ func (c *Client) Cancel(ctx context.Context, promptID string) {
 }
 
 // View downloads an output image.
-func (c *Client) View(ctx context.Context, img Image) ([]byte, error) {
+func (c *Client) View(ctx context.Context, img graph.Image) ([]byte, error) {
 	t := img.Type
 	if t == "" {
 		t = "output"
@@ -389,31 +432,4 @@ func tailRunes(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[len(r)-n:])
-}
-
-// truthy is the Python truth value of a JSON value.
-func truthy(raw json.RawMessage) bool {
-	t := strings.TrimSpace(string(raw))
-	switch t {
-	case "", "null", "false", "0", `""`, "{}", "[]", "0.0":
-		return false
-	}
-	if t[0] == '{' || t[0] == '[' {
-		var v any
-		if json.Unmarshal(raw, &v) == nil {
-			switch x := v.(type) {
-			case map[string]any:
-				return len(x) > 0
-			case []any:
-				return len(x) > 0
-			}
-		}
-	}
-	if t[0] == '-' || (t[0] >= '0' && t[0] <= '9') {
-		var f float64
-		if json.Unmarshal(raw, &f) == nil {
-			return f != 0
-		}
-	}
-	return true
 }

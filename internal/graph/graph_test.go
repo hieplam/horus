@@ -1,5 +1,5 @@
 // Tests of the graph conversion. Part of the port of horus/comfy.py.
-package comfy
+package graph
 
 import (
 	"bytes"

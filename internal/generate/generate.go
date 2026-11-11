@@ -12,6 +12,10 @@
 //
 // A timeout or a cancelled call removes the job from the ComfyUI queue, so a
 // later call does not wait behind an orphan job.
+//
+// The service talks to ComfyUI only through the interface ComfyUI, which it
+// declares here. cmd/horus gives it the adapter internal/comfy. A test gives
+// it a fake.
 package generate
 
 import (
@@ -30,10 +34,55 @@ import (
 	"unicode/utf8"
 
 	"github.com/hieplam/horus/internal/catalog"
-	"github.com/hieplam/horus/internal/comfy"
+	"github.com/hieplam/horus/internal/graph"
 	"github.com/hieplam/horus/internal/herr"
 	"github.com/hieplam/horus/internal/settings"
 )
+
+// ComfyUI is what the service needs from the image backend. The adapter owns
+// the wire format: it makes the client_id of a job, reads /history and
+// /queue, and maps a rejected graph or a failed job to a horus error. The
+// service owns the steps, the wait loop, its time limits and the image file.
+type ComfyUI interface {
+	// IsUp reports if the server answers. Only "no answer" is false; another
+	// error passes through.
+	IsUp(ctx context.Context) (bool, error)
+	// EnsureUp starts the server when it does not answer (HORUS_AUTOSTART).
+	// It returns true when this call started it.
+	EnsureUp(ctx context.Context) (started bool, err error)
+	// ObjectInfo is the node information of the live server.
+	ObjectInfo(ctx context.Context) (graph.ObjectInfo, error)
+	// Submit queues the graph and returns the id of the job.
+	Submit(ctx context.Context, api *graph.API) (jobID string, err error)
+	// History polls the job one time: nil when the server does not list it
+	// yet, the horus error of the job when it failed.
+	History(ctx context.Context, jobID string) (*graph.Job, error)
+	// QueueState is "running", "pending:<position>" or "absent".
+	QueueState(ctx context.Context, jobID string) (string, error)
+	// Cancel stops or removes the job. Errors are ignored.
+	Cancel(ctx context.Context, jobID string)
+	// View downloads one output image.
+	View(ctx context.Context, img graph.Image) ([]byte, error)
+	// Free unloads the models. Errors are ignored.
+	Free(ctx context.Context)
+}
+
+// Service makes images with one ComfyUI.
+type Service struct {
+	comfy ComfyUI
+}
+
+// New makes the service. cmd/horus gives it the adapter internal/comfy.
+func New(c ComfyUI) *Service { return &Service{comfy: c} }
+
+// Running reports if the image backend answers now. list_workflows shows it
+// as backend_running.
+func (s *Service) Running(ctx context.Context) (bool, error) { return s.comfy.IsUp(ctx) }
+
+// FreeMemory unloads the models of the image backend, so that their files
+// can be deleted (an open file cannot be deleted on Windows). Errors are
+// ignored.
+func (s *Service) FreeMemory(ctx context.Context) { s.comfy.Free(ctx) }
 
 // Report sends one progress report. total 0 means unknown.
 type Report func(ctx context.Context, progress, total float64, message string)
@@ -217,16 +266,8 @@ func randomSeed() int64 {
 	return int64(binary.LittleEndian.Uint32(b[:]))
 }
 
-func uuid4() string {
-	var b [16]byte
-	_, _ = rand.Read(b[:])
-	b[6] = b[6]&0x0f | 0x40
-	b[8] = b[8]&0x3f | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
-
 // nodeID returns the one node of the class.
-func nodeID(api *comfy.API, class string) (string, error) {
+func nodeID(api *graph.API, class string) (string, error) {
 	var ids []string
 	for _, id := range api.IDs() {
 		if api.Node(id).ClassType == class {
@@ -247,20 +288,23 @@ func pyQuote(s string) string {
 	return "'" + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "'", `\'`) + "'"
 }
 
-// round1 is round(x, 1); roundInt is round(x) of Python (half to even).
-func round1(x float64) float64   { return comfy.Round1(x) }
+// round1 is round(x, 1) of Python: the exact binary value rounded half to
+// even. roundInt is round(x) of Python (half to even).
+func round1(x float64) float64 {
+	v, _ := strconv.ParseFloat(strconv.FormatFloat(x, 'f', 1, 64), 64)
+	return v
+}
 func roundInt(x float64) float64 { return math.RoundToEven(x) }
 
 // Options are the parts of a call that the server or a test sets.
 type Options struct {
 	Report Report
-	Client *comfy.Client
 	// Timeout is the time limit of the job. 0 means HORUS_GENERATE_TIMEOUT.
 	Timeout time.Duration
 }
 
 // Generate makes one image.
-func Generate(ctx context.Context, r Request, o Options) (*Result, error) {
+func (s *Service) Generate(ctx context.Context, r Request, o Options) (*Result, error) {
 	t0 := time.Now()
 	w, err := catalog.Get(r.Workflow)
 	if err != nil {
@@ -274,10 +318,7 @@ func Generate(ctx context.Context, r Request, o Options) (*Result, error) {
 	if report == nil {
 		report = func(context.Context, float64, float64, string) {}
 	}
-	c := o.Client
-	if c == nil {
-		c = comfy.New("")
-	}
+	c := s.comfy
 	timeout := o.Timeout
 	if timeout == 0 {
 		secs, err := settings.GenerateTimeout()
@@ -306,11 +347,11 @@ func Generate(ctx context.Context, r Request, o Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	graph, err := os.ReadFile(graphPath)
+	workflow, err := os.ReadFile(graphPath)
 	if err != nil {
 		return nil, err
 	}
-	api, err := comfy.UIToAPI(graph, info)
+	api, err := graph.UIToAPI(workflow, info)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +366,7 @@ func Generate(ctx context.Context, r Request, o Options) (*Result, error) {
 	if expected != 0 && int64(api.Len()) != expected {
 		return nil, herr.New("INTERNAL", fmt.Sprintf("converted %d of %d nodes", api.Len(), expected), map[string]any{"workflow": w.Name})
 	}
-	missing, err := comfy.MissingModelFiles(api, info)
+	missing, err := graph.MissingModelFiles(api, info)
 	if err != nil {
 		return nil, err
 	}
@@ -382,12 +423,12 @@ func Generate(ctx context.Context, r Request, o Options) (*Result, error) {
 		return nil, err
 	}
 
-	promptID, err := c.Submit(ctx, api, uuid4())
+	promptID, err := c.Submit(ctx, api)
 	if err != nil {
 		return nil, err
 	}
 	report(ctx, 0, 0, fmt.Sprintf("job %s submitted", promptID))
-	entry, err := wait(ctx, c, promptID, timeout, report, t0)
+	job, err := wait(ctx, c, promptID, timeout, report, t0)
 	if err != nil {
 		if ctx.Err() != nil {
 			// The call was cancelled: remove the job, with a context that still works.
@@ -398,7 +439,7 @@ func Generate(ctx context.Context, r Request, o Options) (*Result, error) {
 		return nil, err
 	}
 
-	images := entry.Images()
+	images := job.Images
 	if len(images) == 0 {
 		return nil, herr.New("GENERATION_FAILED", "the job finished without an image", map[string]any{"job_id": promptID})
 	}
@@ -424,7 +465,7 @@ func Generate(ctx context.Context, r Request, o Options) (*Result, error) {
 		Height:         req.height,
 		Seed:           req.seed,
 		Seconds:        round1(time.Since(t0).Seconds()),
-		BackendSeconds: comfy.ExecutionSeconds(entry),
+		BackendSeconds: job.BackendSeconds,
 		StartedBackend: started,
 		JobID:          promptID,
 		Steps:          steps,
@@ -439,7 +480,10 @@ func seconds(d time.Duration) string {
 	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64)
 }
 
-func wait(ctx context.Context, c *comfy.Client, promptID string, timeout time.Duration, report Report, t0 time.Time) (*comfy.Entry, error) {
+// wait polls the job every PollInterval until it is done, it fails, the time
+// limit passes or the call is cancelled. A failed job gives the error that
+// the adapter mapped.
+func wait(ctx context.Context, c ComfyUI, promptID string, timeout time.Duration, report Report, t0 time.Time) (*graph.Job, error) {
 	deadline := time.Now().Add(timeout)
 	var lastReport time.Time // zero: no report yet, so the first poll reports
 	var absentSince time.Time
@@ -448,14 +492,7 @@ func wait(ctx context.Context, c *comfy.Client, promptID string, timeout time.Du
 		if err != nil {
 			return nil, err
 		}
-		var status comfy.Status
-		if entry != nil {
-			status = entry.Status
-		}
-		if status.StatusStr == "error" {
-			return nil, comfy.JobError(promptID, status)
-		}
-		if entry != nil && status.Completed {
+		if entry != nil && entry.Done {
 			return entry, nil
 		}
 		now := time.Now()

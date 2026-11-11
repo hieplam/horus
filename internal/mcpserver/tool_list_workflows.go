@@ -8,7 +8,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hieplam/horus/internal/catalog"
-	"github.com/hieplam/horus/internal/comfy"
 	"github.com/hieplam/horus/internal/models"
 )
 
@@ -31,7 +30,7 @@ type ListResult struct {
 	BackendRunning bool              `json:"backend_running"`
 }
 
-func listWorkflows() tool {
+func listWorkflows(images Images) tool {
 	return tool{
 		name:  "list_workflows",
 		title: "List image workflows",
@@ -65,7 +64,7 @@ func listWorkflows() tool {
 			if err != nil {
 				return nil, err
 			}
-			running, err := comfy.New("").IsUp(ctx)
+			running, err := images.Running(ctx)
 			if err != nil {
 				return nil, err
 			}

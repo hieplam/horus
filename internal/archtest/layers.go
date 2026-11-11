@@ -41,7 +41,6 @@ var layers = map[string]string{
 	"internal/scripts/installcomfyui":  adapter, // internal/backend
 	"internal/scripts/newworkflow":     service, // internal/devtools
 	"internal/scripts/register":        service, // internal/provision
-	"internal/scripts/runillustration": handler, // internal/cli
 	"internal/scripts/startcomfyui":    adapter, // internal/backend
 	"internal/scripts/syncworkflows":   service, // internal/devtools
 	"internal/scripts/workflow":        service, // internal/provision

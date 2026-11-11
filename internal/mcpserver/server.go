@@ -23,6 +23,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/hieplam/horus/internal/generate"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -59,9 +60,20 @@ type tool struct {
 	body        func(ctx context.Context, c *call) (any, error)
 }
 
+// Images is what the tools need from the image service internal/generate.
+// cmd/horus gives the server a *generate.Service. A test gives it a fake.
+type Images interface {
+	// Generate makes one image (the tool generate_image).
+	Generate(ctx context.Context, r generate.Request, o generate.Options) (*generate.Result, error)
+	// Running reports if the image backend answers (backend_running of list_workflows).
+	Running(ctx context.Context) (bool, error)
+	// FreeMemory unloads the models before uninstall_workflow deletes their files.
+	FreeMemory(ctx context.Context)
+}
+
 // tools is the list of the 5 tools. Each tool lives in its own file.
-func tools() []tool {
-	return []tool{listWorkflows(), describeWorkflow(), installWorkflow(), uninstallWorkflow(), generateImage()}
+func tools(images Images) []tool {
+	return []tool{listWorkflows(images), describeWorkflow(), installWorkflow(), uninstallWorkflow(images), generateImage(images)}
 }
 
 func (t tool) definition() *mcp.Tool {
@@ -101,17 +113,18 @@ func pyNone(v any) any {
 	return v
 }
 
-// New makes the server with the 5 tools.
-func New() *mcp.Server {
+// New makes the server with the 5 tools. The tools make images, and ask
+// the image backend, through images.
+func New(images Images) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: Version}, &mcp.ServerOptions{Instructions: Instructions})
-	for _, t := range tools() {
+	for _, t := range tools(images) {
 		s.AddTool(t.definition(), t.handler())
 	}
 	return s
 }
 
 // Run serves the tools over stdio until the client closes the connection.
-func Run(ctx context.Context) error {
+func Run(ctx context.Context, images Images) error {
 	if path := settings.Get("HORUS_LOG_FILE", ""); path != "" {
 		if f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
 			defer f.Close()
@@ -120,7 +133,7 @@ func Run(ctx context.Context) error {
 			logf("WARNING", "cannot open HORUS_LOG_FILE: %v", err)
 		}
 	}
-	return New().Run(ctx, &mcp.StdioTransport{})
+	return New(images).Run(ctx, &mcp.StdioTransport{})
 }
 
 type teeWriter struct {

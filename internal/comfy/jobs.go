@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hieplam/horus/internal/catalog"
+	"github.com/hieplam/horus/internal/graph"
 	"github.com/hieplam/horus/internal/herr"
 )
 
@@ -17,7 +18,7 @@ func ptr[T any](v T) *T { return &v }
 // that the server does not list means the workflow is not installed (or the
 // backend has not seen the new file).
 func RejectedGraphError(reply *catalog.Object) *herr.Error {
-	text := pyDumpsValue(reply)
+	text := graph.PyDumps(reply)
 	missing := []string{}
 	var nodeErrors catalog.Object
 	if json.Unmarshal(reply.Raw("node_errors"), &nodeErrors) == nil {
@@ -34,9 +35,9 @@ func RejectedGraphError(reply *catalog.Object) *herr.Error {
 			for _, e := range node.Errors {
 				value := ""
 				if raw, ok := e.ExtraInfo["received_value"]; ok {
-					value = pyStr(raw)
+					value = graph.PyStr(raw)
 				}
-				if e.Type == "value_not_in_list" && isModelFile(value) {
+				if e.Type == "value_not_in_list" && graph.IsModelFile(value) {
 					missing = append(missing, value)
 				}
 			}
@@ -82,7 +83,7 @@ func JobError(promptID string, status Status) *herr.Error {
 		if !ok {
 			return ""
 		}
-		return pyStr(raw)
+		return graph.PyStr(raw)
 	}
 	etype, emsg := str("exception_type"), str("exception_message")
 	var nodeType any

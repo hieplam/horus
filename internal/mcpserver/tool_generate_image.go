@@ -12,7 +12,7 @@ import (
 // ImageResult is the result of generate_image, in the key order of server.py.
 type ImageResult = generate.Result
 
-func generateImage() tool {
+func generateImage(images Images) tool {
 	return tool{
 		name:  "generate_image",
 		title: "Generate an image",
@@ -46,7 +46,7 @@ func generateImage() tool {
 			),
 		}),
 		body: func(ctx context.Context, c *call) (any, error) {
-			res, err := generate.Generate(ctx, generate.Request{
+			res, err := images.Generate(ctx, generate.Request{
 				Workflow:  c.args.str("workflow"),
 				Subject:   c.args.str("subject"),
 				Seed:      c.args["seed"],

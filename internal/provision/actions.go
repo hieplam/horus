@@ -3,14 +3,12 @@
 package provision
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/hieplam/horus/internal/catalog"
@@ -299,11 +297,6 @@ func leaf(p string) string {
 	return p
 }
 
-// whyLine picks the download lines that go into the detail of a FAILED item:
-// the lines that start with "FAIL:", "Attempt " and the hint line about HTTP
-// 401 and 403.
-var whyLine = regexp.MustCompile(`^(FAIL:|The server answered with an error|Attempt )`)
-
 // Install downloads and verifies the files of models.json, adds the download
 // folders that are outside ComfyUI's own models folder to
 // extra_model_paths.yaml, then checks (size only). w sees the downloads
@@ -341,9 +334,7 @@ func (s *Service) Install(ctx context.Context, req Request, w Watch) (*Result, e
 		if w.Downloading != nil {
 			w.Downloading(f.Role, dest)
 		}
-		tee := &lineTee{out: out}
-		skipped, err := s.dl.Download(ctx, Fetch{URL: f.URL, Dest: dest, Bytes: f.Bytes, SHA256: f.SHA256}, tee)
-		tee.flush()
+		skipped, err := s.dl.Download(ctx, Fetch{URL: f.URL, Dest: dest, Bytes: f.Bytes, SHA256: f.SHA256}, out)
 		it := Item{Kind: "download", Role: f.Role, File: f.Name, Path: dest, Bytes: f.Bytes}
 		switch {
 		case err != nil:
@@ -351,13 +342,7 @@ func (s *Service) Install(ctx context.Context, req Request, w Watch) (*Result, e
 			if w.Failed != nil {
 				w.Failed(err)
 			}
-			var why []string
-			for _, l := range append(tee.lines, "FAIL: "+err.Error()) {
-				if whyLine.MatchString(l) {
-					why = append(why, l)
-				}
-			}
-			it.Status, it.Detail, it.Err = StatusFailed, strings.Join(why, " | "), err
+			it.Status, it.Detail, it.Err = StatusFailed, failDetail(err), err
 		case skipped:
 			it.Status, it.Detail = StatusPresent, "already present and verified"
 		default:
@@ -430,34 +415,15 @@ func mappings(targets [][2]string, own map[string]string, mapped map[string][]st
 	return out
 }
 
-// lineTee writes each line to out and keeps it.
-type lineTee struct {
-	out   io.Writer
-	buf   bytes.Buffer
-	lines []string
-}
-
-func (t *lineTee) Write(p []byte) (int, error) {
-	t.buf.Write(p)
-	for {
-		i := bytes.IndexByte(t.buf.Bytes(), '\n')
-		if i < 0 {
-			break
-		}
-		line := strings.TrimRight(string(t.buf.Next(i+1)), "\r\n")
-		t.lines = append(t.lines, line)
-		fmt.Fprintln(t.out, line)
+// failDetail is the detail of a FAILED item: the reason lines of a
+// *DownloadError, then "FAIL: " and the text of the error, joined by " | ".
+func failDetail(err error) string {
+	var why []string
+	var de *DownloadError
+	if errors.As(err, &de) {
+		why = append(why, de.Reasons...)
 	}
-	return len(p), nil
-}
-
-func (t *lineTee) flush() {
-	if t.buf.Len() > 0 {
-		line := t.buf.String()
-		t.buf.Reset()
-		t.lines = append(t.lines, line)
-		fmt.Fprintln(t.out, line)
-	}
+	return strings.Join(append(why, "FAIL: "+err.Error()), " | ")
 }
 
 // Remove deletes the model files of the workflow (Yes), or gives the plan.

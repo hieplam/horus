@@ -104,6 +104,9 @@ commands.
 | 2026-11-11 | #86: the detail `cannot run the model check: <error>` is gone, with its case in the test. A failed `Check` of the setup service gives `FAIL: <error>` (indented) and `FAIL  models for '<name>' - see lines above. Fix: horus workflow install <name>`, as before. | The old glue always returned a nil error, so the program never printed that detail. The output of the binary does not change (`diff` of 6 cases prints nothing, `## Issue 86`). | Agent (#86) |
 | 2026-11-11 | #86: the tests moved. `TestModelsLinesAndFailureCount` and `TestNoWorkflowFlagMeansNoModelCheck` (`internal/doctor`) became `TestDoctorModelCheckLinesAndExitCode` and `TestDoctorWithoutWorkflowRunsNoModelCheck` (`internal/cli`, on a fake `Setup`). `TestWorkflowCheckGivesTheLinesAndTheExitCode` (`cmd/horus`, the glue) became `TestDoctorModelCheckOfAnUnknownWorkflow`. `TestDoctorThroughTheWiring` runs `RunDoctor` on `doctorAt`. | A test follows its code. Go test functions 207 -> 207. | Agent (#86) |
 | 2026-11-11 | #88: the pure function `provision.InstallState(present, files int) string` owns the rule of `install_state`. `Row.State()` (for `list_workflows`) and the handler of `describe_workflow` both call it. The handler still counts the files with the state `present` from the rows of its check. | The fix of the issue: one rule has one place (design rule 1), and the service owns its decisions. The name of the issue fits, and a function with two integers is the smallest interface for both callers. Counting the rows that the handler shows is mapping of the typed result, not a rule. | Agent (#88) |
+| 2026-11-11 | Issue #87: `download.Error` gets `Reasons`, the lines that `Download` writes for a failed attempt (`Attempt <n> of <m> did not finish ...`) and the hint line after an HTTP error, in order. The glue `downloader` in `cmd/horus/wiring.go` copies them to `provision.DownloadError.Reasons`, as it copies `Kind`. `provision.Install` builds the detail with the pure function `failDetail` (the reasons, then `FAIL: <error>`, joined by ` \| `). `whyLine` and `lineTee` are gone, and the service gives `Watch.Out` to the downloader as it is. | The service must not parse the text of an adapter when a typed value can cross the interface (design rules 2 and 4). The reasons are exactly the lines that `whyLine` picked: no other line of `Download` starts with `FAIL:`, `Attempt ` or `The server answered with an error`, and the `FAIL:` part comes from the error, as before. The lines on `Watch.Out` do not change: `Download` writes each line with one newline, and `lineTee` wrote the same lines again. | Agent (#87) |
+| 2026-11-11 | Issue #87: `platform.PythonLauncher` became the pure function `platform.PythonCommand(version) (cmd []string, notFound string)`. It gives `py.exe -3.12` on Windows and `python3.12` elsewhere, and the text for a program that is not on the PATH. It calls no `exec.LookPath`. `InstallComfyMCP` finds `cmd[0]` with `Programs.LookPath`. The option `Launcher` stays: when it is set, the service uses it as before, without a look-up. | A base package must not run `os/exec` for a service outside an interface that the service declares. The new name makes each old caller a compile error, because the contract changed (no look-up, no error). `Launcher` is the seam of the 5 older tests of `comfymcp_test.go`, which run a fake python. | Agent (#87) |
+| 2026-11-11 | Issue #87: the error of a missing launcher keeps the text of today (`The Python Launcher (py.exe) was not found. Install Python 3.12 from python.org.` on Windows, `python3.12 was not found. Install Python 3.12.` elsewhere). The Green of the issue says "Python 3.12 was not found", and the fix part of the issue says that the service "keeps its error text". The test `TestDefaultLauncherNotOnThePathFails` checks the exact text of `PythonCommand`. | The task brief: the output of `horus install-comfy-mcp` must not change. The issue is not consistent with itself, so the rule "no change that a user can see" decides. | Agent (#87) |
 
 ## Baseline
 
@@ -1128,3 +1131,92 @@ Stub check: `describe_workflow` returns a fixed `installed` (not committed):
     FAIL	github.com/hieplam/horus/internal/mcpserver	1.874s
 
 Ratchet: copies of the `install_state` rule: 2 -> 1. Go test functions: 208 -> 209.
+
+## Issue 87
+
+The service `internal/provision` read the text lines of the downloader to build the detail of a failed download. It also found Python through `platform.PythonLauncher`, which ran `exec.LookPath`. The decisions are the three `#87` rows of the Decisions table.
+
+Red, before the change (at `d9827a2`):
+
+    $ git grep -n "whyLine\|PythonLauncher(" -- internal/provision ':!*_test.go'
+    internal/provision/actions.go:302:// whyLine picks the download lines that go into the detail of a FAILED item:
+    internal/provision/actions.go:305:var whyLine = regexp.MustCompile(`^(FAIL:|The server answered with an error|Attempt )`)
+    internal/provision/actions.go:356:				if whyLine.MatchString(l) {
+    internal/provision/comfymcp.go:82:			if launcher, err = platform.PythonLauncher(o.PythonVersion); err != nil {
+    $ git grep -n "exec.LookPath" -- internal/platform/platform.go
+    internal/platform/platform.go:110:		p, err := exec.LookPath("py.exe")
+    internal/platform/platform.go:116:	p, err := exec.LookPath("python" + version)
+
+Green, after the change:
+
+    $ git grep -n "whyLine\|PythonLauncher(" -- internal/provision ':!*_test.go'; echo "exit=$?"
+    exit=1
+    $ git grep -n "exec.LookPath" -- internal/platform/platform.go; echo "exit=$?"
+    exit=1
+    $ go test ./...
+    ok  	github.com/hieplam/horus/cmd/horus
+    ok  	github.com/hieplam/horus/internal/archtest
+    ok  	github.com/hieplam/horus/internal/backend
+    ok  	github.com/hieplam/horus/internal/catalog
+    ok  	github.com/hieplam/horus/internal/cli
+    ok  	github.com/hieplam/horus/internal/comfy
+    ?   	github.com/hieplam/horus/internal/comfy/comfytest	[no test files]
+    ok  	github.com/hieplam/horus/internal/devtools
+    ok  	github.com/hieplam/horus/internal/doctor
+    ok  	github.com/hieplam/horus/internal/download
+    ok  	github.com/hieplam/horus/internal/generate
+    ok  	github.com/hieplam/horus/internal/graph
+    ok  	github.com/hieplam/horus/internal/herr
+    ok  	github.com/hieplam/horus/internal/mcpserver
+    ok  	github.com/hieplam/horus/internal/modelfiles
+    ok  	github.com/hieplam/horus/internal/platform
+    ok  	github.com/hieplam/horus/internal/provision
+    ok  	github.com/hieplam/horus/internal/settings
+    $ GOMAXPROCS=1 go test -count=10 ./internal/provision ./internal/mcpserver ./cmd/horus
+    ok  	github.com/hieplam/horus/internal/provision	40.011s
+    ok  	github.com/hieplam/horus/internal/mcpserver	2.014s
+    ok  	github.com/hieplam/horus/cmd/horus	10.248s
+    $ python tests/mcp_contract.py --server-cmd <repo>\bin\horus.exe mcp
+    contract: 30 of 30 passed
+    $ python tests/workflow_parity.py --horus bin/horus.exe
+    parity: 17 of 17 cases equal
+    $ python tools/goal_check.py --phase 2 --no-ci --server-cmd <repo>\bin\horus.exe mcp
+    PASS  layout - 0 packages off target, 0 listed packages missing
+    PASS  same-behaviour - contract: local 30 of 30; CI part skipped (--no-ci); parity: 17 of 17; go test ./...: ok; 212 Go test functions (baseline 157); 0 changed contract files
+    PASS  os-boundary - 0 allow list files; archtest: ok
+    PASS  direction - 0 allow list files; archtest: ok
+    PASS  process-tree - tree test: ok; 0 taskkill references; CI part skipped (--no-ci)
+    FAIL  backend - Go tests ok; needs --real on the owner's PC for the image through the backend
+    PASS  token - 0 allow list files; archtest: ok
+    FAIL  commands - Go tests ok; needs --real on the owner's PC for horus doctor and horus setup
+    goal: 6 of 8 rows passed
+
+The rows `backend` and `commands` need `--real` (decision of T0). The new tests:
+
+- `TestFailedDetailComesFromTheReasonsNotFromTheText` (`internal/provision`): a fake downloader that writes no text and returns a `*DownloadError` with 2 reason lines gives the detail of today.
+- `TestDefaultLauncherNotOnThePathFails` and `TestDefaultLauncherIsTheProgramThatLookPathFinds` (`internal/provision`): a fake `Programs`.
+- `TestPythonCommandFollowsTheOS` (`internal/platform`).
+- `TestFailedAttemptsGiveTheirLinesAsReasons` (`internal/download`).
+
+`TestInstallDownloadsEachFileAndKeepsTheKindOfAFailure` keeps its assertions. Its fake downloader now also returns the reason line that it writes, as the real downloader does.
+
+Stub check 1: `failDetail` ignores `Reasons`. This is the result of a service that still filters the text, because the fake writes no text:
+
+    --- FAIL: TestInstallDownloadsEachFileAndKeepsTheKindOfAFailure (0.01s)
+        provision_test.go:209: detail "FAIL: Download did not finish after 4 attempts."
+    --- FAIL: TestFailedDetailComesFromTheReasonsNotFromTheText (0.00s)
+        provision_test.go:244: detail
+            "FAIL: Download did not finish after 4 attempts."
+            want
+            "Attempt 1 of 4 did not finish (the server returned error: 403, 0 of 21 bytes). | The server answered with an error. HTTP 401 = token missing or wrong. HTTP 403 = license not accepted for this account. | FAIL: Download did not finish after 4 attempts."
+    FAIL	github.com/hieplam/horus/internal/provision	0.720s
+
+Stub check 2: `InstallComfyMCP` looks on the real PATH (`platform.Programs{}.LookPath` in place of `programs.LookPath`). The run used a PATH without `py.exe`, so that no real Python or pip could start:
+
+    --- FAIL: TestDefaultLauncherNotOnThePathFails (0.00s)
+        comfymcp_test.go:185: looked up [], want [py.exe]
+    --- FAIL: TestDefaultLauncherIsTheProgramThatLookPathFinds (0.00s)
+        comfymcp_test.go:202: The Python Launcher (py.exe) was not found. Install Python 3.12 from python.org.
+    FAIL	github.com/hieplam/horus/internal/provision	0.580s
+
+Ratchet: places where a service parses the text of an adapter or reaches `os/exec` through a base package: 2 -> 0. Go test functions (`git grep -h "^func Test" -- '*.go' | wc -l`): 212 -> 217 after the rebase on `e8cfd6b` (210 -> 215 on `d9827a2`).

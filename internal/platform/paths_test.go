@@ -3,6 +3,7 @@ package platform
 import (
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,17 @@ func TestVenvPathsFollowTheOS(t *testing.T) {
 	}
 	if got := VenvBin("v", "python"); got != want {
 		t.Errorf("VenvBin = %s, want %s", got, want)
+	}
+}
+
+func TestPythonCommandFollowsTheOS(t *testing.T) {
+	cmd, notFound := PythonCommand("3.12")
+	wantCmd, wantText := "python3.12", "python3.12 was not found. Install Python 3.12."
+	if runtime.GOOS == "windows" {
+		wantCmd, wantText = "py.exe -3.12", "The Python Launcher (py.exe) was not found. Install Python 3.12 from python.org."
+	}
+	if strings.Join(cmd, " ") != wantCmd || notFound != wantText {
+		t.Errorf("PythonCommand = %q, %q, want %q, %q", cmd, notFound, wantCmd, wantText)
 	}
 }
 

@@ -69,7 +69,7 @@ func setupStepsAt(place cli.SetupPlace) cli.SetupSteps { return newSetup(place, 
 
 // downloader gives internal/provision the downloader of internal/download.
 // The service cannot name the types of an adapter, so this glue copies the
-// request in and the kind of a failure out.
+// request in, and the kind and the reason lines of a failure out.
 type downloader struct{ base download.Options }
 
 // kinds maps the kind of a failed download to the kind of the service.
@@ -88,7 +88,7 @@ func (d downloader) Download(ctx context.Context, f provision.Fetch, out io.Writ
 	res, err := download.Download(ctx, o)
 	var de *download.Error
 	if errors.As(err, &de) {
-		return false, &provision.DownloadError{Kind: kinds[de.Kind], Msg: de.Msg}
+		return false, &provision.DownloadError{Kind: kinds[de.Kind], Msg: de.Msg, Reasons: de.Reasons}
 	}
 	return res.Skipped, err
 }

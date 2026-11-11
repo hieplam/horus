@@ -1,7 +1,6 @@
 //go:build darwin || linux
 
-// The free space of a file system on macOS and Linux. Ports the DriveInfo
-// check of scripts/download-model.ps1.
+// The free space of a file system on macOS and Linux.
 package platform
 
 import "syscall"

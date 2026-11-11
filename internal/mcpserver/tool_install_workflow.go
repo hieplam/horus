@@ -1,4 +1,4 @@
-// The tool install_workflow. Part of the port of horus/server.py.
+// The tool install_workflow.
 package mcpserver
 
 import (
@@ -16,7 +16,7 @@ import (
 	"github.com/hieplam/horus/internal/provision"
 )
 
-// InstallResult is the result of install_workflow, in the key order of server.py.
+// InstallResult is the result of install_workflow, in the key order that the tool shows.
 type InstallResult struct {
 	Workflow         string        `json:"workflow"`
 	InstallState     string        `json:"install_state"`
@@ -55,11 +55,11 @@ func installWorkflow(setup Setup) tool {
 	}
 }
 
-// ProgressInterval is the time between two progress notifications of an
-// install, as asyncio.wait(timeout=5) of server.py. Tests make it shorter.
-var ProgressInterval = 5 * time.Second
+// progressInterval is the time between two progress notifications of an
+// install. Tests make it shorter.
+var progressInterval = 5 * time.Second
 
-// sizeText is _size of server.py.
+// sizeText writes a size in bytes as MB or GB.
 func sizeText(n int64) string {
 	if n >= 100_000_000 {
 		return fmt.Sprintf("%.1f GB", float64(n)/1e9)
@@ -129,7 +129,7 @@ func install(ctx context.Context, c *call, setup Setup) (any, error) {
 		res, err := setup.Install(ctx, request(w), watch)
 		done <- outcome{res, err}
 	}()
-	tick := time.NewTicker(ProgressInterval)
+	tick := time.NewTicker(progressInterval)
 	defer tick.Stop()
 	for {
 		select {

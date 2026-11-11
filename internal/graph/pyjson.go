@@ -1,6 +1,6 @@
 // JSON text in the form of Python's json.dumps with its defaults, and the
-// Python truth value of a JSON value. horus/comfy.py puts json.dumps(reply)
-// in backend_message.
+// Python truth value of a JSON value. The backend_message of an error holds
+// the reply of ComfyUI in that form.
 package graph
 
 import (

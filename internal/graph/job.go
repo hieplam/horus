@@ -1,5 +1,14 @@
 package graph
 
+import "strconv"
+
+// Round1 rounds x to one decimal. It uses the exact binary value of x and
+// rounds half to even.
+func Round1(x float64) float64 {
+	v, _ := strconv.ParseFloat(strconv.FormatFloat(x, 'f', 1, 64), 64)
+	return v
+}
+
 // Job is what ComfyUI reports about a graph that it runs: the answer of one
 // poll of its history. The adapter internal/comfy reads it from the wire
 // format. The service internal/generate decides what to do with it.

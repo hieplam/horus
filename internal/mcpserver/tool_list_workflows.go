@@ -1,4 +1,4 @@
-// The tool list_workflows. Part of the port of horus/server.py.
+// The tool list_workflows.
 package mcpserver
 
 import (
@@ -11,7 +11,7 @@ import (
 	"github.com/hieplam/horus/internal/provision"
 )
 
-// WorkflowSummary is one row of list_workflows, in the key order of server.py.
+// WorkflowSummary is one row of list_workflows, in the key order that the tool shows.
 type WorkflowSummary struct {
 	Name           string          `json:"name"`
 	Title          json.RawMessage `json:"title"`
@@ -82,7 +82,7 @@ func listWorkflows(images Images, setup Setup) tool {
 				if row != nil {
 					size = row.Bytes
 				}
-				if size == 0 { // Python: row["bytes"] or the size of models.json
+				if size == 0 { // no size in the row: use the size in models.json
 					lic, err := w.License()
 					if err != nil {
 						return nil, err

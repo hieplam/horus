@@ -1,5 +1,5 @@
 // Package comfy is the adapter for the local ComfyUI: its HTTP client. It
-// ports horus/comfy.py. *Client implements the interface generate.ComfyUI.
+// *Client implements the interface generate.ComfyUI.
 // The pure graph conversion is in internal/graph.
 //
 // The wire format stays in this package: the JSON of /history and /queue, the
@@ -61,18 +61,17 @@ func (c *Client) base() string {
 	return settings.ComfyURL()
 }
 
-// HTTPError is an answer with a status of 400 or more. comfy.py lets
-// urllib's HTTPError pass through; so does this client.
-type HTTPError struct {
+// httpError is an answer with a status of 400 or more. send returns it, and
+// Submit reads its Body to tell a rejected graph from another failure.
+type httpError struct {
 	Code int
 	Body []byte
 }
 
-func (e *HTTPError) Error() string { return fmt.Sprintf("HTTP Error %d", e.Code) }
+func (e *httpError) Error() string { return fmt.Sprintf("HTTP Error %d", e.Code) }
 
 // open sends one request. A transport failure is BACKEND_UNAVAILABLE.
-// A cancelled call (not a timeout) gives the error of ctx, as a cancelled
-// asyncio task in Python raises CancelledError and no horus error.
+// A cancelled call (not a timeout) gives the error of ctx and no horus error.
 func (c *Client) open(parent context.Context, method, path string, body []byte, timeout time.Duration) ([]byte, error) {
 	data, err := c.send(parent, method, path, body, timeout)
 	if err != nil && parent.Err() != nil {
@@ -105,7 +104,7 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte, tim
 		return nil, c.unavailable(err)
 	}
 	if resp.StatusCode >= 400 {
-		return nil, &HTTPError{Code: resp.StatusCode, Body: data}
+		return nil, &httpError{Code: resp.StatusCode, Body: data}
 	}
 	return data, nil
 }
@@ -114,8 +113,8 @@ func (c *Client) unavailable(err error) error {
 	return herr.New("BACKEND_UNAVAILABLE", "ComfyUI does not answer at "+c.base(), map[string]any{"reason": err.Error()})
 }
 
-// GetJSON reads a JSON answer into v.
-func (c *Client) GetJSON(ctx context.Context, path string, timeout time.Duration, v any) error {
+// getJSON reads a JSON answer into v.
+func (c *Client) getJSON(ctx context.Context, path string, timeout time.Duration, v any) error {
 	data, err := c.open(ctx, http.MethodGet, path, nil, timeout)
 	if err != nil {
 		return err
@@ -123,8 +122,8 @@ func (c *Client) GetJSON(ctx context.Context, path string, timeout time.Duration
 	return decode(data, v)
 }
 
-// PostJSON sends body as JSON and reads the answer into v. An empty answer is {}.
-func (c *Client) PostJSON(ctx context.Context, path string, body any, timeout time.Duration, v any) error {
+// postJSON sends body as JSON and reads the answer into v. An empty answer is {}.
+func (c *Client) postJSON(ctx context.Context, path string, body any, timeout time.Duration, v any) error {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return err
@@ -156,10 +155,10 @@ func isHorus(err error) bool {
 // -- server -------------------------------------------------------------------
 
 // IsUp reports if /system_stats answers. Only a BACKEND_UNAVAILABLE error
-// means "not up"; any other error passes through, as in comfy.py.
+// means "not up"; any other error passes through.
 func (c *Client) IsUp(ctx context.Context) (bool, error) {
 	var v any
-	err := c.GetJSON(ctx, "/system_stats", 3*time.Second, &v)
+	err := c.getJSON(ctx, "/system_stats", 3*time.Second, &v)
 	if err == nil {
 		return true, nil
 	}
@@ -177,7 +176,7 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 			Version string `json:"comfyui_version"`
 		} `json:"system"`
 	}
-	if err := c.GetJSON(ctx, "/system_stats", 5*time.Second, &v); err != nil {
+	if err := c.getJSON(ctx, "/system_stats", 5*time.Second, &v); err != nil {
 		return "", err
 	}
 	return v.System.Version, nil
@@ -189,7 +188,7 @@ func (c *Client) Address() string { return c.base() }
 
 // Free unloads the models. Errors are ignored.
 func (c *Client) Free(ctx context.Context) {
-	_ = c.PostJSON(ctx, "/free", map[string]any{"unload_models": true, "free_memory": true}, 30*time.Second, nil)
+	_ = c.postJSON(ctx, "/free", map[string]any{"unload_models": true, "free_memory": true}, 30*time.Second, nil)
 }
 
 // ObjectInfo reads /object_info.
@@ -219,8 +218,8 @@ func uuid4() string {
 // Submit posts the graph with a new client_id and returns the prompt_id.
 func (c *Client) Submit(ctx context.Context, api *graph.API) (string, error) {
 	var reply catalog.Object
-	err := c.PostJSON(ctx, "/prompt", map[string]any{"prompt": api, "client_id": uuid4()}, 60*time.Second, &reply)
-	var he *HTTPError
+	err := c.postJSON(ctx, "/prompt", map[string]any{"prompt": api, "client_id": uuid4()}, 60*time.Second, &reply)
+	var he *httpError
 	if errors.As(err, &he) {
 		if json.Unmarshal(he.Body, &reply) != nil {
 			return "", herr.New("GENERATION_FAILED", fmt.Sprintf("ComfyUI rejected the job with HTTP %d", he.Code),
@@ -230,7 +229,7 @@ func (c *Client) Submit(ctx context.Context, api *graph.API) (string, error) {
 		return "", err
 	}
 	if graph.Truthy(reply.Raw("node_errors")) || graph.Truthy(reply.Raw("error")) {
-		return "", RejectedGraphError(&reply)
+		return "", rejectedGraphError(&reply)
 	}
 	var id any
 	_ = reply.Decode("prompt_id", &id)
@@ -247,21 +246,21 @@ type image struct {
 	Type      string `json:"type"`
 }
 
-// Entry is one job in /history.
-type Entry struct {
-	Status  Status          `json:"status"`
+// historyEntry is one job in /history.
+type historyEntry struct {
+	Status  jobStatus       `json:"status"`
 	Outputs *catalog.Object `json:"outputs"`
 }
 
-// Status is the status of a job in /history.
-type Status struct {
+// jobStatus is the status of a job in /history.
+type jobStatus struct {
 	StatusStr string            `json:"status_str"`
 	Completed bool              `json:"completed"`
 	Messages  []json.RawMessage `json:"messages"`
 }
 
 // Images returns the images of all output nodes, in the order of the nodes.
-func (e *Entry) Images() []graph.Image {
+func (e *historyEntry) Images() []graph.Image {
 	var out []graph.Image
 	if e.Outputs == nil {
 		return out
@@ -280,16 +279,16 @@ func (e *Entry) Images() []graph.Image {
 }
 
 // entry reads the job from /history, or nil when /history does not know it yet.
-func (c *Client) entry(ctx context.Context, promptID string) (*Entry, error) {
+func (c *Client) entry(ctx context.Context, promptID string) (*historyEntry, error) {
 	var all map[string]json.RawMessage
-	if err := c.GetJSON(ctx, "/history/"+promptID, 30*time.Second, &all); err != nil {
+	if err := c.getJSON(ctx, "/history/"+promptID, 30*time.Second, &all); err != nil {
 		return nil, err
 	}
 	raw, ok := all[promptID]
 	if !ok || string(bytes.TrimSpace(raw)) == "null" {
 		return nil, nil
 	}
-	var e Entry
+	var e historyEntry
 	if err := json.Unmarshal(raw, &e); err != nil {
 		return nil, err
 	}
@@ -297,7 +296,7 @@ func (c *Client) entry(ctx context.Context, promptID string) (*Entry, error) {
 }
 
 // History polls the job one time. It returns nil when /history does not know
-// the job yet, and the horus error of JobError when the job failed. A job that
+// the job yet, and the horus error of jobError when the job failed. A job that
 // is done has its images and its backend time.
 func (c *Client) History(ctx context.Context, promptID string) (*graph.Job, error) {
 	e, err := c.entry(ctx, promptID)
@@ -305,12 +304,12 @@ func (c *Client) History(ctx context.Context, promptID string) (*graph.Job, erro
 		return nil, err
 	}
 	if e.Status.StatusStr == "error" {
-		return nil, JobError(promptID, e.Status)
+		return nil, jobError(promptID, e.Status)
 	}
 	if !e.Status.Completed {
 		return &graph.Job{}, nil
 	}
-	return &graph.Job{Done: true, Images: e.Images(), BackendSeconds: ExecutionSeconds(e)}, nil
+	return &graph.Job{Done: true, Images: e.Images(), BackendSeconds: executionSeconds(e)}, nil
 }
 
 // QueueState reports where the job is in the queue: running, waiting at a
@@ -320,7 +319,7 @@ func (c *Client) QueueState(ctx context.Context, promptID string) (graph.Queue, 
 		Running [][]any `json:"queue_running"`
 		Pending [][]any `json:"queue_pending"`
 	}
-	if err := c.GetJSON(ctx, "/queue", 10*time.Second, &q); err != nil {
+	if err := c.getJSON(ctx, "/queue", 10*time.Second, &q); err != nil {
 		return graph.Queue{}, err
 	}
 	for _, item := range q.Running {
@@ -353,9 +352,9 @@ func (c *Client) Cancel(ctx context.Context, promptID string) {
 		return
 	}
 	if state.Running {
-		_ = c.PostJSON(ctx, "/interrupt", map[string]any{"prompt_id": promptID}, 10*time.Second, nil)
+		_ = c.postJSON(ctx, "/interrupt", map[string]any{"prompt_id": promptID}, 10*time.Second, nil)
 	} else if state.Pending() {
-		_ = c.PostJSON(ctx, "/queue", map[string]any{"delete": []string{promptID}}, 10*time.Second, nil)
+		_ = c.postJSON(ctx, "/queue", map[string]any{"delete": []string{promptID}}, 10*time.Second, nil)
 	}
 }
 

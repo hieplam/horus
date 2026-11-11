@@ -1,7 +1,6 @@
 // Package devtools is the service of the tools for a workflow author: make
 // a new workflow folder from the template (horus new-workflow), and copy the
-// workflows into the Workflows pane of ComfyUI (horus sync-workflows). It
-// ports scripts/new-workflow.ps1 and scripts/sync-workflows.ps1.
+// workflows into the Workflows pane of ComfyUI (horus sync-workflows).
 //
 // It reads and writes files only. It knows no flag and no output text: a
 // handler writes the lines from the typed results.

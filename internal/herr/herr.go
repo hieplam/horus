@@ -1,4 +1,4 @@
-// Package herr is the error model of horus. It ports horus/errors.py.
+// Package herr is the error model of horus.
 //
 // Every failure is an *Error with a stable Code. A caller (a person or an AI
 // agent) decides what to do from three fields, without reading the message:
@@ -32,10 +32,9 @@ type Spec struct {
 	NextStep  string
 }
 
-// Codes is the code table, in the order of horus/errors.py.
+// Codes is the code table.
 //
-// One difference from the Python table, allowed by rule 3 of the spec: a
-// next_step that named a .ps1 script names the horus subcommand instead.
+// A next_step names the horus subcommand of a setup step, not a script.
 var Codes = []Spec{
 	{"INVALID_ARGUMENT", false, "caller", "Fix the argument named in details.field, then call again."},
 	{"WORKFLOW_NOT_FOUND", false, "caller", "Call list_workflows and use one of the names in details.known."},
@@ -68,8 +67,8 @@ var Codes = []Spec{
 	{"INTERNAL", false, "human", "This is a bug in horus. Report details to the user."},
 }
 
-// Lookup returns the row of a code.
-func Lookup(code string) (Spec, bool) {
+// lookup returns the row of a code.
+func lookup(code string) (Spec, bool) {
 	for _, s := range Codes {
 		if s.Code == code {
 			return s, true
@@ -91,7 +90,7 @@ type Error struct {
 
 // New makes an *Error. It panics on an unknown code, as HorusError raises ValueError.
 func New(code, message string, details map[string]any) *Error {
-	if _, ok := Lookup(code); !ok {
+	if _, ok := lookup(code); !ok {
 		panic(fmt.Sprintf("unknown error code %s", code))
 	}
 	return &Error{Code: code, Message: message, Details: details}
@@ -112,7 +111,7 @@ type Info struct {
 
 // Info returns the error part of the envelope.
 func (e *Error) Info() Info {
-	s, ok := Lookup(e.Code)
+	s, ok := lookup(e.Code)
 	if !ok {
 		panic(fmt.Sprintf("unknown error code %s", e.Code))
 	}

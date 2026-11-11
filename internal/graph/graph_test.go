@@ -1,4 +1,4 @@
-// Tests of the graph conversion. Part of the port of horus/comfy.py.
+// Tests of the graph conversion.
 package graph
 
 import (
@@ -52,7 +52,7 @@ func codeOf(err error) string {
 }
 
 // TestUIToAPIGolden compares UIToAPI of workflows/it-illustration with the
-// output of the Python ui_to_api (tools/make_graph_golden.py). The JSON
+// output of the first version of horus, written in Python (a golden file). The JSON
 // values must be equal, and the node and input order must be the same too.
 func TestUIToAPIGolden(t *testing.T) {
 	graph := readFile(t, "..", "..", "workflows", "it-illustration", "workflow.json")

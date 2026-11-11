@@ -1,4 +1,4 @@
-// Tests of the port of horus/errors.py.
+// Tests of the error table.
 package herr
 
 import (
@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// allowedNextStep is the one change of rule 3 of the spec: a next_step that
+// allowedNextStep is the one difference from the golden table: a next_step that
 // named a .ps1 script names the horus subcommand.
 var allowedNextStep = strings.NewReplacer("scripts/start-comfyui.ps1", "horus start-comfyui")
 
@@ -32,8 +32,8 @@ func readGolden(t *testing.T) []goldenRow {
 	return rows
 }
 
-// TestCodesMatchPython compares the Go table with the table of horus/errors.py
-// (golden file made by tools/make_server_golden.py).
+// TestCodesMatchPython compares the Go table with the golden table of the first
+// version of horus, written in Python.
 func TestCodesMatchPython(t *testing.T) {
 	rows := readGolden(t)
 	if len(rows) != 21 {

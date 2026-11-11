@@ -138,7 +138,7 @@ func TestRowState(t *testing.T) {
 }
 
 func TestRoundGBAsTheScriptRoundsIt(t *testing.T) {
-	// The values of [math]::Round(x, 2) of workflow.ps1.
+	// The values of the PowerShell [math]::Round(x, 2).
 	for b, want := range map[int64]float64{0: 0, 5_827_874_779: 5.83, 1_234_567_890_123: 1234.57, 999_995_000_000: 1000, 1_005_000_000: 1, 2_675_000_000: 2.68} {
 		if got := roundGB(b); got != want {
 			t.Errorf("roundGB(%d) = %v, want %v", b, got, want)
@@ -329,7 +329,7 @@ func TestRemoveDecision(t *testing.T) {
 }
 
 // TestCheckWithAServerThatAnswersNoJSON: an answer that is not a JSON object
-// is a server with no node class and no file, as workflow.ps1 read it. No
+// is a server with no node class and no file. No
 // answer skips the server checks.
 func TestCheckWithAServerThatAnswersNoJSON(t *testing.T) {
 	dir := workflows(t)

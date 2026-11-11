@@ -1,6 +1,6 @@
 // horus new-workflow and horus sync-workflows: the handlers of the tools for
-// a workflow author. They port the flags and the output of
-// scripts/new-workflow.ps1 and scripts/sync-workflows.ps1. The work is in the
+// a workflow author.
+// The work is in the
 // service internal/devtools.
 package cli
 

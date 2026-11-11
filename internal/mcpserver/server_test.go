@@ -1,5 +1,5 @@
-// Tests of the port of horus/server.py: the tool list against the golden file
-// made from the Python server, and the SDK features that the port needs.
+// Tests of the MCP server: the tool list against the golden file
+// made from the first version of the server (Python), and the SDK features that the server needs.
 package mcpserver
 
 import (
@@ -185,7 +185,7 @@ func TestErrorEnvelope(t *testing.T) {
 }
 
 // TestArgumentErrors checks the answer to arguments that fail the schema:
-// isError, no structuredContent, and the field in the text, as pydantic does.
+// isError, no structuredContent, and the field in the text.
 func TestArgumentErrors(t *testing.T) {
 	useRepoWorkflows(t)
 	cs := connect(t, New(&fakeImages{}, nil), nil)
@@ -217,7 +217,7 @@ func TestArgumentErrors(t *testing.T) {
 func TestSDKProgressNotifications(t *testing.T) {
 	useRepoWorkflows(t)
 	got := make(chan string, 16)
-	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: Version}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: serverVersion}, nil)
 	s.AddTool(&mcp.Tool{Name: "slow", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			report := reporter(req)

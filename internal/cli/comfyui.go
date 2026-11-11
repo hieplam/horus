@@ -1,6 +1,6 @@
 // horus install-comfyui, horus start-comfyui and horus stop-comfyui: the
-// handlers of the ComfyUI install. They port the flags and the output of
-// scripts/install-comfyui.ps1 and scripts/start-comfyui.ps1. The work is in
+// handlers of the ComfyUI install.
+// The work is in
 // the backend (internal/backend), which cmd/horus gives them.
 //
 // Exit code 0 = done, 1 = the step failed, 2 = a flag that does not parse,

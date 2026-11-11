@@ -1,5 +1,5 @@
 // The MCP registration: add horus to Claude Code for the user (horus
-// register). It ports the -Register part of scripts/install-horus-mcp.ps1.
+// register).
 //
 // It runs "claude mcp add --scope user horus -e HORUS_ROOT=<repo> -- <path of
 // horus> mcp". HORUS_ROOT lets a session in any folder find the workflows. It
@@ -37,7 +37,7 @@ type RegisterOptions struct {
 
 // Register checks the root, finds claude, and runs the two claude commands.
 func Register(ctx context.Context, programs Programs, o RegisterOptions) error {
-	if err := CheckRoot(o.Root); err != nil {
+	if err := checkRoot(o.Root); err != nil {
 		return err
 	}
 	if o.Claude == "" {
@@ -71,9 +71,9 @@ func Register(ctx context.Context, programs Programs, o RegisterOptions) error {
 	return nil
 }
 
-// CheckRoot fails when root is not an absolute path of a folder that has a
+// checkRoot fails when root is not an absolute path of a folder that has a
 // workflows folder. A registered entry with such a root would serve no workflow.
-func CheckRoot(root string) error {
+func checkRoot(root string) error {
 	if root == "" || !filepath.IsAbs(root) {
 		return fmt.Errorf("the repo root %q is not an absolute path.", root)
 	}

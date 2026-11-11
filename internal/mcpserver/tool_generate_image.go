@@ -1,4 +1,4 @@
-// The tool generate_image. Part of the port of horus/server.py.
+// The tool generate_image.
 package mcpserver
 
 import (
@@ -9,7 +9,7 @@ import (
 	"github.com/hieplam/horus/internal/generate"
 )
 
-// ImageResult is the result of generate_image, in the key order of server.py.
+// ImageResult is the result of generate_image, in the key order that the tool shows.
 type ImageResult = generate.Result
 
 func generateImage(images Images) tool {

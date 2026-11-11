@@ -1,4 +1,4 @@
-// Progress notifications. Part of the port of horus/server.py (_reporter).
+// Progress notifications.
 package mcpserver
 
 import (

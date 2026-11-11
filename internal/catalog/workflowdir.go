@@ -1,10 +1,11 @@
 // The reader of the workflows folder for the setup of the model files (horus
 // workflow and the MCP tools that install, check and remove). It keeps the
-// rules of scripts/workflow.ps1: keys without case, the casts of the script,
-// and the order of the keys of a JSON object. So it is a second reader of
-// models.json, beside Models: Models is the reader of catalog.py for the MCP
-// tools, this one is the reader of workflow.ps1. The two give the same files
-// for a valid models.json, and they keep their own error texts.
+// rules of the setup commands: keys without case, the casts of a JSON value to
+// a string, a number or a truth value, and the order of the keys of a JSON
+// object. So it is a second reader of models.json, beside Models: Models is
+// the reader for the MCP tools, this one is the reader of the setup. The two
+// give the same files for a valid models.json, and they keep their own error
+// texts.
 package catalog
 
 import (
@@ -69,8 +70,8 @@ func Folders(root string) ([]Folder, error) {
 
 var workflowName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// FindModelList finds the models.json of one workflow under root, as
-// workflow.ps1 does, and reads it. modelsJSON, when it is not "", is the file
+// FindModelList finds the models.json of one workflow under root, and reads it.
+// modelsJSON, when it is not "", is the file
 // to read instead of <root>/<name>/models.json. graphPath is the path of the
 // workflow.json of the workflow (the file can be absent).
 func FindModelList(root, name, modelsJSON string) (list ModelList, graphPath string, err error) {
@@ -108,20 +109,20 @@ func FindModelList(root, name, modelsJSON string) (list ModelList, graphPath str
 	return list, filepath.Join(dir, "workflow.json"), nil
 }
 
-// ListedFile is one file of models.json, as workflow.ps1 reads it.
+// ListedFile is one file of models.json.
 type ListedFile struct {
 	Role, Name, Folder string
 	Bytes              int64
 	SHA256, URL        string
 }
 
-// ModelList is models.json, as workflow.ps1 reads it.
+// ModelList is models.json.
 type ModelList struct {
 	License string
 	Files   []ListedFile
 }
 
-// ReadModelList is Read-Manifest of workflow.ps1.
+// ReadModelList reads and checks the models.json at path.
 func ReadModelList(path string) (ModelList, error) {
 	v, err := readPSJSON(path)
 	if err != nil {
@@ -197,7 +198,7 @@ type GraphRefs struct {
 	NodeTypes []string
 }
 
-// ReadGraphRefs reads a graph file (workflow.json) as workflow.ps1 does. It
+// ReadGraphRefs reads a graph file (workflow.json). It
 // returns nil when no file is at path.
 func ReadGraphRefs(path string) (*GraphRefs, error) {
 	if !isRegular(path) {
@@ -216,7 +217,7 @@ func ReadGraphRefs(path string) (*GraphRefs, error) {
 	return &GraphRefs{Models: uniqueStrings(models), NodeTypes: nodeTypes(g)}, nil
 }
 
-// modelExt matches a model file name. The -match of workflow.ps1 ignores case.
+// modelExt matches a model file name. The match ignores case.
 var modelExt = regexp.MustCompile(`(?i)\.(safetensors|sft|gguf|ckpt|pt|pth|bin|onnx)$`)
 
 var hexSHA = regexp.MustCompile(`^[A-Fa-f0-9]{64}$`)
@@ -228,7 +229,7 @@ type psObject struct {
 	vals []any
 }
 
-// get looks a key up without case, as workflow.ps1 reads a property.
+// get looks a key up without case.
 func (o *psObject) get(key string) any {
 	for i, k := range o.keys {
 		if k == key {
@@ -311,7 +312,7 @@ func readPSJSON(path string) (any, error) {
 	return v, nil
 }
 
-// psTruthy is the truth (as workflow.ps1 tests it) of a JSON value.
+// psTruthy is the truth value of a JSON value, by the rules of PowerShell.
 func psTruthy(v any) bool {
 	switch x := v.(type) {
 	case nil:
@@ -335,7 +336,7 @@ func psTruthy(v any) bool {
 	return true
 }
 
-// psString is the [string] cast of workflow.ps1 of a JSON value.
+// psString is the text of a JSON value, by the rules of the PowerShell [string] cast.
 func psString(v any) string {
 	switch x := v.(type) {
 	case nil:
@@ -353,7 +354,7 @@ func psString(v any) string {
 	return fmt.Sprint(v)
 }
 
-// psLong is the [long] cast of workflow.ps1 of a JSON value. A value that does
+// psLong is the whole number of a JSON value, by the rules of the PowerShell [long] cast. A value that does
 // not convert gives 0, which the manifest check refuses.
 func psLong(v any) int64 {
 	var s string
@@ -464,7 +465,7 @@ func urlPath(u string) string {
 	return u
 }
 
-// description is Get-Description: the first paragraph after the "# name" heading.
+// description is the first paragraph of a README.md after the "# name" heading.
 func description(readme string) string {
 	data, err := os.ReadFile(readme)
 	if err != nil {
@@ -475,7 +476,7 @@ func description(readme string) string {
 	}
 	var para []string
 	after := false
-	for _, l := range splitLines(data) {
+	for _, l := range SplitLines(data) {
 		if !after {
 			if headingLine.MatchString(l) {
 				after = true
@@ -507,8 +508,8 @@ var (
 	skipLine    = regexp.MustCompile("^(#|\\||!\\[|```)")
 )
 
-// splitLines splits as [IO.File]::ReadAllLines does, without a BOM.
-func splitLines(data []byte) []string {
+// SplitLines splits as [IO.File]::ReadAllLines does, without a BOM.
+func SplitLines(data []byte) []string {
 	s := string(bytes.TrimPrefix(data, bom))
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
@@ -520,6 +521,9 @@ func splitLines(data []byte) []string {
 }
 
 var bom = []byte{0xef, 0xbb, 0xbf}
+
+// TrimBOM removes a UTF-8 byte order mark from the start of data.
+func TrimBOM(data []byte) []byte { return bytes.TrimPrefix(data, bom) }
 
 func isRegular(p string) bool {
 	fi, err := os.Stat(p)

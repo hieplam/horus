@@ -107,6 +107,13 @@ commands.
 | 2026-11-11 | Issue #87: `download.Error` gets `Reasons`, the lines that `Download` writes for a failed attempt (`Attempt <n> of <m> did not finish ...`) and the hint line after an HTTP error, in order. The glue `downloader` in `cmd/horus/wiring.go` copies them to `provision.DownloadError.Reasons`, as it copies `Kind`. `provision.Install` builds the detail with the pure function `failDetail` (the reasons, then `FAIL: <error>`, joined by ` \| `). `whyLine` and `lineTee` are gone, and the service gives `Watch.Out` to the downloader as it is. | The service must not parse the text of an adapter when a typed value can cross the interface (design rules 2 and 4). The reasons are exactly the lines that `whyLine` picked: no other line of `Download` starts with `FAIL:`, `Attempt ` or `The server answered with an error`, and the `FAIL:` part comes from the error, as before. The lines on `Watch.Out` do not change: `Download` writes each line with one newline, and `lineTee` wrote the same lines again. | Agent (#87) |
 | 2026-11-11 | Issue #87: `platform.PythonLauncher` became the pure function `platform.PythonCommand(version) (cmd []string, notFound string)`. It gives `py.exe -3.12` on Windows and `python3.12` elsewhere, and the text for a program that is not on the PATH. It calls no `exec.LookPath`. `InstallComfyMCP` finds `cmd[0]` with `Programs.LookPath`. The option `Launcher` stays: when it is set, the service uses it as before, without a look-up. | A base package must not run `os/exec` for a service outside an interface that the service declares. The new name makes each old caller a compile error, because the contract changed (no look-up, no error). `Launcher` is the seam of the 5 older tests of `comfymcp_test.go`, which run a fake python. | Agent (#87) |
 | 2026-11-11 | Issue #87: the error of a missing launcher keeps the text of today (`The Python Launcher (py.exe) was not found. Install Python 3.12 from python.org.` on Windows, `python3.12 was not found. Install Python 3.12.` elsewhere). The Green of the issue says "Python 3.12 was not found", and the fix part of the issue says that the service "keeps its error text". The test `TestDefaultLauncherNotOnThePathFails` checks the exact text of `PythonCommand`. | The task brief: the output of `horus install-comfy-mcp` must not change. The issue is not consistent with itself, so the rule "no change that a user can see" decides. | Agent (#87) |
+| 2026-11-11 | Issue #89, what counts as an export that "no other package uses": a name that no other package references, test files included. A function, method, constant or variable of this kind is unexported. A type, an interface or a sentinel error stays exported when it appears in the signature or a field of an exported name that another package uses (`backend.Layout`, `doctor.Server`, `generate.ComfyUI`, `catalog.Summary`, `herr.Spec`, `platform.ErrBadTree` and the like). The 10 result types of `internal/mcpserver` (`DescribeResult`, `Envelope` and so on) stay exported too: an unexported name would collide with the helper of the same name (`envelope`, `reporter`), and they describe the wire shape of the tools. | An unexported type in an exported signature is a worse interface than an exported one. The rule is the one of the issue (design rule 2), applied where it makes the interface smaller. | Agent (#89) |
+| 2026-11-11 | Issue #89: the members of a group of values stay together. `devtools.Conflict` stays with `Copied`, `Same` and `Replaced`. `provision.StatusDownloaded`, `StatusPresent` and `StatusDeleted` stay with `StatusOK` and the other `Status` values, which other packages use. A name that is also used by a test of another package (`cli.Mark`, `generate.ReportInterval`, `generate.AbsentLimit`, `platform.BlockDelete`, `platform.ErrCannotBlock`, `comfytest.*`) stays. | A group is one vocabulary. Cutting it in two hides which values the field can hold. A use by a test of another package is a use. | Agent (#89) |
+| 2026-11-11 | Issue #89: `internal/archtest` keeps its exported names (`Scan`, `Violation`, `Problems`, `Rules`, `File`, `RuleOS`, `RuleDirection`, `RuleToken`). Its only user is its own test. | The package is the tool of the CI gate and no other package imports it. Its test drives it only through these names, and a rename of 8 names would only touch the test. This is the one place where the rule "a use only by the package's own tests: unexport" is not applied. | Agent (#89) |
+| 2026-11-11 | Issue #89: `comfy.Round1` and `generate.round1` became one function, `graph.Round1`. The package `graph` is a base package that both `comfy` (adapter) and `generate` (service) may import, and `generate` must not import `comfy`. `graph` has a new test `TestRound1RoundsTheExactBinaryValueHalfToEven`, because the function had no test of its own. | One copy, in the place that the import rules allow (design rule 1). | Agent (#89) |
+| 2026-11-11 | Issue #89, two more duplicates found by the sweep: `isFile` (3 copies in `backend`, `doctor`, `provision`) became `platform.IsFile`, and `splitLines` with `bom` (2 copies in `catalog` and `modelfiles`) became `catalog.SplitLines` and `catalog.TrimBOM`. `leaf` (2 copies) and `seconds` (2 copies) differ in what they do, so they stay. | Same rule as for `Round1`: one copy in a base package. `leaf` of `catalog` cuts at `/` and `\`, `leaf` of `provision` cuts at `/` only. The two `seconds` return a string and a number. | Agent (#89) |
+| 2026-11-11 | Issue #89: a comment that said "ports horus/x.py" or "as workflow.ps1 does" now says what the code does. A comment that names Python or PowerShell only to explain a kept format stays (`pyRepr`, `PyDumps`, `psString`, the casts of PowerShell in `catalog/workflowdir.go`), because those rules still shape the output and the golden files. The comment of a golden file says that the first version of horus wrote it. `internal/herr/herr_test.go` keeps `.ps1` in its code, because the test checks that no `next_step` names a script. | The comment must be true. A true comment about a kept format explains why. | Agent (#89) |
+| 2026-11-11 | Issue #89: `Entry` and `Status` of `internal/comfy` became `historyEntry` and `jobStatus`, and `HTTPError` became `httpError`. Their only users are in the package. | The issue lists them as exports that no other package uses. | Agent (#89) |
 
 ## Baseline
 
@@ -1220,3 +1227,93 @@ Stub check 2: `InstallComfyMCP` looks on the real PATH (`platform.Programs{}.Loo
     FAIL	github.com/hieplam/horus/internal/provision	0.580s
 
 Ratchet: places where a service parses the text of an adapter or reaches `os/exec` through a base package: 2 -> 0. Go test functions (`git grep -h "^func Test" -- '*.go' | wc -l`): 212 -> 217 after the rebase on `e8cfd6b` (210 -> 215 on `d9827a2`).
+
+## Issue 89
+
+The port left names that no other package uses, three copies of small helpers, and comments that name files that do not exist any more. The decisions are the `#89` rows of the Decisions table. The issue was written on `d9827a2`. Four fixes merged after that (#90, #86, #88, #87). Every name of the issue was still there on `72a47c5`, so all of them were fixed.
+
+Red, before the change (on `72a47c5`):
+
+    $ git grep -n "^func NoConsole\|^func isFile\|^func Validate\|^func Round1\|horus/models.py reads" -- internal/platform/platform.go internal/modelfiles internal/generate/generate.go internal/comfy internal/download
+    internal/comfy/jobs.go:131:func Round1(x float64) float64 {
+    internal/download/download.go:49:// Kind is the outcome of a failed download. horus/models.py reads four of them
+    internal/download/download.go:305:// it holds "error: <code>", the text that horus/models.py reads.
+    internal/generate/generate.go:190:func Validate(w *catalog.Workflow, r Request) (*checked, error) {
+    internal/modelfiles/modelfiles.go:268:func isFile(p string) bool {
+    internal/platform/platform.go:60:func NoConsole(cmd *exec.Cmd) { noConsole(cmd) }
+    $ go doc -short ./internal/comfy
+    func ExecutionSeconds(e *Entry) *float64
+    func JobError(promptID string, status Status) *herr.Error
+    func RejectedGraphError(reply *catalog.Object) *herr.Error
+    func Round1(x float64) float64
+    type Client struct{ ... }
+        func New(u string) *Client
+    type Entry struct{ ... }
+    type HTTPError struct{ ... }
+    type Status struct{ ... }
+
+Green, after the change:
+
+    $ git grep -n "^func NoConsole\|^func isFile\|^func Validate\|^func Round1\|horus/models.py reads" -- internal/platform/platform.go internal/modelfiles internal/generate/generate.go internal/comfy internal/download; echo "lines=$(git grep -n '^func NoConsole\|^func isFile\|^func Validate\|^func Round1\|horus/models.py reads' -- internal/platform/platform.go internal/modelfiles internal/generate/generate.go internal/comfy internal/download | wc -l)"
+    lines=0
+    $ go doc -short ./internal/comfy
+    type Client struct{ ... }
+        func New(u string) *Client
+    $ go doc ./internal/comfy Client | grep -c "GetJSON\|PostJSON"
+    0
+    $ gofmt -l .
+    $ go vet ./...
+    $ GOOS=linux GOARCH=amd64 go vet ./... && GOOS=darwin GOARCH=arm64 go vet ./... && echo vet-ok
+    vet-ok
+    $ go test ./...
+    ok  	github.com/hieplam/horus/cmd/horus
+    ok  	github.com/hieplam/horus/internal/archtest
+    ok  	github.com/hieplam/horus/internal/backend
+    ok  	github.com/hieplam/horus/internal/catalog
+    ok  	github.com/hieplam/horus/internal/cli
+    ok  	github.com/hieplam/horus/internal/comfy
+    ?   	github.com/hieplam/horus/internal/comfy/comfytest	[no test files]
+    ok  	github.com/hieplam/horus/internal/devtools
+    ok  	github.com/hieplam/horus/internal/doctor
+    ok  	github.com/hieplam/horus/internal/download
+    ok  	github.com/hieplam/horus/internal/generate
+    ok  	github.com/hieplam/horus/internal/graph
+    ok  	github.com/hieplam/horus/internal/herr
+    ok  	github.com/hieplam/horus/internal/mcpserver
+    ok  	github.com/hieplam/horus/internal/modelfiles
+    ok  	github.com/hieplam/horus/internal/platform
+    ok  	github.com/hieplam/horus/internal/provision
+    ok  	github.com/hieplam/horus/internal/settings
+    $ python tests/mcp_contract.py --server-cmd <repo>\bin\horus.exe mcp
+    contract: 30 of 30 passed
+    $ python tests/workflow_parity.py --horus bin/horus.exe
+    parity: 17 of 17 cases equal
+    $ python scripts/lint-public.py
+    lint-public: 0 finding(s)
+    $ python tools/goal_check.py --phase 2 --no-ci --server-cmd <repo>\bin\horus.exe mcp
+    PASS  layout - 0 packages off target, 0 listed packages missing
+    PASS  same-behaviour - contract: local 30 of 30; CI part skipped (--no-ci); parity: 17 of 17; go test ./...: ok; 215 Go test functions (baseline 157); 0 changed contract files
+    PASS  os-boundary - 0 allow list files; archtest: ok
+    PASS  direction - 0 allow list files; archtest: ok
+    PASS  process-tree - tree test: ok; 0 taskkill references; CI part skipped (--no-ci)
+    FAIL  backend - Go tests ok; needs --real on the owner's PC for the image through the backend
+    PASS  token - 0 allow list files; archtest: ok
+    FAIL  commands - Go tests ok; needs --real on the owner's PC for horus doctor and horus setup
+    goal: 6 of 8 rows passed
+
+The rows `backend` and `commands` need `--real` (decision of T0).
+
+Stub check: doing nothing leaves the 6 lines of the first `git grep` and the 9 lines of `go doc`, so Green fails. A stub also fails: an empty `graph.Round1` fails `TestRound1RoundsTheExactBinaryValueHalfToEven`, and a `comfy.getJSON` that does nothing fails the tests of `comfy` and the contract test.
+
+Go test functions: 217 -> 218 (`git grep -h "^func Test" -- '*_test.go' | wc -l`). No test was deleted. The new one is `TestRound1RoundsTheExactBinaryValueHalfToEven` in `internal/graph`. No test file lost an assertion: the changes to test files are renames of unexported names and comments.
+
+Ratchet (numbers from commands, on `72a47c5` and after the change):
+
+| Measure | Command | Before | After |
+|---|---|---|---|
+| Names that the issue lists | the Red `git grep` and `go doc` above | 6 lines and 9 lines | 0 lines and 2 lines |
+| Stale comments: `.ps1`, `horus/<x>.py`, `scripts/<x>.py`, `tools/make_<x>.py`, `<x>.py` of the old server, `asyncio`, `pydantic` | `git grep -nE '\.ps1\|horus/[a-z_]+\.py\|scripts/[a-z-]+\.py\|tools/make_[a-z_]+\.py\|\b(server\|comfy\|catalog\|models\|settings\|errors\|generate)\.py\b\|asyncio\|pydantic' -- '*.go' \| wc -l` | 125 | 4 |
+| Exported names that no other package references (a Go AST walk over `internal/` and `cmd/horus`, qualified use `pkg.Name` for names, and the method name for methods; the script is not in the repo) | scratch tool | 114 | 75 |
+| Definitions of the helpers `isFile`, `splitLines`, `round1` and `bom` | `git grep -nE '^func (isFile\|IsFile\|splitLines\|SplitLines\|[rR]ound1)\b\|^var bom' -- '*.go' \| wc -l` | 10 | 4 |
+
+The 4 comments that remain are in `internal/herr/herr_test.go`: the test checks that no `next_step` names a `.ps1` script. The 75 names that remain are the types, interfaces and sentinel errors in signatures, the groups of values, and the names that a test of another package uses (see the Decisions rows). The walk matches a name by `pkg.Name`, so a type that other packages use only through an interface is counted. That is why 75 is not 0.

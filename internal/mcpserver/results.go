@@ -1,11 +1,10 @@
-// Result models that more than one tool uses. Part of the port of
-// horus/server.py.
+// Result models that more than one tool uses.
 package mcpserver
 
 import "github.com/hieplam/horus/internal/provision"
 
 // InstallFile is one model file of a workflow and its state. The keys are in
-// the order of InstallFile of server.py.
+// the order that the tools show.
 type InstallFile struct {
 	Role   string  `json:"role"`
 	File   string  `json:"file"`
@@ -15,7 +14,7 @@ type InstallFile struct {
 	Detail *string `json:"detail"`
 }
 
-// fileRows is _file_rows of server.py: the items of one kind whose status is
+// fileRows gives the items of one kind whose status is
 // in states, as InstallFile rows.
 func fileRows(items []provision.Item, kind string, states map[string]string) []InstallFile {
 	rows := []InstallFile{}

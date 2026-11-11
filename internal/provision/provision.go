@@ -1,6 +1,6 @@
 // Package provision is the service that sets up a machine: the model files
-// of a workflow (list, check, install and remove; the rules of
-// scripts/workflow.ps1), the plan of horus setup (setup.go), the comfy MCP
+// of a workflow (list, check, install and remove), the plan of horus setup
+// (setup.go), the comfy MCP
 // server (comfymcp.go) and the MCP registration (register.go). The commands
 // (internal/cli) and the MCP tools (internal/mcpserver) call it in their own
 // process.

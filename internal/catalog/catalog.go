@@ -1,5 +1,4 @@
-// Package catalog is the list of workflows that horus offers. It ports
-// horus/catalog.py.
+// Package catalog is the list of workflows that horus offers.
 //
 // A workflow is a folder workflows/<name>/ with:
 //
@@ -30,12 +29,12 @@ import (
 	"github.com/hieplam/horus/internal/settings"
 )
 
-// nameRE is NAME_RE of catalog.py. Python's re.match with "$" also accepts one
-// newline at the end, so this pattern does too.
+// nameRE matches a workflow name. Like Python's re.match with "$", it accepts one
+// newline at the end.
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\n?$`)
 
-// RequiredInputs are the graph inputs that every manifest must name.
-var RequiredInputs = []string{"caption", "seed", "width", "height", "filename_prefix"}
+// requiredInputs are the graph inputs that every manifest must name.
+var requiredInputs = []string{"caption", "seed", "width", "height", "filename_prefix"}
 
 // Workflow is one folder under workflows/.
 type Workflow struct {
@@ -90,7 +89,7 @@ func (w *Workflow) Models() (Models, error) {
 }
 
 // License is the license view of describe_workflow, with the keys in the
-// order of Workflow.license in catalog.py.
+// order that describe_workflow shows.
 type License struct {
 	Name          string  `json:"name"`
 	URL           *string `json:"url"`
@@ -152,7 +151,7 @@ func checkManifest(name string, m *Object) error {
 		}
 	}
 	var absent []string
-	for _, k := range RequiredInputs {
+	for _, k := range requiredInputs {
 		if inputs == nil || !inputs.Has(k) {
 			absent = append(absent, k)
 		}
@@ -164,7 +163,7 @@ func checkManifest(name string, m *Object) error {
 }
 
 // All returns the workflows that the server offers, sorted by folder name.
-// A manifest that breaks a rule is an error, as in catalog.py.
+// A manifest that breaks a rule is an error.
 func All() ([]*Workflow, error) {
 	root := settings.WorkflowsDir()
 	entries, err := os.ReadDir(root)
@@ -358,7 +357,7 @@ func DetailOf(w *Workflow) (Detail, error) {
 	return Detail{Summary: sum, Subject: subj, Timing: orNull(m.Raw("timing")), License: lic}, nil
 }
 
-// pyRepr writes a value as Python's repr does for the messages of catalog.py:
+// pyRepr writes a value as Python's repr does, for the messages about a manifest:
 // a string in single quotes (double quotes when it holds a single quote and no
 // double quote), other values as JSON.
 func pyRepr(v any) string {

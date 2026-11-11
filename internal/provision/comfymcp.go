@@ -1,6 +1,5 @@
 // The comfy MCP server: install comfy-mcp and comfy-cli in their own Python
-// virtual environment (horus install-comfy-mcp). It ports
-// scripts/install-comfy-mcp.ps1.
+// virtual environment (horus install-comfy-mcp).
 //
 // Two packages with pinned versions: comfy-mcp (the MCP server that an agent
 // talks to, AGPL) and comfy-cli (the command-line tool that comfy-mcp calls,
@@ -23,8 +22,8 @@ import (
 
 // The pinned versions.
 const (
-	MCPVersion = "0.10.0"
-	CLIVersion = "1.25.0"
+	mcpVersion = "0.10.0"
+	cliVersion = "1.25.0"
 )
 
 // Programs finds and runs the programs of this machine (Python, pip,
@@ -73,7 +72,7 @@ func InstallComfyMCP(ctx context.Context, programs Programs, o ComfyMCPOptions) 
 		return programs.Run(ctx, platform.Command{Path: prog, Args: args, Stdout: w, Stderr: ew})
 	}
 
-	if !isFile(python) {
+	if !platform.IsFile(python) {
 		if _, err := os.Stat(venv); err == nil {
 			return fmt.Errorf("%s exists but is not a usable venv. Inspect it, then delete it or pass another -venv-path.", venv)
 		}
@@ -102,19 +101,19 @@ func InstallComfyMCP(ctx context.Context, programs Programs, o ComfyMCPOptions) 
 	var versions bytes.Buffer
 	code, err := run(python, &versions, nil, "-c", "import importlib.metadata as m; print(m.version('comfy-mcp')); print(m.version('comfy-cli'))")
 	lines := strings.Fields(versions.String())
-	if err == nil && code == 0 && len(lines) == 2 && lines[0] == MCPVersion && lines[1] == CLIVersion {
-		fmt.Fprintf(out, "SKIP: comfy-mcp %s and comfy-cli %s are already installed.\n", MCPVersion, CLIVersion)
+	if err == nil && code == 0 && len(lines) == 2 && lines[0] == mcpVersion && lines[1] == cliVersion {
+		fmt.Fprintf(out, "SKIP: comfy-mcp %s and comfy-cli %s are already installed.\n", mcpVersion, cliVersion)
 	} else {
-		fmt.Fprintf(out, "Installing comfy-mcp==%s and comfy-cli==%s ...\n", MCPVersion, CLIVersion)
+		fmt.Fprintf(out, "Installing comfy-mcp==%s and comfy-cli==%s ...\n", mcpVersion, cliVersion)
 		code, err := run(python, out, errOut, "-m", "pip", "install", "--disable-pip-version-check",
-			"comfy-mcp=="+MCPVersion, "comfy-cli=="+CLIVersion)
+			"comfy-mcp=="+mcpVersion, "comfy-cli=="+cliVersion)
 		if err != nil || code != 0 {
 			return fmt.Errorf("pip install failed (%s).", exitText(code, err))
 		}
 	}
 
 	for _, p := range venvPrograms(venv) {
-		if !isFile(p) {
+		if !platform.IsFile(p) {
 			return fmt.Errorf("Expected program is missing: %s", p)
 		}
 	}
@@ -130,9 +129,4 @@ func exitText(code int, err error) string {
 		return err.Error()
 	}
 	return fmt.Sprintf("exit code %d", code)
-}
-
-func isFile(p string) bool {
-	fi, err := os.Stat(p)
-	return err == nil && fi.Mode().IsRegular()
 }

@@ -1,6 +1,5 @@
 // horus install-comfy-mcp and horus register: the handlers of the two MCP
-// steps of a setup. They port scripts/install-comfy-mcp.ps1 and the
-// -Register part of scripts/install-horus-mcp.ps1. The work is in the
+// steps of a setup. The work is in the
 // service internal/provision, which runs its programs through the
 // provision.Programs that cmd/horus gives.
 //

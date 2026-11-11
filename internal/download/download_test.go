@@ -1,4 +1,4 @@
-// Tests of the port of scripts/download-model.ps1. Each test runs against a
+// Tests of the downloader. Each test runs against a
 // local fake HTTPS server on an ephemeral port, in a temporary folder. No test
 // reaches the network: the transport sends every host name to the fake server.
 package download
@@ -163,7 +163,7 @@ func mustHold(t *testing.T, path string, want []byte) {
 	}
 }
 
-// pyOutcome is the text check of _download_error in horus/models.py, on the
+// pyOutcome is the text check that the first version of horus made on a failed download, on the
 // text that the item detail gets: the FAIL line and the "Attempt" lines.
 func pyOutcome(text string) string {
 	switch {
@@ -340,7 +340,7 @@ func TestDifferentFileWithSameNameIsNotOverwritten(t *testing.T) {
 				t.Fatalf("err %v, want KindConflict", err)
 			}
 			if got := pyOutcome("FAIL: " + err.Error()); got != "FILE_CONFLICT" {
-				t.Errorf("models.py reads %s from %q", got, err)
+				t.Errorf("the text check reads %s from %q", got, err)
 			}
 			mustHold(t, j.Dest, onDisk)
 			if len(f.requests()) != 0 {
@@ -356,13 +356,13 @@ func TestFreeSpaceUnderSizePlusOneGiBIsRefused(t *testing.T) {
 	f := newFake(t, func(w http.ResponseWriter, r *http.Request, _ int) { serve(w, r, body) })
 	j := newJob(t, f, "https://huggingface.co/a/b/resolve/main/model.safetensors", body)
 	var asked string
-	j.FreeSpace = func(dir string) (uint64, error) { asked = dir; return uint64(len(body)) + SpareBytes - 1, nil }
+	j.FreeSpace = func(dir string) (uint64, error) { asked = dir; return uint64(len(body)) + spareBytes - 1, nil }
 	_, err := j.run(t)
 	if k, ok := kindOf(err); !ok || k != KindDiskFull {
 		t.Fatalf("err %v, want KindDiskFull", err)
 	}
 	if got := pyOutcome("FAIL: " + err.Error()); got != "DISK_FULL" {
-		t.Errorf("models.py reads %s from %q", got, err)
+		t.Errorf("the text check reads %s from %q", got, err)
 	}
 	if len(f.requests()) != 0 {
 		t.Errorf("a request was made")
@@ -375,7 +375,7 @@ func TestFreeSpaceUnderSizePlusOneGiBIsRefused(t *testing.T) {
 	// The rest of a .part file counts, not the whole file.
 	os.MkdirAll(filepath.Dir(j.Dest), 0o755)
 	os.WriteFile(j.Dest+".part", body[:3_000], 0o644)
-	j.FreeSpace = func(string) (uint64, error) { return uint64(len(body)-3_000) + SpareBytes, nil }
+	j.FreeSpace = func(string) (uint64, error) { return uint64(len(body)-3_000) + spareBytes, nil }
 	if _, err := j.run(t); err != nil {
 		t.Fatalf("exactly the rest plus 1 GiB: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestHTTP401And403GiveTwoOutcomes(t *testing.T) {
 			if k, ok := kindOf(err); !ok || k != want.kind {
 				t.Fatalf("err %v (kind %v), want %v", err, k, want.kind)
 			}
-			// The detail of workflow.ps1 keeps the lines that start with "Attempt " and "FAIL:".
+			// The detail of a failed item keeps the lines that start with "Attempt " and "FAIL:".
 			var detail []string
 			for _, l := range strings.Split(j.out.String()+"FAIL: "+err.Error(), "\n") {
 				if strings.HasPrefix(l, "Attempt ") || strings.HasPrefix(l, "FAIL:") {
@@ -404,7 +404,7 @@ func TestHTTP401And403GiveTwoOutcomes(t *testing.T) {
 				}
 			}
 			if got := pyOutcome(strings.Join(detail, " | ")); got != want.py {
-				t.Errorf("models.py reads %s, want %s, from %q", got, want.py, detail)
+				t.Errorf("the text check reads %s, want %s, from %q", got, want.py, detail)
 			}
 			// The hint line names both codes, so it alone is no evidence of either.
 			if got := pyOutcome("The server answered with an error. HTTP 401 = token missing or wrong. HTTP 403 = license not accepted for this account."); got != "DOWNLOAD_FAILED" {
@@ -536,8 +536,8 @@ func TestTokenIsDroppedOnRedirectToAnotherHost(t *testing.T) {
 	mustHold(t, j.Dest, body)
 
 	// A redirect from https to plain http on a huggingface.co host does not get it either.
-	if TokenAllowed(mustURL(t, "http://cdn-lfs.huggingface.co/blob")) {
-		t.Error("TokenAllowed accepts plain http")
+	if tokenAllowed(mustURL(t, "http://cdn-lfs.huggingface.co/blob")) {
+		t.Error("tokenAllowed accepts plain http")
 	}
 }
 
@@ -603,7 +603,7 @@ func TestTokenIsInNoURLArgumentOrOutput(t *testing.T) {
 	}
 }
 
-// The flags of the command, and the exit codes of download-model.ps1.
+// The flags of the command, and its exit codes.
 func TestCommandFlagsAndExitCodes(t *testing.T) {
 	var out bytes.Buffer
 	if exit := Main(context.Background(), []string{"-url", "https://huggingface.co/x"}, &out, Options{}); exit != 1 ||

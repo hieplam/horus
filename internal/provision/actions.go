@@ -1,5 +1,4 @@
-// The four actions: List, Check, Install and Remove. They port the actions
-// of scripts/workflow.ps1.
+// The four actions: List, Check, Install and Remove.
 package provision
 
 import (
@@ -167,8 +166,7 @@ func (s *Service) check(ctx context.Context, res *Result, m catalog.ModelList, g
 }
 
 // notJSON reports if the server answered, but not with a JSON object. The
-// check then counts the answer as a server with no node class and no file,
-// as workflow.ps1 did.
+// check then counts the answer as a server with no node class and no file.
 func notJSON(err error) bool {
 	var syn *json.SyntaxError
 	var typ *json.UnmarshalTypeError
@@ -244,7 +242,7 @@ func serverCheck(files []catalog.ListedFile, types []string, info graph.ObjectIn
 	return out
 }
 
-// hasKey looks a node class up as workflow.ps1 reads a property: the exact
+// hasKey looks a node class up: the exact
 // name, else the name without case.
 func hasKey(info graph.ObjectInfo, key string) bool {
 	if _, ok := info[key]; ok {

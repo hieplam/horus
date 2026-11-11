@@ -1,4 +1,4 @@
-// Tests of the port of horus/catalog.py.
+// Tests of the workflow catalog.
 package catalog
 
 import (

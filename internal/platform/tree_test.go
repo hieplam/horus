@@ -208,7 +208,6 @@ func TestEndTreeRefusesAnIDThatIsNotATree(t *testing.T) {
 }
 
 // The real free space of a temporary folder can be read on this system.
-// (Moved from internal/scripts/downloadmodel.)
 func TestFreeSpaceOfThisSystem(t *testing.T) {
 	n, err := FreeSpace(t.TempDir())
 	if err != nil || n == 0 {

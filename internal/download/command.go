@@ -1,5 +1,5 @@
-// The command horus download-model. Ports the parameters, the output and the
-// exit codes of scripts/download-model.ps1.
+// The command horus download-model: its flags, its output lines and its
+// exit codes.
 package download
 
 import (
@@ -11,7 +11,7 @@ import (
 )
 
 // Main runs horus download-model with args (the arguments after the command
-// name). It writes the lines of download-model.ps1 to out and returns the exit
+// name). It writes the progress lines to out and returns the exit
 // code: 0 = the file is present and verified, 1 = anything else, 2 = a flag
 // that does not parse. base gives the test seams; its URL, Dest, sizes and
 // names come from the flags.

@@ -1,10 +1,9 @@
-// The mapping of rejected graphs and failed jobs to horus errors. Part of the
-// port of horus/comfy.py (rejected_graph_error, job_error, execution_seconds).
+// The mapping of rejected graphs and failed jobs to horus errors, and the
+// time that a job took.
 package comfy
 
 import (
 	"encoding/json"
-	"strconv"
 	"strings"
 
 	"github.com/hieplam/horus/internal/catalog"
@@ -14,10 +13,10 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
-// RejectedGraphError maps a /prompt rejection to a horus error. A model file
+// rejectedGraphError maps a /prompt rejection to a horus error. A model file
 // that the server does not list means the workflow is not installed (or the
 // backend has not seen the new file).
-func RejectedGraphError(reply *catalog.Object) *herr.Error {
+func rejectedGraphError(reply *catalog.Object) *herr.Error {
 	text := graph.PyDumps(reply)
 	missing := []string{}
 	var nodeErrors catalog.Object
@@ -53,7 +52,7 @@ func RejectedGraphError(reply *catalog.Object) *herr.Error {
 }
 
 // messages reads the status messages [[name, data], ...] into a map. A later
-// message with the same name wins, as in the Python dict.
+// message with the same name wins.
 func messages(raw []json.RawMessage) map[string]json.RawMessage {
 	out := map[string]json.RawMessage{}
 	for _, m := range raw {
@@ -70,8 +69,8 @@ func messages(raw []json.RawMessage) map[string]json.RawMessage {
 	return out
 }
 
-// JobError maps a failed job in /history to a horus error.
-func JobError(promptID string, status Status) *herr.Error {
+// jobError maps a failed job in /history to a horus error.
+func jobError(promptID string, status jobStatus) *herr.Error {
 	msgs := messages(status.Messages)
 	if _, ok := msgs["execution_interrupted"]; ok {
 		return herr.New("CANCELLED", "the job was interrupted on the backend", map[string]any{"job_id": promptID})
@@ -106,9 +105,9 @@ func JobError(promptID string, status Status) *herr.Error {
 	return herr.New("GENERATION_FAILED", "the backend failed while it ran the job", facts)
 }
 
-// ExecutionSeconds is the time from execution_start to execution_success,
+// executionSeconds is the time from execution_start to execution_success,
 // rounded to 0.1 s, or nil when the entry lacks one of them.
-func ExecutionSeconds(e *Entry) *float64 {
+func executionSeconds(e *historyEntry) *float64 {
 	stamps := map[string]float64{}
 	for name, raw := range messages(e.Status.Messages) {
 		var data map[string]json.RawMessage
@@ -124,11 +123,5 @@ func ExecutionSeconds(e *Entry) *float64 {
 	if start == 0 || done == 0 {
 		return nil
 	}
-	return ptr(Round1((done - start) / 1000))
-}
-
-// Round1 is round(x, 1) of Python: the exact binary value rounded half to even.
-func Round1(x float64) float64 {
-	v, _ := strconv.ParseFloat(strconv.FormatFloat(x, 'f', 1, 64), 64)
-	return v
+	return ptr(graph.Round1((done - start) / 1000))
 }

@@ -1,7 +1,6 @@
 // Package graph converts a ComfyUI graph from the UI format to the API format,
 // and finds the model files of a graph that the server does not list. It is
-// pure: no input and no output. It ports ui_to_api, missing_model_files and
-// _combo_options of horus/comfy.py.
+// pure: no input and no output.
 //
 // It also holds the data types that internal/generate (the service) and
 // internal/comfy (the adapter) both need: the API graph, the node
@@ -19,20 +18,20 @@ import (
 	"github.com/hieplam/horus/internal/herr"
 )
 
-// SimpleTypes are the input types that a widget holds. Any other type is a
+// simpleTypes are the input types that a widget holds. Any other type is a
 // connection (MODEL, CLIP and so on).
-var SimpleTypes = map[string]bool{"INT": true, "FLOAT": true, "STRING": true, "BOOLEAN": true, "COMBO": true}
+var simpleTypes = map[string]bool{"INT": true, "FLOAT": true, "STRING": true, "BOOLEAN": true, "COMBO": true}
 
-// NoteTypes are node classes that only hold text for people.
-var NoteTypes = map[string]bool{"Note": true, "MarkdownNote": true}
+// noteTypes are node classes that only hold text for people.
+var noteTypes = map[string]bool{"Note": true, "MarkdownNote": true}
 
-// ModelExt are the file name endings of model files.
-var ModelExt = []string{".safetensors", ".sft", ".gguf", ".ckpt", ".pt", ".pth", ".bin", ".onnx"}
+// modelExt are the file name endings of model files.
+var modelExt = []string{".safetensors", ".sft", ".gguf", ".ckpt", ".pt", ".pth", ".bin", ".onnx"}
 
-// IsModelFile reports if the name s ends with one of ModelExt.
+// IsModelFile reports if the name s ends with one of modelExt.
 func IsModelFile(s string) bool {
 	low := strings.ToLower(s)
-	for _, e := range ModelExt {
+	for _, e := range modelExt {
 		if strings.HasSuffix(low, e) {
 			return true
 		}
@@ -50,7 +49,7 @@ type spec struct {
 }
 
 // specs returns {**required, **optional} of a node class, in that order. A
-// name in both keeps its first place and the optional value, as in Python.
+// name in both keeps its first place and the optional value.
 func (o ObjectInfo) specs(class string) ([]spec, error) {
 	var node struct {
 		Input struct {
@@ -204,7 +203,7 @@ func UIToAPI(workflow []byte, info ObjectInfo) (*API, error) {
 	}
 	missingSet := map[string]bool{}
 	for _, n := range g.Nodes {
-		if _, ok := info[n.Type]; !ok && !NoteTypes[n.Type] {
+		if _, ok := info[n.Type]; !ok && !noteTypes[n.Type] {
 			missingSet[n.Type] = true
 		}
 	}
@@ -218,7 +217,7 @@ func UIToAPI(workflow []byte, info ObjectInfo) (*API, error) {
 	}
 	api := &API{}
 	for _, n := range g.Nodes {
-		if NoteTypes[n.Type] {
+		if noteTypes[n.Type] {
 			continue
 		}
 		inputs := catalog.NewObject()
@@ -250,7 +249,7 @@ func UIToAPI(workflow []byte, info ObjectInfo) (*API, error) {
 			isList := strings.HasPrefix(strings.TrimSpace(string(parts[0])), "[")
 			if !isList {
 				_ = json.Unmarshal(parts[0], &kind)
-				if !SimpleTypes[kind] {
+				if !simpleTypes[kind] {
 					continue // a connection type such as MODEL or CLIP, never a widget
 				}
 			}

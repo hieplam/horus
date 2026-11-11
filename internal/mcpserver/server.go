@@ -1,4 +1,4 @@
-// Package mcpserver is the horus MCP server (stdio). It ports horus/server.py.
+// Package mcpserver is the horus MCP server (stdio).
 //
 // Tools (one file each, tool_<name>.go):
 //
@@ -27,11 +27,11 @@ import (
 	"github.com/hieplam/horus/internal/settings"
 )
 
-// Version is the server version, the same as horus/__init__.py.
-const Version = "0.1.0"
+// serverVersion is the server version.
+const serverVersion = "0.1.0"
 
-// Instructions is the instructions text of the server, word for word as in server.py.
-const Instructions = `horus makes images on this machine with local AI models. You do not need to know how.
+// serverInstructions is the instructions text that the server gives to a client at the start of a session.
+const serverInstructions = `horus makes images on this machine with local AI models. You do not need to know how.
 1. Call list_workflows. Each workflow is one image model and graph; pick the one whose summary and good_for fit.
 2. Call describe_workflow for that workflow once, and read subject.rules and subject.examples.
    horus adds no style: it sends your subject to the model exactly as written. You own the look,
@@ -117,7 +117,7 @@ func pyNone(v any) any {
 // the image backend, through images. They set up the model files of a
 // workflow through setup.
 func New(images Images, setup Setup) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: Version}, &mcp.ServerOptions{Instructions: Instructions})
+	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: serverVersion}, &mcp.ServerOptions{Instructions: serverInstructions})
 	for _, t := range tools(images, setup) {
 		s.AddTool(t.definition(), t.handler())
 	}

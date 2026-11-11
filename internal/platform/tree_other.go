@@ -13,5 +13,3 @@ var errNoTree = errors.New("process trees are not supported on this system")
 func startTree(*exec.Cmd) (string, error) { return "", errNoTree }
 
 func endTree(string) error { return errNoTree }
-
-func noConsole(*exec.Cmd) {}

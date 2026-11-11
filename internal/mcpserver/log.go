@@ -1,4 +1,4 @@
-// The server log. Part of the port of horus/server.py (main and log).
+// The server log.
 //
 // Each line is "<time> horus <LEVEL> <message>", on stderr. HORUS_LOG_FILE adds
 // a copy of the log in that file, for a harness that hides stderr.

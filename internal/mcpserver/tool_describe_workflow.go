@@ -1,4 +1,4 @@
-// The tool describe_workflow. Part of the port of horus/server.py.
+// The tool describe_workflow.
 package mcpserver
 
 import (
@@ -11,7 +11,7 @@ import (
 	"github.com/hieplam/horus/internal/provision"
 )
 
-// DescribeResult is the result of describe_workflow, in the key order of server.py.
+// DescribeResult is the result of describe_workflow, in the key order that the tool shows.
 type DescribeResult struct {
 	Name           string          `json:"name"`
 	Title          json.RawMessage `json:"title"`
@@ -38,7 +38,7 @@ func describeResult(d catalog.Detail, state string, files []InstallFile) Describ
 	}
 }
 
-// fileStates is _status_rows of server.py: the state of each model file. A
+// fileStates gives the state of each model file. A
 // failed check (a missing file) is a normal answer here, so it reads the
 // items and not the ok of the result.
 func fileStates(ctx context.Context, setup Setup, w *catalog.Workflow) []InstallFile {

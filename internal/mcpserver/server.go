@@ -1,4 +1,4 @@
-// Package server is the horus MCP server (stdio). It ports horus/server.py.
+// Package mcpserver is the horus MCP server (stdio). It ports horus/server.py.
 //
 // Tools (one file each, tool_<name>.go):
 //
@@ -14,7 +14,7 @@
 //	{"ok": false, "result": null,  "error": {"code", "message", "retryable", "action_by", "next_step", "details"}}
 //
 // A failed call also sets isError. The error codes are in internal/herr and docs/mcp.md.
-package server
+package mcpserver
 
 import (
 	"context"

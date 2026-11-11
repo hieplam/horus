@@ -2,7 +2,7 @@
 //
 // Each line is "<time> horus <LEVEL> <message>", on stderr. HORUS_LOG_FILE adds
 // a copy of the log in that file, for a harness that hides stderr.
-package server
+package mcpserver
 
 import (
 	"fmt"

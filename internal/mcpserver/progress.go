@@ -1,5 +1,5 @@
 // Progress notifications. Part of the port of horus/server.py (_reporter).
-package server
+package mcpserver
 
 import (
 	"context"

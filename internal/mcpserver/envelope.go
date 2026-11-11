@@ -1,6 +1,6 @@
 // The envelope that every tool returns, and the guard around each call. Part
 // of the port of horus/server.py (_ok, _fail, _guard).
-package server
+package mcpserver
 
 import (
 	"bytes"

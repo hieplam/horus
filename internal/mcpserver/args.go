@@ -1,7 +1,7 @@
 // The arguments of a tool call: checked against the fields of the tool, as
 // pydantic checks them in horus/server.py. Part of the port of
 // horus/server.py.
-package server
+package mcpserver
 
 import (
 	"bytes"

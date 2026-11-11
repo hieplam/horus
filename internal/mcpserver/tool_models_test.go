@@ -2,7 +2,7 @@
 // uninstall_workflow through MCP. The test binary is also the `horus workflow`
 // child, so every call starts a real child process. All files are in a
 // temporary sandbox. Part of the port of horus/server.py.
-package server
+package mcpserver
 
 import (
 	"bytes"

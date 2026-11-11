@@ -1,7 +1,7 @@
 // JSON schemas of the tools, written as pydantic writes them for the result
 // models and the arguments of horus/server.py. Part of the port of
 // horus/server.py. The test compares them with testdata/tools.golden.json.
-package server
+package mcpserver
 
 import "strings"
 

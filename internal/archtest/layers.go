@@ -35,7 +35,6 @@ var layers = map[string]string{
 
 	// Phase 1 packages. Each one has the layer of the package that its code
 	// moves to. Remove a line when its package is gone.
-	"internal/server":                  handler, // internal/mcpserver
 	"internal/models":                  service, // internal/provision
 	"internal/scripts/checksetup":      service, // internal/doctor
 	"internal/scripts/downloadmodel":   adapter, // internal/download

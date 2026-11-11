@@ -1,5 +1,5 @@
 // The tool describe_workflow. Part of the port of horus/server.py.
-package server
+package mcpserver
 
 import (
 	"context"

@@ -110,3 +110,20 @@ Planted files: 34 under `internal/archtest/testdata/planted`. 23 are bad (os-bou
 Ratchet: rules that a test enforces 0 -> 3. Baseline of the next tasks: `os-boundary` 19 files, `direction` 10 pairs, `token` 4 files.
 
 Side measure: `layout` now reports 10 listed packages missing (11 at T0), because `internal/archtest` exists.
+
+## T3
+
+Red, before the move: `go list ./internal/mcpserver` (exit 1):
+
+    stat ...\internal\mcpserver: directory not found
+
+Green: `go list ./internal/mcpserver` prints `github.com/hieplam/horus/internal/mcpserver`. `go list ./internal/server` prints `stat ...\internal\server: directory not found`. `go test ./...` passes. `python tests/mcp_contract.py --server-cmd <bin>/horus.exe mcp` prints `contract: 30 of 30 passed`. The golden file shows as a pure rename: `internal/{server => mcpserver}/testdata/tools.golden.json | 0`.
+
+Green: `python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>/horus.exe mcp`:
+
+    FAIL  layout - 11 packages off target, 9 listed packages missing
+    PASS  same-behaviour - contract: local 30 of 30; CI part skipped (--no-ci); parity: 17 of 17; go test ./...: ok; 160 Go test functions (baseline 157); 0 changed contract files
+
+Ratchet: packages off target 12 -> 11.
+
+Decision: `internal/archtest/layers.go` already lists `internal/mcpserver` as a handler in the target table. So the line `internal/server` was deleted, not renamed. The entry of `allow_direction.txt` was renamed to `internal/mcpserver -> internal/comfy`.

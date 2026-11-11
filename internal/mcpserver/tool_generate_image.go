@@ -1,5 +1,5 @@
 // The tool generate_image. Part of the port of horus/server.py.
-package server
+package mcpserver
 
 import (
 	"context"

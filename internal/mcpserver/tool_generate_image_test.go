@@ -1,6 +1,6 @@
 // Tests of the tool generate_image through MCP, against a fake ComfyUI on an
 // ephemeral port. Part of the port of horus/server.py.
-package server
+package mcpserver
 
 import (
 	"context"

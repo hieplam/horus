@@ -10,4 +10,4 @@ internal/scripts/register -> os/exec
 internal/scripts/runillustration -> internal/comfy
 internal/scripts/workflow -> internal/scripts/downloadmodel
 internal/scripts/workflow -> net/http
-internal/server -> internal/comfy
+internal/mcpserver -> internal/comfy

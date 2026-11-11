@@ -1,6 +1,6 @@
 // Tests of the port of horus/server.py: the tool list against the golden file
 // made from the Python server, and the SDK features that the port needs.
-package server
+package mcpserver
 
 import (
 	"bytes"

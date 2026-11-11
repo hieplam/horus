@@ -1,0 +1,9 @@
+﻿FAIL  layout - 12 packages off target, 11 listed packages missing
+PASS  same-behaviour - contract: local 30 of 30; CI part skipped (--no-ci); parity: 17 of 17; go test ./...: ok; 157 Go test functions (baseline 157); 0 changed contract files
+FAIL  os-boundary - missing: internal/archtest (task T1); allow list length unknown
+FAIL  direction - missing: internal/archtest (task T1); allow list length unknown
+FAIL  process-tree - missing: internal/platform (task T2); 8 taskkill references
+FAIL  backend - missing: internal/backend (task T7)
+FAIL  token - missing: internal/archtest (task T1); allow list length unknown
+FAIL  commands - missing: internal/cli, internal/doctor (tasks T8 and T9)
+goal: 1 of 8 rows passed

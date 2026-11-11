@@ -9,6 +9,7 @@
 //   - IsRooted, VenvBin, ExeName and PythonLauncher give the paths and the
 //     program names of this OS.
 //   - BlockDelete makes the delete of a file fail, for a test.
+//   - ErrNotSupported is the error of a step that this OS does not have yet.
 //
 // This package is a base package: it imports no other horus package.
 package platform
@@ -48,6 +49,10 @@ var EndWait = 3 * time.Second
 
 // ErrBadTree is the error of EndTree for an id that StartTree cannot make.
 var ErrBadTree = errors.New("not the id of a process tree")
+
+// ErrNotSupported is the error of a step that horus cannot do on this OS
+// yet, for example the ComfyUI backend on macOS (Phase 3).
+var ErrNotSupported = errors.New("not supported on this OS yet")
 
 // NoConsole makes cmd start without a console window. It does nothing on
 // macOS and Linux, because they open no window for a child.

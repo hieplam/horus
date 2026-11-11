@@ -1219,4 +1219,4 @@ Stub check 2: `InstallComfyMCP` looks on the real PATH (`platform.Programs{}.Loo
         comfymcp_test.go:202: The Python Launcher (py.exe) was not found. Install Python 3.12 from python.org.
     FAIL	github.com/hieplam/horus/internal/provision	0.580s
 
-Ratchet: places where a service parses the text of an adapter or reaches `os/exec` through a base package: 2 -> 0. Go test functions (`git grep -h "^func Test" -- '*.go' | wc -l`): 211 -> 216 after the rebase on `cd766b4` (210 -> 215 on `d9827a2`).
+Ratchet: places where a service parses the text of an adapter or reaches `os/exec` through a base package: 2 -> 0. Go test functions (`git grep -h "^func Test" -- '*.go' | wc -l`): 212 -> 217 after the rebase on `e8cfd6b` (210 -> 215 on `d9827a2`).

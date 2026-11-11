@@ -1,0 +1,22 @@
+# Rule os-boundary: the files outside internal/platform and internal/backend
+# that hold code for one operating system today. One file on each line.
+# This list only becomes shorter: remove a line when its file is clean.
+internal/comfy/start_unix.go
+internal/comfy/start_windows.go
+internal/models/kill_unix.go
+internal/models/kill_windows.go
+internal/scripts/checksetup/checksetup.go
+internal/scripts/downloadmodel/freespace_other.go
+internal/scripts/downloadmodel/freespace_unix.go
+internal/scripts/downloadmodel/freespace_windows.go
+internal/scripts/installcomfymcp/installcomfymcp.go
+internal/scripts/installcomfymcp/installcomfymcp_test.go
+internal/scripts/installcomfyui/diskfree_other.go
+internal/scripts/installcomfyui/diskfree_windows.go
+internal/scripts/installcomfyui/installcomfyui.go
+internal/scripts/register/register_test.go
+internal/scripts/startcomfyui/detach_unix.go
+internal/scripts/startcomfyui/detach_windows.go
+internal/scripts/startcomfyui/startcomfyui.go
+internal/scripts/workflow/files.go
+internal/scripts/workflow/workflow_test.go

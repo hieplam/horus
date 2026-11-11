@@ -11,25 +11,81 @@ Terms:
 - **Workflow:** one image model and its ComfyUI graph, a folder under `workflows/`. A workflow has no style of its own. The server offers each folder that has a `manifest.json`.
 - **Envelope:** the one result shape that every tool returns (below).
 
+Four parts take part. The **agent** calls the tools. **`horus mcp`** is the
+server that answers. **`horus workflow`** is another copy of the same program
+that the server starts as a **child process** for one job and waits for. It does
+the work on model files. **ComfyUI** is the program that makes the picture.
+
+Each diagram below is one thing that an agent asks for, in order from top to
+bottom. A line is an action, named by what it does.
+
+### 1. The agent asks what horus can do (`list_workflows`, `describe_workflow`)
+
 ```mermaid
-flowchart LR
-  agent[Any agent, any repo] -->|MCP over stdio| horus[horus mcp]
-  horus -->|reads| wf[workflows/*/manifest.json]
-  horus -->|HTTP 127.0.0.1:8188| comfy[ComfyUI]
-  horus -->|list, check, install, remove: child process| wfcmd[horus workflow]
-  horus -.->|ComfyUI does not answer: child process, Windows only| start[horus start-comfyui]
-  start -->|starts| comfy
-  wfcmd -->|download, token only in a header| hf[huggingface.co]
-  wfcmd -->|writes| models[(Model files)]
-  comfy -->|loads| models
+sequenceDiagram
+  participant A as Agent
+  participant S as horus mcp
+  participant W as horus workflow (child)
+  A->>S: call list_workflows
+  S->>S: read workflows/*/manifest.json (title, summary, sizes)
+  S->>W: start "horus workflow list -json"
+  W-->>S: print HORUS_JSON with the install state of each workflow
+  S-->>A: return the list: for each workflow, installed or not
+  A->>S: call describe_workflow
+  S->>W: start "horus workflow check -quick -json"
+  W-->>S: print HORUS_JSON with the state of each model file
+  S-->>A: return the manifest and the state of each file
 ```
 
-A child process is another copy of the same `horus` program that the server
-starts for one job and waits for. `horus workflow` does all the work on model
-files (where a file lives, the SHA-256 check, the download). The server reads
-only its last output line, `HORUS_JSON {...}`. This keeps `HF_TOKEN` out of the
-server process, and a cancelled install stops the child and leaves the `.part`
-file for the next install to resume.
+### 2. The agent installs the model files (`install_workflow`)
+
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant S as horus mcp
+  participant W as horus workflow (child)
+  participant H as huggingface.co
+  participant D as Model files on disk
+  A->>S: call install_workflow
+  S->>W: start "horus workflow install -json"
+  W->>H: download each file (the token goes only in a header)
+  W->>D: write file.part, check size and SHA-256, rename to the final name
+  S-->>A: send a progress message every 5 s while W runs
+  W-->>S: print HORUS_JSON with the result of each file
+  S-->>A: return installed, or an error code
+  Note over S,W: If the agent cancels, S kills W. The .part file stays and the next install resumes it.
+```
+
+`uninstall_workflow` works the same way with `horus workflow remove`: the child
+deletes the files and prints one `HORUS_JSON` line.
+
+### 3. The agent makes a picture (`generate_image`)
+
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant S as horus mcp
+  participant C as ComfyUI (127.0.0.1:8188)
+  participant F as Output folder
+  A->>S: call generate_image with a subject
+  S->>C: ask GET /system_stats: are you running?
+  opt ComfyUI does not answer
+    S->>C: start it with the child "horus start-comfyui" (Windows only)
+  end
+  S->>C: ask GET /object_info: do you list the model files of this workflow?
+  S->>C: send the graph with POST /prompt
+  loop every 2 s until the job ends
+    S->>C: ask GET /history/<id>: done yet?
+  end
+  S->>C: fetch the image with GET /view
+  S->>F: save the PNG
+  S-->>A: return the path of the PNG
+```
+
+In this diagram `horus mcp` never starts `horus workflow`: a picture needs the
+model files to be installed already. If ComfyUI does not list them, the call
+returns `WORKFLOW_NOT_INSTALLED`, which tells the agent to run
+`install_workflow` first.
 
 ## Install and connect
 

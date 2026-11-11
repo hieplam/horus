@@ -114,6 +114,9 @@ commands.
 | 2026-11-11 | Issue #89, two more duplicates found by the sweep: `isFile` (3 copies in `backend`, `doctor`, `provision`) became `platform.IsFile`, and `splitLines` with `bom` (2 copies in `catalog` and `modelfiles`) became `catalog.SplitLines` and `catalog.TrimBOM`. `leaf` (2 copies) and `seconds` (2 copies) differ in what they do, so they stay. | Same rule as for `Round1`: one copy in a base package. `leaf` of `catalog` cuts at `/` and `\`, `leaf` of `provision` cuts at `/` only. The two `seconds` return a string and a number. | Agent (#89) |
 | 2026-11-11 | Issue #89: a comment that said "ports horus/x.py" or "as workflow.ps1 does" now says what the code does. A comment that names Python or PowerShell only to explain a kept format stays (`pyRepr`, `PyDumps`, `psString`, the casts of PowerShell in `catalog/workflowdir.go`), because those rules still shape the output and the golden files. The comment of a golden file says that the first version of horus wrote it. `internal/herr/herr_test.go` keeps `.ps1` in its code, because the test checks that no `next_step` names a script. | The comment must be true. A true comment about a kept format explains why. | Agent (#89) |
 | 2026-11-11 | Issue #89: `Entry` and `Status` of `internal/comfy` became `historyEntry` and `jobStatus`, and `HTTPError` became `httpError`. Their only users are in the package. | The issue lists them as exports that no other package uses. | Agent (#89) |
+| 2026-11-11 | T11: plan step 2 names "the user-scope `horus` MCP server". The run used `claude -p --mcp-config <file> --strict-mcp-config` with a config of its own that starts the fresh binary of `d9827a2` with `mcp`, and the settings of the port 8189 method. Only the tools `list_workflows`, `describe_workflow` and `generate_image` were allowed, and no built-in tool. | The user-scope entry runs `~\go\bin\horus.exe`, which a task must not replace (no `go install`), and it reaches the owner's ComfyUI on port 8188, which must get no job (T7 decision). The same server code runs through the same harness. | Agent (T11) |
+| 2026-11-11 | T11: three designs that the earlier tasks recorded are accepted, not filed: the handlers of `install-comfyui`, `start-comfyui` and `stop-comfyui` call the adapter `backend` through `cli.Backend` (T7); `download-model` keeps its handler in `internal/download` (T6); the service `generate` has the pass-through methods `Running` and `FreeMemory` (T5). | Each one has a recorded reason inside the design rules: a service method that only passes the call on hides nothing (design rule 1), and the token rule keeps the flag `-token-env-var` in `internal/download`. The calls still go one way. | Agent (T11) |
+| 2026-11-11 | T11: each design defect of part C is an issue that blocks T11 (#86 to #90). The docs defect of part A threatens no goal row, so it is a follow-up outside the epic (#91). | Task brief: a defect against a goal row or a design rule blocks the task. "I would have done it differently" is not a defect. | Agent (T11) |
 
 ## Baseline
 
@@ -1317,3 +1320,224 @@ Ratchet (numbers from commands, on `72a47c5` and after the change):
 | Definitions of the helpers `isFile`, `splitLines`, `round1` and `bom` | `git grep -nE '^func (isFile\|IsFile\|splitLines\|SplitLines\|[rR]ound1)\b\|^var bom' -- '*.go' \| wc -l` | 10 | 4 |
 
 The 4 comments that remain are in `internal/herr/herr_test.go`: the test checks that no `next_step` names a `.ps1` script. The 75 names that remain are the types, interfaces and sentinel errors in signatures, the groups of values, and the names that a test of another package uses (see the Decisions rows). The walk matches a name by `pkg.Name`, so a type that other packages use only through an interface is counted. That is why 75 is not 0.
+
+## T11
+
+Result: the commands, the docs and the MCP tools do what the owner ratified. A real agent harness listed the workflows, read the rules, got an error that it could act on, and made one image that shows the subject. The design review found 5 defects against the design rules (#86 to #90). They block T11. One docs defect is a follow-up outside the epic (#91).
+
+Fresh build of `origin/main` = `d9827a2`, in a worktree:
+
+    go build -o bin/ ./cmd/horus
+    go version -m bin/horus.exe
+        build	vcs.revision=d9827a23f20ded61ff324c60195b24bc2d8da93c
+        build	vcs.modified=false
+
+Every command below ran with `HORUS_ROOT` = the main checkout (it holds `.env`; nothing there changed). The owner's ComfyUI answered on port 8188 the whole time (ComfyUI 0.44.0, pid 14432 before and after each step).
+
+### Part A: a new command-line user
+
+`horus -h` (exit 0):
+
+    Usage: horus <command> [flags]
+
+    Commands:
+      check-setup         one PASS or FAIL line for each check of the setup
+      doctor              one PASS or FAIL line for each check of the setup
+      download-model      download one model file with size and SHA-256 checks
+      errors              print the table of error codes (-json for JSON)
+      install-comfy-mcp   install comfy-mcp and comfy-cli in their own venv
+      install-comfyui     install the ComfyUI portable build, Windows only
+      mcp                 serve the 5 horus tools over stdio (MCP)
+      new-workflow        make a new workflow folder from the template
+      register            register horus mcp with Claude Code
+      run-illustration    make one image without MCP
+      setup               print what this machine needs for a workflow; -yes installs it
+      start-comfyui       start ComfyUI and wait for its server, Windows only
+      stop-comfyui        stop the ComfyUI that horus started, Windows only
+      sync-workflows      copy the workflows into the ComfyUI page
+      workflow            list, check, install or remove the model files of a workflow
+
+    Run horus <command> -h for the flags of a command.
+
+`horus <command> -h` for each of the 15 commands: each exits 0, and each text names the flags that the command reads. The first lines (trimmed; the full texts list every flag):
+
+    check-setup -h        Usage of horus check-setup:  -comfyui-dir, -models-dir, -quick, -server-url (default "http://127.0.0.1:8188"), -text-encoder-dir, -venv-path, -workflow      exit 0
+    doctor -h             Usage of horus doctor: (the same 7 flags)                                                                                                                 exit 0
+    download-model -h     Usage: horus download-model -url <https address> -destination <file> -expected-bytes <n> -sha256 <hex>                                                    exit 0
+    errors -h             Usage of horus errors:  -json  print the table as one JSON object: code -> retryable, action_by, next_step                                               exit 0
+    install-comfy-mcp -h  Usage of horus install-comfy-mcp:  -python-version (default "3.12"), -venv-path                                                                            exit 0
+    install-comfyui -h    Usage of horus install-comfyui:  -archive-path, -install-dir, -keep-archive, -seven-zip                                                                  exit 0
+    mcp -h                Usage: horus mcp / Serves list_workflows, describe_workflow, install_workflow, uninstall_workflow and generate_image over stdio.                         exit 0
+    new-workflow -h       Usage of horus new-workflow:  -description, -model-family (default "TBD"), -name, -workflows-dir                                                        exit 0
+    register -h           Usage of horus register:  -horus-path, -root                                                                                                            exit 0
+    run-illustration -h   Usage of horus run-illustration:  -height, -out, -seed, -steps, -style-file, -subject, -subject-file, -timeout, -url, -width, -workflow                 exit 0
+    setup -h              Usage: horus setup <workflow> [-yes] [flags] / Print what this machine needs for the workflow. With -yes, install it: ComfyUI first, then the model files.  exit 0
+    start-comfyui -h      Usage of horus start-comfyui:  -comfyui-dir, -server-url, -timeout-seconds (default 300)                                                                 exit 0
+    stop-comfyui -h       Usage of horus stop-comfyui:  -comfyui-dir, -server-url                                                                                                  exit 0
+    sync-workflows -h     Usage of horus sync-workflows:  -comfyui-dir, -force, -workflows-dir                                                                                    exit 0
+    workflow -h           Usage: horus workflow list|check|install|remove [<workflow>] [flags]                                                                                     exit 0
+
+`horus doctor` (exit 0). `horus check-setup` printed the same lines (`diff` printed nothing, exit 0):
+
+    PASS  ComfyUI folder - <ComfyUI dir>
+    PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+    PASS  comfy-mcp environment - ~\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+    PASS  comfy-cli - ~\.venvs\comfy-mcp\Scripts\comfy.exe
+    PASS  .mcp.json - command points at ~\.venvs\comfy-mcp\Scripts\comfy-mcp.exe, COMFY_BIN at ~\.venvs\comfy-mcp\Scripts\comfy.exe
+    PASS  horus on PATH - ~\go\bin\horus.exe
+    PASS  .mcp.json horus - command points at ~\go\bin\horus.exe
+    All checks passed.
+
+`horus doctor -workflow it-illustration -quick` (exit 0): the same 7 lines, then the 9 lines of the workflow check below with an indent of 6 spaces, then:
+
+    PASS  models for 'it-illustration' - all files present, size checked (the SHA-256 is not checked; drop -quick)
+    All checks passed.
+
+`horus workflow list` (exit 0):
+
+    it-illustration
+      Text in, image out. The picture is 1536x1024. The model is FLUX 3 Image Klein (int8 build) running in ComfyUI. This is the first horus example.
+      Models: 3 file(s), 11.02 GB (diffusion, text_encoder, vae). Installed: yes (size check).
+
+    Install: horus workflow install <name>    Check: horus workflow check <name>
+
+`horus workflow check it-illustration -quick` (exit 0):
+
+    Checking workflow 'it-illustration': 3 model file(s), size only.
+    OK        diffusion ~\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors (5827874779 bytes)
+    OK        text_encoder ~\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors (4858559240 bytes)
+    OK        vae ~\ComfyUI-models\vae\flux2-vae.safetensors (336211292 bytes)
+    OK        models.json lists all 3 model file(s) that workflow.json loads
+    OK        the server has all 10 node classes of workflow.json
+    OK        the server lists flux3-image-klein-int8-convrot.safetensors
+    OK        the server lists qwen3vl_4b_int8_convrot.safetensors
+    OK        the server lists flux2-vae.safetensors
+    OK: workflow 'it-illustration' is ready.
+
+`horus setup it-illustration`, without `-yes` (exit 0):
+
+    Setup of workflow 'it-illustration':
+    PRESENT   ComfyUI in <ComfyUI dir>
+    PRESENT   diffusion flux3-image-klein-int8-convrot.safetensors (5.83 GB) ~\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors
+    PRESENT   text_encoder qwen3vl_4b_int8_convrot.safetensors (4.86 GB) ~\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors
+    PRESENT   vae flux2-vae.safetensors (0.34 GB) ~\ComfyUI-models\vae\flux2-vae.safetensors
+    Plan: 0 steps. Nothing is missing.
+
+`horus errors -json` (exit 0): one JSON object with 21 codes: `BACKEND_NOT_INSTALLED`, `BACKEND_RESTART_REQUIRED`, `BACKEND_UNAVAILABLE`, `CANCELLED`, `CONFIRMATION_REQUIRED`, `DISK_FULL`, `DOWNLOAD_FAILED`, `FILE_CONFLICT`, `FILE_IN_USE`, `GENERATION_FAILED`, `GENERATION_TIMEOUT`, `HF_TOKEN_INVALID`, `INTERNAL`, `INVALID_ARGUMENT`, `LICENSE_CONFIRMATION_REQUIRED`, `LICENSE_NOT_ACCEPTED`, `NODE_PACK_MISSING`, `OUTPUT_EXISTS`, `OUT_OF_MEMORY`, `WORKFLOW_NOT_FOUND`, `WORKFLOW_NOT_INSTALLED`.
+
+Wrong input: `horus nosuch` prints `horus: unknown command "nosuch"` and the usage (exit 2). `horus setup` without a workflow prints its usage (exit 2). `horus workflow check nosuch -quick` prints `FAIL: No workflow 'nosuch'. Known: it-illustration` (exit 1).
+
+`horus stop-comfyui` against the owner's ComfyUI. The proof before the run: `Stop` (`internal/backend/portable.go:476-492`) reads `horus-comfyui.state.json` in the install folder. When no state file names the same address, it returns the refusal before it calls `platform.EndTree`. The owner's install folder had no state file (only the two log files of the T7 run). `TestStopRefusesAComfyUIThatHorusDidNotStart` passed on this commit (`--- PASS ... (1.91s)`). The run:
+
+    pid on port 8188 before: 14432
+    horus stop-comfyui
+    horus stop-comfyui: horus did not start the ComfyUI that answers at http://127.0.0.1:8188 (<ComfyUI dir>\horus-comfyui.state.json holds no ComfyUI that horus started), so it does not stop it. Stop it where it was started.
+    exit 1
+    pid on port 8188 after: 14432
+
+**`README.md` and `docs/setup.md` as a reader.** Every relative link of `README.md`, `docs/setup.md` and `docs/mcp.md` points at a file that exists (17 links), and the 3 anchors that they name exist (`#step-0-get-the-horus-program`, `#manage-workflows-list-install-check-remove`, `#optional-the-image-tool-for-agents-in-other-folders`). Every path and package that the text names exists: `.env.example`, `.mcp.json`, `workflows/it-illustration/{models.json,manifest.json,README.md}`, `workflows/_template/README.md`, `tests/{mcp_contract.py,workflow_parity.py,requirements.txt}`, `scripts/lint-public.py`, `tools/goal_check.py`, and the packages `internal/{mcpserver,provision,generate,modelfiles,download,comfy,backend,herr,archtest}`. Every command that they name exists in `horus -h`, and the read-only ones behave as the text says (above). Commands that change files were not run on this PC (`install-comfyui`, `workflow install`, `workflow remove`, `register`, `install-comfy-mcp`, `sync-workflows`, `setup -yes`); their behaviour is proven by the Go tests and the parity test. The mismatches (#91, a follow-up):
+
+- `docs/setup.md:18`: "Two commands are Windows-only in this phase: `horus install-comfyui`, `horus start-comfyui` and `horus stop-comfyui`." It names three.
+- `docs/setup.md:112`: "`horus setup it-illustration` does steps 1 and 4 in one command." It does not run `start-comfyui` (step 1), `sync-workflows` or `doctor -workflow` (step 4). The same paragraph says only that it does not start ComfyUI.
+- The help texts write the home folder as `<home>/ComfyUI_windows_portable` (6 commands) and as `~/ComfyUI_windows_portable` (`setup`, `workflow`).
+- Known before (#82): `horus doctor -server-url` defaults to `http://127.0.0.1:8188`, not to `HORUS_COMFYUI_URL`.
+
+### Part B: a new agent through MCP
+
+Harness: Claude Code 2.1.322, `claude -p` in an empty folder of the scratch area, with `--mcp-config <scratch>\mcp-horus.json --strict-mcp-config --tools "" --allowedTools mcp__horus__list_workflows,mcp__horus__describe_workflow,mcp__horus__generate_image --disallowedTools mcp__horus__install_workflow,mcp__horus__uninstall_workflow --output-format stream-json --verbose`. The config starts `<worktree>\bin\horus.exe mcp` with `HORUS_ROOT` = the main checkout, `HORUS_COMFYUI_DIR=<scratch>\comfy8189`, `HORUS_COMFYUI_URL=http://127.0.0.1:8189`, `HORUS_OUTPUT_DIR=<scratch>\out` and `HORUS_LOG_FILE`. The session saw 3 tools and the server `horus` as `connected`.
+
+`<scratch>\comfy8189` is the second install folder of the T7 method: a junction `python_embeded` to the owner's install, a folder `ComfyUI` with 22 junctions (each folder of the owner's `ComfyUI` except `user`, `input`, `output`, `temp`), 4 empty folders of its own and 36 copied small files.
+
+A first try from PowerShell 5.1 got "Claude requested permissions to use mcp__horus__list_workflows, but you haven't granted it yet" for each call: PowerShell 5.1 drops the empty argument of `--tools ""`, so the flags after it were read wrong. The runs below used `sh`. This is a fault of the command line, not of horus.
+
+**Session 1 (19:45, 16 s): list, describe, one error on purpose.** The prompt, in plain words: list the workflows, describe it-illustration and say what sizes it allows and how to write a subject, then call `generate_image` with width 4096 and height 1024 and show the error fields. The calls and the results (trimmed):
+
+    CALL list_workflows {}
+    RESULT {"ok":true,"result":{"workflows":[{"name":"it-illustration","title":"FLUX 3 Image Klein, text to image", ... "install_state":"installed","download_bytes":11022645311}],"backend_running":false},"error":null}
+    CALL describe_workflow {"workflow": "it-illustration"}
+    RESULT {"ok":true,"result":{"name":"it-illustration", ... "output":{"format":"png","default_width":1536,"default_height":1024,"min_side":512,"max_side":1536,"multiple_of":16, ...},"subject":{"min_chars":40,"max_chars":4000, ...
+    CALL generate_image {"workflow": "it-illustration", "subject": "a small test picture of one red cube on a white table", "width": 4096, "height": 1024}
+    RESULT {"ok": false, "result": null, "error": {"code": "INVALID_ARGUMENT", "message": "width 4096 is not allowed", "retryable": false, "action_by": "caller",
+            "next_step": "Fix the argument named in details.field, then call again.", "details": {"field": "width", "got": 4096, "max": 1536, "min": 512, "multiple_of": 16}}}
+
+The agent read it correctly without help: "`action_by: "caller"` means that I must change my arguments", and it proposed 1536 x 512 (the nearest allowed shape) or the tested 1536 x 1024. The error has a code, `action_by` and a `next_step` that a new agent can act on, and `details` holds the limits. The server log has `call generate_image failed: INVALID_ARGUMENT: width 4096 is not allowed`. The argument check runs before any start of ComfyUI, so this call used no GPU.
+
+GPU before the image (`nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader`): `0 MiB, 0 %` at 19:43 and at 19:46. Ports at 19:46: 8188 pid 14432, 8189 closed.
+
+**Session 2 (19:46:39 to 19:50:47): one image.** The prompt asked for one picture with it-illustration, the default size, seed 31, and this subject, which T11 wrote:
+
+> A flat vector illustration with clean dark navy outlines and solid flat colours on a plain cream background. On the left side, a tall orange lighthouse with one wide white stripe stands on a small grey rock. On the right side, a small teal sailboat with one white triangular sail floats on calm light-blue water. In the top center, a round yellow sun shines. Between the lighthouse and the boat, three white seagulls fly in a row. The picture contains no text of any kind: no letters, no digits, no symbols and no logos.
+
+    CALL describe_workflow {"workflow": "it-illustration"}
+    CALL generate_image {"workflow": "it-illustration", "subject": "<the subject above, exactly>", "seed": 31}
+    RESULT {"ok":true,"result":{"workflow":"it-illustration","path":"<scratch>\\out\\it-illustration\\20261111T124645Z-31.png","bytes":1289411,"width":1536,"height":1024,"seed":31,
+            "seconds":236.9,"backend_seconds":213.5,"started_backend":true,"job_id":"2b693af1-c509-4f3d-a199-feccff4e06c5"},"error":null}
+    END success, 3 turns, 246693 ms
+
+The call waited for the PNG and returned its path in the same session (no move to a background task). The server log has 29 progress lines. The backend started ComfyUI on port 8189 (`started_backend: true`).
+
+The image (`<scratch>\out\it-illustration\20261111T124645Z-31.png`, 1536 x 1024), opened and judged: on the left, a tall orange lighthouse with one wide white stripe stands on grey rocks at the water line. On the right, a teal boat with one white triangular sail floats on light-blue water, and a round yellow sun is at the top center. Three white seagulls fly in a row between them, on a cream background with dark navy outlines and no text. It shows every object, colour and position of the subject. The boat is medium-sized rather than small.
+
+After the run (19:51), with the same settings:
+
+    horus stop-comfyui
+    OK: stopped the ComfyUI that horus started at http://127.0.0.1:8189 (process 13376).
+    exit 0
+    8189 listeners: 0
+    processes with comfy8189 in the command line: 0
+    port 8188 pid: 14432
+    nvidia-smi: 0 MiB, 0 %
+
+So the ComfyUI that the server started kept running after `claude -p` and `horus mcp` ended, and `Backend.Stop` ended it from another process. T7 and T10 could not show this through MCP, because the Python MCP client ends its Job Object.
+
+Cleanup: the 23 junctions (22 + 1) were deleted one at a time with `(Get-Item <junction>).Delete()`, which removes only the link. A recursive listing then found 0 links. The 43 files were deleted one by one, then the 8 empty folders, each with a non-recursive delete. After the cleanup:
+
+    Test-Path <ComfyUI dir>\ComfyUI\main.py              True
+    Test-Path <ComfyUI dir>\python_embeded\python.exe    True
+    entries in <ComfyUI dir>\ComfyUI\models              26
+    horus workflow check it-illustration -quick          exit 0, the same 9 lines as in part A:
+      5827874779, 4858559240 and 336211292 bytes, equal to workflows/it-illustration/models.json
+    port 8188 pid: 14432
+
+### Part C: the design, package by package
+
+Exported surface from `go doc -short ./internal/<pkg>` (functions, types, and the methods of each interface). "Used" means that the service calls the method, and "fake" names the test double.
+
+| Package | Layer | What it hides | Exported surface | Verdict |
+|---|---|---|---|---|
+| `cmd/horus` | wiring | The creation of each adapter for the flags of a command. | none (`main.go`: 15 commands; `wiring.go`: 128 lines) | The glue `downloader` (a copy of the error kind) is fine. The glue `workflowCheck` builds a command line, calls the handler `cli.Workflow` and splits its text into lines for the doctor service: logic in the wiring, and a call from a service back into a handler (#86). |
+| `internal/cli` | handler | Flags, text lines, exit codes. | 13 handler functions, `Illustrate`, 5 interfaces (`Backend` 3, `Doctor` 1, `Images` 1, `Setup` 4, `SetupSteps` 2), 6 structs, `Mark` | Flags in, text out. Each interface has a fake in its tests. The calls to the adapter `backend` through `cli.Backend` are a recorded T7 design (see Decisions). |
+| `internal/mcpserver` | handler | The MCP protocol: schemas, envelope, progress, the mapping of typed results to the 21 codes. | `New`, `Run`, 2 interfaces (`Images` 3, `Setup` 5), 8 result types, 3 values | The error mapping is protocol work and fits here. `describe_workflow` has its own copy of the `install_state` rule of `provision.Row.State` (#88). |
+| `internal/generate` | service | The steps of one image: checks, graph, wait loop, time limits, PNG file. | `New`, `Service` (`Generate`, `Running`, `FreeMemory`), `ComfyUI` 9, `Backend` 1, `Request`, `Result`, `Options`, `Report`, `Validate`, 3 vars | `ComfyUI` has 9 methods and the service uses all 9 (`IsUp`, `Address`, `ObjectInfo`, `Submit`, `History`, `QueueState`, `Cancel`, `View`, `Free`); fake `fakeComfy` implements all 9. `Backend.Start` is used; fake `fakeBackend`. Defect: `QueueState` returns the text code `pending:<n>` that the service and the adapter parse (#90). `Validate` is exported but returns an unexported type (#89). |
+| `internal/provision` | service | Which file to download, where, which folder to map, which file may be deleted, the plan of `horus setup`. | `Service` (`List`, `Check`, `Install`, `Remove`, `PartSize`, `Plan`, `RunPlan`), `InstallComfyMCP`, `Register`, `CheckRoot`, 5 interfaces, 14 types | `ModelFiles` 7 (all used; fakes `memFiles`, `sizedFiles`, `diskFiles`), `Downloader` 1 (`fakeDownloader`, `slowDownloader`), `ComfyUI` 1 (`fakeComfy`, `noAnswer`), `Backend` 2 (`recordBackend`), `Programs` 2 (cli `fakePrograms`). The decisions are pure functions (`removeDecision`, `fileCheck`, `mappings`, `steps`): good. Defects: the service picks lines of the downloader's text with a regular expression, and it finds Python through `platform.PythonLauncher`, which calls `exec.LookPath` (#87). |
+| `internal/doctor` | service | The 8 checks of `horus doctor`. | `New`, `Service.Check`, `Failed`, 4 interfaces (`Server` 1, `Install` 1, `Programs` 1, `Models` 1), `Options`, `Result` | All 4 interfaces used and faked. Defect: `Models.Check` returns the text lines of another command (#86). |
+| `internal/devtools` | service | The new-workflow template and the copy into the ComfyUI pane. | `NewWorkflow`, `Sync`, `Install` 1, `Copy`, 4 consts | Fine. File work only, one interface with a fake. |
+| `internal/comfy` | adapter | The ComfyUI REST API, its JSON, the `client_id`, the mapping of a failed job to a horus error. | `Client` (12 methods), `New`, plus 7 names and 2 methods that no other package uses | Deep for its callers. 9 exports have no caller outside the package, and `Round1` is a second copy of `generate.round1` (#89). |
+| `internal/download` | adapter | Resume, size and SHA-256 checks, the token and its hosts. | `Download`, `Main`, `TokenAllowed`, `Options`, `Result`, `Error`, `Kind`, `SpareBytes` | Fine; the only reader of `HF_TOKEN`. Two comments still say that `horus/models.py` reads its text (#89). |
+| `internal/modelfiles` | adapter | The folder order, `extra_model_paths.yaml` with its backup, hashes, delete of a read-only file. | `Store` with 7 methods | Fine. One dead function, `isFile` (#89). |
+| `internal/backend` | adapter | 7-Zip, the pinned archive, the start of the process tree, the state file, the refusal of `Stop`. | `Backend` 5, `New`, `Portable`, `Layout`, `NotInstalledError`, consts | Fine. `Stop` refused the owner's ComfyUI on this PC (part A) and stopped its own (part B). |
+| `internal/platform` | base | Job Objects and process groups, free space, OS paths. | 9 functions, `Programs` (2 methods), `Command`, 4 error values, `EndWait` | One free-space function for its 2 callers. `NoConsole` has no caller (#89). `PythonLauncher` runs `exec.LookPath` for a service (#87). |
+| `internal/catalog` | base | `manifest.json` and `models.json`, and the rules of the old script for each key. | `Workflow`, `All`, `Get`, `DetailOf`, `SummaryOf`, `Folders`, `FindModelList`, `ReadModelList`, `ReadGraphRefs`, `Object`, 10 types | Two readers of `models.json` with their own error texts. A T6 decision keeps both, because the golden files hold both texts. Fine. |
+| `internal/graph` | base | The UI-to-API graph conversion. Pure. | `UIToAPI`, `MissingModelFiles`, `API`, `Node`, `ObjectInfo`, `Job`, `Image`, `PyDumps`, `PyStr`, `Truthy`, `IsModelFile`, 3 tables | Fine. `Job` and `Image` are plain types that the service and the adapter share (T5 decision). |
+| `internal/herr` | base | The 21 codes and the envelope error. | `Error`, `New`, `Codes`, `Lookup`, `TableJSON`, `Spec`, `Info` | Fine. |
+| `internal/settings` | base | Environment, `.env`, the repo root. | 10 functions | Fine. One root finder and one `.env` parser; `internal/download` reads the token with `ParseEnv`. |
+| `internal/archtest` | test | The rules of the spec. | `Scan`, `Problems`, `Rules`, `File`, `Violation`, 4 consts | Fine. Two places hold the rules by the letter only: #86 (a service gets the text of a handler at run time) and #87 (a service reaches `os/exec` through a base package). |
+
+Checked and not found: an interface with no test double (each of the 19 interfaces of the services and the handlers has a fake in its tests, except `mcpserver.Setup`, whose tests use the real `provision.Service` on fake adapters), a second free-space check (one implementation in `platform`), a second way to find the repo root (only `settings.Root`), a second `.env` parser. `go vet ./...` is clean.
+
+### Findings
+
+Blocks #66 (each is a sub-issue of #52 and blocks #66):
+
+- #86 `doctor`: the model check runs the handler of `horus workflow` and gives its text lines to the doctor service. Design rule 5, row `direction`.
+- #87 `provision`: the service reads the text lines of the downloader, and finds Python through `exec.LookPath` in `internal/platform`. Design rules 2 and 4, row `direction`.
+- #88 `mcpserver`: `describe_workflow` has its own copy of the `install_state` rule. Design rules 1 and 5.
+- #89 dead code and exports that no other package uses, left by the port (`comfy`, `generate`, `platform`, `modelfiles`, `download`). Design rules 1 and 2.
+- #90 `generate` and `comfy`: `QueueState` is a text code that two packages parse. Design rule 2.
+
+Follow-up outside the epic:
+
+- #91 `docs/setup.md` and the help texts: three sentences that the commands contradict.
+- #82 (filed by T10) `horus doctor -server-url` ignores `HORUS_COMFYUI_URL`.
+
+Ratchet: open defects against the goal rows and the design rules: unknown before T11 -> 5 found and open (#86 to #90). T11 merges when they are 0.

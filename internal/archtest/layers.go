@@ -10,10 +10,10 @@ const (
 	test    = "test" // test support: only a test file can import it
 )
 
-// layers gives the layer of each package, by its path in the module. A
-// package that is not in this table breaks the rule direction.
+// layers gives the layer of each package, by its path in the module: the
+// layer table of the spec. A package that is not in this table breaks the
+// rule direction.
 var layers = map[string]string{
-	// The layer table of the spec.
 	"cmd/horus":                wiring,
 	"internal/cli":             handler,
 	"internal/mcpserver":       handler,
@@ -32,14 +32,6 @@ var layers = map[string]string{
 	"internal/platform":        base,
 	"internal/archtest":        test,
 	"internal/comfy/comfytest": test,
-
-	// Phase 1 packages. Each one has the layer of the package that its code
-	// moves to. Remove a line when its package is gone.
-	"internal/scripts/checksetup":      service, // internal/doctor
-	"internal/scripts/installcomfymcp": service, // internal/provision
-	"internal/scripts/newworkflow":     service, // internal/devtools
-	"internal/scripts/register":        service, // internal/provision
-	"internal/scripts/syncworkflows":   service, // internal/devtools
 }
 
 // mayImport gives, for each layer, the layers of the module that its

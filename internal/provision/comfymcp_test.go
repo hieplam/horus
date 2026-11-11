@@ -1,4 +1,4 @@
-package installcomfymcp
+package provision
 
 import (
 	"bytes"
@@ -8,18 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hieplam/horus/internal/platform"
 )
 
-// The test binary is also the fake Python launcher and the fake python of the
-// venv: when HORUS_FAKE_PY is set, TestMain acts as that program. It runs on
-// Windows, macOS and Linux and writes every call to HORUS_FAKE_RECORD.
-func TestMain(m *testing.M) {
-	if os.Getenv("HORUS_FAKE_PY") != "" {
-		os.Exit(fakePython(os.Args[1:]))
-	}
-	os.Exit(m.Run())
-}
-
+// fakePython is the fake Python launcher and the fake python of the venv. It
+// writes every call to HORUS_FAKE_RECORD.
 func fakePython(args []string) int {
 	if rec := os.Getenv("HORUS_FAKE_RECORD"); rec != "" {
 		if f, err := os.OpenFile(rec, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
@@ -34,7 +28,7 @@ func fakePython(args []string) int {
 	case strings.Contains(joined, "-m venv"):
 		venv := args[len(args)-1]
 		b, _ := os.ReadFile(exe)
-		py := venvPython(venv)
+		py := platform.VenvBin(venv, "python")
 		os.MkdirAll(filepath.Dir(py), 0o755)
 		os.WriteFile(py, b, 0o755)
 	case strings.Contains(joined, "-m pip install"):
@@ -55,35 +49,39 @@ func fakePython(args []string) int {
 	return 0
 }
 
-type rig struct {
-	opts   Options
+type mcpRig struct {
+	opts   ComfyMCPOptions
 	record string
 	out    *bytes.Buffer
 }
 
-func newRig(t *testing.T) *rig {
+func newMCPRig(t *testing.T) *mcpRig {
 	t.Helper()
 	dir := t.TempDir()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &rig{record: filepath.Join(dir, "calls.record"), out: &bytes.Buffer{}}
+	r := &mcpRig{record: filepath.Join(dir, "calls.record"), out: &bytes.Buffer{}}
 	t.Setenv("HORUS_FAKE_PY", "1")
 	t.Setenv("HORUS_FAKE_RECORD", r.record)
-	r.opts = Options{VenvPath: filepath.Join(dir, "venvs", "comfy-mcp"), PythonVersion: "3.12",
+	r.opts = ComfyMCPOptions{VenvPath: filepath.Join(dir, "venvs", "comfy-mcp"), PythonVersion: "3.12",
 		Launcher: []string{exe, "-3.12"}, Stdout: r.out, Stderr: r.out}
 	return r
 }
 
-func (r *rig) calls() []string {
+func (r *mcpRig) install() error {
+	return InstallComfyMCP(context.Background(), platform.Programs{}, r.opts)
+}
+
+func (r *mcpRig) calls() []string {
 	b, _ := os.ReadFile(r.record)
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
 }
 
 func TestMakesTheVenvAndInstallsThePinnedVersions(t *testing.T) {
-	r := newRig(t)
-	if err := Install(context.Background(), r.opts); err != nil {
+	r := newMCPRig(t)
+	if err := r.install(); err != nil {
 		t.Fatal(err)
 	}
 	calls := r.calls()
@@ -115,13 +113,13 @@ func TestMakesTheVenvAndInstallsThePinnedVersions(t *testing.T) {
 }
 
 func TestRunAgainChangesNothing(t *testing.T) {
-	r := newRig(t)
-	if err := Install(context.Background(), r.opts); err != nil {
+	r := newMCPRig(t)
+	if err := r.install(); err != nil {
 		t.Fatal(err)
 	}
 	before := len(r.calls())
 	r.out.Reset()
-	if err := Install(context.Background(), r.opts); err != nil {
+	if err := r.install(); err != nil {
 		t.Fatal(err)
 	}
 	calls := r.calls()[before:]
@@ -134,18 +132,18 @@ func TestRunAgainChangesNothing(t *testing.T) {
 }
 
 func TestPipFailureFails(t *testing.T) {
-	r := newRig(t)
+	r := newMCPRig(t)
 	t.Setenv("HORUS_FAKE_PIPFAIL", "1")
-	err := Install(context.Background(), r.opts)
+	err := r.install()
 	if err == nil || err.Error() != "pip install failed (exit code 9)." {
 		t.Fatalf("error = %v", err)
 	}
 }
 
 func TestFolderThatIsNoVenvFails(t *testing.T) {
-	r := newRig(t)
+	r := newMCPRig(t)
 	os.MkdirAll(r.opts.VenvPath, 0o755)
-	err := Install(context.Background(), r.opts)
+	err := r.install()
 	if err == nil || !strings.Contains(err.Error(), "exists but is not a usable venv") {
 		t.Fatalf("error = %v", err)
 	}
@@ -155,17 +153,10 @@ func TestFolderThatIsNoVenvFails(t *testing.T) {
 }
 
 func TestMissingLauncherFails(t *testing.T) {
-	r := newRig(t)
+	r := newMCPRig(t)
 	r.opts.Launcher = []string{filepath.Join(t.TempDir(), "no-such-python")}
-	err := Install(context.Background(), r.opts)
+	err := r.install()
 	if err == nil || !strings.HasPrefix(err.Error(), "Python 3.12 was not found.") {
 		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestBadFlagExits2(t *testing.T) {
-	var out, errOut bytes.Buffer
-	if code := Run([]string{"-nope"}, &out, &errOut); code != 2 {
-		t.Errorf("exit %d, want 2", code)
 	}
 }

@@ -74,6 +74,20 @@ commands.
 | 2026-11-11 | The tests moved. The 14 install tests and 5 start tests of the old packages are in `internal/backend` (`install_test.go`, `start_test.go`; the install rig is `installRig`). The 2 `TestNotSupportedOffWindows` and 2 `TestBadFlagExits2` became `TestComfyUINotSupportedOffWindows` and `TestComfyUIBadFlagExits2` in `internal/cli`, each for the three commands. Of `internal/comfy`: `TestEnsureUpAutostartOff` is the message check in `TestBackendDownAutostartOff`; `TestEnsureUpWhenUpStartsNothing`, `TestEnsureUpStartFails` and `TestEnsureUpStartsTheServer` became `TestUpBackendStartsNothing`, `TestStartOfAComfyUIThatIsNotInstalled`, `TestFailedStartKeepsTheLastEightLines` and `TestDownBackendStartsOneTime` (`internal/generate`, on a fake backend); `TestStartCommandIsHorusStartComfyUI` became `TestPortFollowsTheSetting` (`internal/backend`); `TestHelperStart` is gone (there is no child). The install check of `TestDirsInTheOrderOfTheSpec` (`internal/modelfiles`) is in `TestInstalledAndLayout`. New: `TestStopEndsTheTreeThatStartStarted`, `TestStopRefusesAComfyUIThatHorusDidNotStart`, `TestStopWithAStaleState`, `TestOtherOSAnswersNotSupported`, `TestComfyUIOutputAndExitCodes`, `TestComfyUIFlagsPickThePlace`. | Go test functions 185 -> 189. | Agent (T7) |
 | 2026-11-11 | `tools/goal_check.py`: with `--real`, the row `backend` also needs `started_backend: true` in the result, so an image from a ComfyUI that already answered does not pass. A new flag `--only <row...>` checks only the rows named. The Phase 1 row `setup-commands` finds `installcomfyui` and `startcomfyui` in `internal/backend`. | The row proves "after a start through the backend". The real run of this PC runs only the row `backend` (`--only backend`): the other rows run `go test ./...` in the environment of the real run (`HORUS_ROOT` of the main checkout), and that is not needed to prove this row. | Agent (T7) |
 | 2026-11-11 | The real run of the row `backend` uses a second ComfyUI on port 8189, from a second install folder that reads the owner's install through junctions (`python_embeded` and each folder of `ComfyUI`, except its own `user`, `input`, `output` and `temp`; the 36 small files of the `ComfyUI` folder are copies). The owner's ComfyUI on port 8188 keeps running. | The owner's ComfyUI is the owner's app: horus must not stop it (standing rule: `Backend.Stop` ends only a ComfyUI that horus started). A second ComfyUI 0.44 from the same folder does not start: "Another ComfyUI is already using this database: '<ComfyUI dir>\ComfyUI\user\comfyui.db'" (first run below). The second folder gives the second ComfyUI its own database. The backend runs the same command line in it, through the same code; only `HORUS_COMFYUI_DIR` and `HORUS_COMFYUI_URL` differ. | Agent (T7) |
+| 2026-11-11 | The Green of T8 is read as: `python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin> mcp` prints PASS for `layout`, `same-behaviour`, `os-boundary`, `direction`, `process-tree` and `token` (6 of 8), and `python tools/goal_check.py --phase 2 --no-ci --real --only commands --server-cmd <bin> mcp` prints `PASS  commands` on this PC. The row `backend` with `--real` is for T10. | The plan says `goal: 8 of 8 rows passed` without `--real`, but the decision of T0 makes `backend` and `commands` pass only with `--real`. The two commands prove the same rows. Standing rule: a plan command that does not fit the tool gets the equivalent command. | Agent (T8) |
+| 2026-11-11 | `internal/doctor` is a `Service` with 4 interfaces that it declares: `Server` (`Version`, the answer of `/system_stats`; `*comfy.Client` has the new method `Version`), `Install` (`Installed`, the backend), `Programs` (`LookPath`, `platform.Programs`) and `Models` (`Check` of one workflow). `Check` returns one typed `Result` for each check, and `internal/cli/doctor.go` writes the lines. The check "ComfyUI folder" asks the backend, the one place that knows the layout (T7 decision). The OS facts (`goos`, the venv folder, `.exe`) come from `platform.VenvBin` and `platform.ExeName`. The service still reads `.mcp.json` and the venv files itself. | Design rules 2 and 4. The spec bans `net/http` and `os/exec` in a service, not file reads; `devtools` also reads and writes files. The last entry of `allow_os-boundary.txt` (`checksetup.go`, `runtime.GOOS`) and the 4 entries of `allow_direction.txt` are gone. | Agent (T8) |
+| 2026-11-11 | The model check of `horus doctor -workflow` runs `horus workflow check` in the same process: the glue `workflowCheck` in `cmd/horus/wiring.go` calls `cli.Workflow` with `check <name> [-quick]` and gives its text lines. Before, `checksetup` started the binary again as a child process with `-json` and the folders in environment variables. | A service cannot import a handler or `os/exec`, and the spec decision of this phase is "no child process for the setup service". The lines are the same: `check-setup -workflow it-illustration -quick` of the old and the new binary on this PC give equal output (`diff` prints nothing). The case "the child does not start" no longer exists. | Agent (T8) |
+| 2026-11-11 | `internal/platform` gets `Programs` (`LookPath`, and `Run(ctx, Command)` that returns the exit code) and the type `Command`. `provision` declares `Programs` with both methods, `doctor` declares only `LookPath`. No new adapter package. | One "run a program" for the three users (doctor, comfy-mcp, register). The spec puts processes in `internal/platform`. A package that only wraps `os/exec` hides nothing more (design rule 1). `Command` is in the base package, so a service can name it in its interface. | Agent (T8) |
+| 2026-11-11 | `provision.InstallComfyMCP` and `provision.Register` are functions that take a `Programs`, not methods of `provision.Service`. | The `Service` holds the model files, the downloader, ComfyUI and the backend; these two steps use none of them. A field that only two methods use, and a longer `New`, add nothing. | Agent (T8) |
+| 2026-11-11 | `InstallComfyMCP` writes its step lines ("Creating the venv ...", "SKIP: ...", "OK: ...") to its writer itself. | Its lines come between the lines of `python -m venv` and `pip`, which go to the same writer while they run, as the lines of `Backend.Install`. A typed result cannot keep that order. Every other new service returns typed results. | Agent (T8) |
+| 2026-11-11 | `horus setup`: `provision.Plan` reads the facts (the backend `Installed`, and for each file of models.json the path and a size check, no SHA-256) and a pure function `steps` makes the steps: 1 backend step when ComfyUI is missing, then 1 file step for each file that is not there with its size. `provision.RunPlan` (only with `-yes`) calls `Backend.Install`, then `Install` with `Only` set to the file names of the plan. A plan with only a backend step downloads nothing. `provision.Backend` gets `Install` (T7 decision). The exit code is 0 when the plan is printed (with or without steps) or the run is done, 1 for an error, 2 for a flag or an argument. | The plan must be quick and read-only, so it checks the sizes as `horus workflow list` does. The run does what the plan says and no more. The SHA-256 of the present files is the job of `horus workflow check` and `horus doctor -workflow`. | Agent (T8) |
+| 2026-11-11 | The text of the plan: `PRESENT ` or `MISSING ` and `ComfyUI in <dir>`, one line for each file (`<role> <file> (<GB> GB) <path>`), then `Plan: 0 steps. Nothing is missing.` or `Plan: <n> step(s):` with numbered steps and `Nothing changed. Run horus setup <workflow> -yes to run the plan.` | The goal tool reads the number of steps, the words "nothing is missing", and the paths. | Agent (T8) |
+| 2026-11-11 | `devtools.Sync` returns typed copies (`Copied`, `Same`, `Replaced`, `Conflict`), and `internal/cli/devtools.go` writes the lines. Its check for ComfyUI asks the backend (`Install.Installed`) instead of its own `main.py` test. `devtools.NewWorkflow` is the old `Create`. | Design rules: a service knows no output text; one place knows the layout. The lines of `sync-workflows` are the same (`TestSyncWorkflowsLinesAndExitCodes` compares them exactly). | Agent (T8) |
+| 2026-11-11 | The handlers of `horus errors` and `horus mcp` moved to `internal/cli` (`cli.Errors`, `cli.MCP` with a `serve` function from the wiring). `cmd/horus` is now `main.go` (the command table) and `wiring.go`. `download-model` keeps `download.Main` (T6 decision). `check-setup` and `doctor` are one handler, `cli.RunDoctor`, with two names; both show the same summary in `horus -h`. | Plan T8 step 4. `cli.MCP` cannot import `internal/mcpserver` (a handler imports no handler), so the wiring gives the server as a function. | Agent (T8) |
+| 2026-11-11 | archtest has no allow list: `Compare` and `ParseAllow` became `Problems` (every break fails `TestRules`), and `TestCompare` became `TestProblems`, which also fails when a file `allow_*.txt` exists in `internal/archtest`. The 5 Phase 1 lines of `layers.go` are gone. The goal tool rows `os-boundary`, `direction` and `token` pass when archtest passes and no allow list file exists. | Plan T8 step 5: a new entry must not be possible. The planted-file test (`TestPlanted`) and the rules did not change. | Agent (T8) |
+| 2026-11-11 | The goal tool row `commands` with `--real` runs `horus setup it-illustration`, reads the paths of its plan (each model file, and `ComfyUI/main.py` and `ComfyUI/extra_model_paths.yaml`), keeps their size and time, runs `horus doctor`, runs `horus setup it-illustration` again, and compares. It fails on a FAIL line or a non-zero exit of doctor, on a plan with a step, on a changed file, or when the two plans differ. The Go tests of `./internal/provision` also run in the row. The Phase 1 row `setup-commands` finds the moved commands in `internal/doctor`, `internal/provision` and `internal/devtools`. | T0 left the row without the file check. Limit: the first run of `setup` is not inside the comparison; `TestSetupWithoutYesChangesNoFile` (cmd/horus) and `TestPlanOfAnEmptyMachine` (provision) prove that a plan without `-yes` writes nothing. | Agent (T8) |
+| 2026-11-11 | `tools/phase2_packages.txt` and the layer table of the spec do not change: `go list ./...` gives the 18 listed packages. | Measured: `PASS  layout - 0 packages off target, 0 listed packages missing`. | Agent (T8) |
+| 2026-11-11 | The tests moved. `checksetup`: 7 tests went to `internal/doctor` on fakes (`TestModelsLinesAreIndentedAndFailureCounts` became `TestModelsLinesAndFailureCount`; the indent is in `TestDoctorLinesAndExitCode` of `internal/cli`), `TestRunRejectsAnUnknownFlag` and `TestRunModelCheckIsFullByDefault` went to `internal/cli` (`TestDoctorRejectsAnUnknownFlag`, `TestDoctorModelCheckIsFullByDefault`), and the 2 `TestExecModels...` tests became `TestDoctorThroughTheWiring` and `TestWorkflowCheckGivesTheLinesAndTheExitCode` (`cmd/horus`, on the sandbox of `workflow_test.go`). `installcomfymcp`: 5 tests to `internal/provision`, `TestBadFlagExits2` to `internal/cli` (`TestInstallComfyMCPBadFlagExits2`). `register`: 4 tests to `internal/provision`, the 4 `TestRun...` tests to `internal/cli` (`TestRegisterFindsClaudeAndPassesTheFlags`, `TestRegisterWithoutClaude`, `TestRegisterWithoutARepoFails`, `TestRegisterTakesRootFromTheSettings`) on a fake `Programs`, and `TestRegisterFindsClaudeOnThePath` (provision) runs the real PATH. `newworkflow` and `syncworkflows`: 7 tests to `internal/devtools`, `TestRun` and `TestRunExitCodes` to `internal/cli`. New: `TestCheckChangesNoFile`, `TestVersion`, `TestRunGivesTheExitCodeAndTheOutput`, 6 plan tests of `internal/provision`, 5 tests of `horus setup` in `internal/cli`, `TestSetupWithoutYesChangesNoFile`, `TestInstallComfyMCPReportsAFailure`. | A test follows the rules of its package: the tests of `doctor` use fakes instead of `httptest`, and the tests of `provision` and `devtools` use the base package `platform` or fakes. Go test functions 189 -> 207. | Agent (T8) |
 
 ## Baseline
 
@@ -518,3 +532,119 @@ Stub checks, run on this PC with code that is not committed:
 - A service that does not call `Start`: `TestDownBackendStartsOneTime` fails with `BACKEND_UNAVAILABLE: horus could not start ComfyUI at http://fake`. In the real run, a start that leaves ComfyUI down gives the same code (run 1 above).
 
 Ratchet: packages off target 7 -> 5 (`internal/scripts/installcomfyui` and `internal/scripts/startcomfyui` are gone). Listed packages missing 3 -> 2 (`internal/backend` exists). `os-boundary` allow list 3 -> 1. Images after a start through the backend 0 -> 1. Go test functions 185 -> 189. Contract `30 of 30 passed`, parity `17 of 17 cases equal`.
+
+## T8
+
+Red, before the change (at `9b48d87`):
+
+    horus doctor
+    horus: unknown command "doctor"      (exit 2)
+
+    python tools/goal_check.py --phase 2 --no-ci --only layout os-boundary direction token commands
+    FAIL  layout - 5 packages off target, 2 listed packages missing
+    FAIL  os-boundary - 1 entries on the allow list; archtest: ok
+    FAIL  direction - 4 entries on the allow list; archtest: ok
+    PASS  token - 0 entries on the allow list; archtest: ok
+    FAIL  commands - missing: internal/doctor (tasks T8 and T9)
+    goal: 1 of 5 rows passed
+
+    go test -list . ./... | grep -c '^Test'
+    189
+
+Green, Go tests on this PC (Windows 11):
+
+    go test ./...
+    ok  	github.com/hieplam/horus/cmd/horus
+    ok  	github.com/hieplam/horus/internal/archtest
+    ok  	github.com/hieplam/horus/internal/backend
+    ok  	github.com/hieplam/horus/internal/catalog
+    ok  	github.com/hieplam/horus/internal/cli
+    ok  	github.com/hieplam/horus/internal/comfy
+    ok  	github.com/hieplam/horus/internal/devtools
+    ok  	github.com/hieplam/horus/internal/doctor
+    ok  	github.com/hieplam/horus/internal/download
+    ok  	github.com/hieplam/horus/internal/generate
+    ok  	github.com/hieplam/horus/internal/graph
+    ok  	github.com/hieplam/horus/internal/herr
+    ok  	github.com/hieplam/horus/internal/mcpserver
+    ok  	github.com/hieplam/horus/internal/modelfiles
+    ok  	github.com/hieplam/horus/internal/platform
+    ok  	github.com/hieplam/horus/internal/provision
+    ok  	github.com/hieplam/horus/internal/settings
+
+    GOMAXPROCS=1 go test -count=10 ./cmd/horus ./internal/cli ./internal/doctor ./internal/devtools ./internal/provision ./internal/platform ./internal/comfy ./internal/archtest ./internal/mcpserver
+    ok  	github.com/hieplam/horus/cmd/horus	10.923s
+    ok  	github.com/hieplam/horus/internal/cli	0.997s
+    ok  	github.com/hieplam/horus/internal/doctor	2.711s
+    ok  	github.com/hieplam/horus/internal/devtools	1.726s
+    ok  	github.com/hieplam/horus/internal/provision	36.949s
+    ok  	github.com/hieplam/horus/internal/platform	2.942s
+    ok  	github.com/hieplam/horus/internal/comfy	1.585s
+    ok  	github.com/hieplam/horus/internal/archtest	0.923s
+    ok  	github.com/hieplam/horus/internal/mcpserver	2.351s
+
+The plan of `horus setup` (`internal/provision/setup_test.go`): `TestPlanOfAnEmptyMachine` (no ComfyUI and no file give the steps `backend, file diffusion, file text_encoder, file vae`, and no call that changes a file), `TestPlanOfAReadyMachine` (0 steps, and `RunPlan` of that plan changes nothing), `TestRunPlanInstallsTheBackendThenTheFiles` (the order `install|download flux3-image-klein-int8-convrot.safetensors|download qwen3vl_4b_int8_convrot.safetensors|download flux2-vae.safetensors`, then 0 steps). The workflow is the `models.json` of `workflows/it-illustration`, read only. The fake model files have their folders in a temporary folder. `TestSetupWithoutYesChangesNoFile` (`cmd/horus`): with the real model files adapter and the real downloader on a sandbox, `horus setup demo` without `-yes` makes 0 requests and changes no file, also when ComfyUI is missing. With `-yes` it downloads both files.
+
+    python tests/mcp_contract.py --server-cmd <bin>\horus.exe mcp
+    contract: 30 of 30 passed
+    python tests/workflow_parity.py --horus <bin>\horus.exe
+    parity: 17 of 17 cases equal
+
+    python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>\horus.exe mcp
+    PASS  layout - 0 packages off target, 0 listed packages missing
+    PASS  same-behaviour - contract: local 30 of 30; CI part skipped (--no-ci); parity: 17 of 17; go test ./...: ok; 207 Go test functions (baseline 157); 0 changed contract files
+    PASS  os-boundary - 0 allow list files; archtest: ok
+    PASS  direction - 0 allow list files; archtest: ok
+    PASS  process-tree - tree test: ok; 0 taskkill references
+    FAIL  backend - Go tests ok; needs --real on the owner's PC for the image through the backend
+    PASS  token - 0 allow list files; archtest: ok
+    FAIL  commands - Go tests ok; needs --real on the owner's PC for horus doctor and horus setup
+    goal: 6 of 8 rows passed
+
+    python tools/goal_check.py --no-ci --only setup-commands   (Phase 1)
+    PASS  setup-commands - 8 of 8 commands have a passing test
+
+`gofmt -l .` prints nothing. `go vet ./...` is clean for windows, darwin/arm64 and linux/amd64. `lint-public: 0 finding(s)`.
+
+### The real commands on this PC
+
+Read-only commands only, with `HORUS_ROOT` = the main checkout. The owner's ComfyUI on port 8188 got only GET requests (`/system_stats`, `/object_info`), no job. `horus setup` ran without `-yes` only, after the Go tests above.
+
+    horus doctor                      (exit 0)
+    PASS  ComfyUI folder - <ComfyUI dir>
+    PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+    PASS  comfy-mcp environment - ~\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+    PASS  comfy-cli - ~\.venvs\comfy-mcp\Scripts\comfy.exe
+    PASS  .mcp.json - command points at ~\.venvs\comfy-mcp\Scripts\comfy-mcp.exe, COMFY_BIN at ~\.venvs\comfy-mcp\Scripts\comfy.exe
+    PASS  horus on PATH - ~\go\bin\horus.exe
+    PASS  .mcp.json horus - command points at ~\go\bin\horus.exe
+    All checks passed.
+
+`horus check-setup` of the old binary (at `9b48d87`) and `horus doctor` and `horus check-setup` of the new one print the same 8 lines (`diff` prints nothing). `check-setup -workflow it-illustration -quick` of the old binary and `doctor -workflow it-illustration -quick` of the new one print the same lines, and both exit 0.
+
+    horus setup it-illustration       (exit 0)
+    Setup of workflow 'it-illustration':
+    PRESENT   ComfyUI in <ComfyUI dir>
+    PRESENT   diffusion flux3-image-klein-int8-convrot.safetensors (5.83 GB) ~\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors
+    PRESENT   text_encoder qwen3vl_4b_int8_convrot.safetensors (4.86 GB) ~\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors
+    PRESENT   vae flux2-vae.safetensors (0.34 GB) ~\ComfyUI-models\vae\flux2-vae.safetensors
+    Plan: 0 steps. Nothing is missing.
+
+    python tools/goal_check.py --phase 2 --no-ci --real --only commands --server-cmd <bin>\horus.exe mcp
+    PASS  commands - horus doctor: 0 FAIL lines; horus setup it-illustration: 0 steps, nothing is missing; 5 of 5 named files present and unchanged
+    goal: 1 of 1 rows passed
+
+Stub checks:
+
+    the row commands with the old binary (no doctor, no setup)
+    FAIL  commands - horus setup it-illustration: exit 2, 0 paths in the plan: Run horus <command> -h for the flags of a command.
+    an empty file internal/archtest/allow_token.txt
+    FAIL  token - 1 allow list files (allow_token.txt); archtest: FAIL
+    a package internal/scripts/checksetup with one file
+    FAIL  layout - 1 packages off target, 0 listed packages missing
+
+- A `setup` that prints nothing fails `TestSetupPrintsThePlanAndRunsNothingWithoutYes` and `TestSetupOfAReadyMachine` (they compare the whole text), and `TestSetupWithoutYesChangesNoFile`.
+- A `Plan` that returns no step fails `TestPlanOfAnEmptyMachine`. A `RunPlan` that installs nothing fails `TestRunPlanInstallsTheBackendThenTheFiles`.
+- A doctor that prints nothing fails `TestDoctorLinesAndExitCode`.
+
+Ratchet: packages off target 5 -> 0, listed packages missing 2 -> 0. Allow list entries: os-boundary 1 -> 0, direction 4 -> 0, token 0 -> 0. Allow list files 3 -> 0. Commands 0 -> 2 (`doctor`, `setup`). Go test functions 189 -> 207. Contract `30 of 30 passed`, parity `17 of 17 cases equal`. Rows passed without `--real`: 3 -> 6 of 8.

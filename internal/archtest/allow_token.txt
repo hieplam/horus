@@ -1,3 +1,0 @@
-# Rule token: the files outside internal/download that name HF_TOKEN in a
-# string today. One file on each line.
-# This list only becomes shorter: remove a line when its file is clean.

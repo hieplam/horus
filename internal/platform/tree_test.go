@@ -63,6 +63,12 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		os.Exit(0)
+	case "run":
+		// The program of TestRunGivesTheExitCodeAndTheOutput.
+		wd, _ := os.Getwd()
+		fmt.Println("out " + strings.Join(os.Args[1:], " ") + " " + os.Getenv("HORUS_RUN_EXTRA"))
+		fmt.Fprintln(os.Stderr, "err "+filepath.Base(wd))
+		os.Exit(5)
 	}
 	os.Exit(3)
 }

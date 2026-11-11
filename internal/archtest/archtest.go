@@ -10,7 +10,8 @@
 // The rules read file names and file text only. They do not use the build
 // constraints of the current system, so they give the same result on every
 // operating system. The test in archtest_test.go walks the module and
-// compares the result with the allow lists allow_<rule>.txt.
+// fails for each break. There is no allow list, so no file can be exempt
+// from a rule except the places that layers.go names.
 package archtest
 
 import (
@@ -27,7 +28,7 @@ import (
 	"strings"
 )
 
-// The names of the rules. Each rule has the allow list allow_<rule>.txt.
+// The names of the rules.
 const (
 	RuleOS        = "os-boundary"
 	RuleDirection = "direction"
@@ -44,9 +45,8 @@ type File struct {
 	Src  []byte
 }
 
-// Violation is one break of a rule. Key is the text of its allow list entry:
-// the file path for os-boundary and token, "<package> -> <import>" for
-// direction.
+// Violation is one break of a rule. Key names what breaks it: the file path
+// for os-boundary and token, "<package> -> <import>" for direction.
 type Violation struct {
 	Rule string
 	File string
@@ -71,48 +71,20 @@ func Scan(module string, files []File) ([]Violation, error) {
 	return out, nil
 }
 
-// Compare compares the violations of one rule with its allow list. It
-// returns one problem for each violation that is not on the list, and one
-// for each entry that is not a violation.
-func Compare(rule string, found []Violation, allow []string) []string {
+// Problems gives one text for each break of a rule, once for each rule and
+// key, sorted. There is no allow list: every break fails the test.
+func Problems(found []Violation) []string {
 	var problems []string
-	listed := map[string]bool{}
-	for _, e := range allow {
-		if listed[e] {
-			problems = append(problems, fmt.Sprintf("%s: %q is on allow_%s.txt two times: remove this entry", rule, e, rule))
-		}
-		listed[e] = true
-	}
 	seen := map[string]bool{}
 	for _, v := range found {
-		if v.Rule != rule || seen[v.Key] {
+		if seen[v.Rule+" "+v.Key] {
 			continue
 		}
-		seen[v.Key] = true
-		if !listed[v.Key] {
-			problems = append(problems, fmt.Sprintf("%s: %s: %s (%s). Fix the code: the allow list only becomes shorter", rule, v.Key, v.Why, v.File))
-		}
-	}
-	for e := range listed {
-		if !seen[e] {
-			problems = append(problems, fmt.Sprintf("%s: %q no longer breaks the rule: remove this entry from allow_%s.txt", rule, e, rule))
-		}
+		seen[v.Rule+" "+v.Key] = true
+		problems = append(problems, fmt.Sprintf("%s: %s: %s (%s). Fix the code: archtest has no allow list", v.Rule, v.Key, v.Why, v.File))
 	}
 	sort.Strings(problems)
 	return problems
-}
-
-// ParseAllow returns the entries of an allow list: one entry on each line.
-// A blank line or a line that starts with # is not an entry.
-func ParseAllow(text string) []string {
-	var out []string
-	for _, ln := range strings.Split(text, "\n") {
-		ln = strings.TrimSpace(ln)
-		if ln != "" && !strings.HasPrefix(ln, "#") {
-			out = append(out, ln)
-		}
-	}
-	return out
 }
 
 // inside tells if the file or package p is one of the places, or in one.

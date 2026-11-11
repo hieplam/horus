@@ -1,7 +1,9 @@
-// Package provision is the service that sets up the model files of a
-// workflow: list, check, install and remove. It ports the rules of
-// scripts/workflow.ps1. The command horus workflow (internal/cli) and the
-// MCP tools (internal/mcpserver) call it in their own process.
+// Package provision is the service that sets up a machine: the model files
+// of a workflow (list, check, install and remove; the rules of
+// scripts/workflow.ps1), the plan of horus setup (setup.go), the comfy MCP
+// server (comfymcp.go) and the MCP registration (register.go). The commands
+// (internal/cli) and the MCP tools (internal/mcpserver) call it in their own
+// process.
 //
 // It decides: which file is missing, which file to download and where, which
 // folder to add to extra_model_paths.yaml, which file may be deleted, and
@@ -95,6 +97,9 @@ type Backend interface {
 	// Installed gives the install folder, and reports if ComfyUI is
 	// installed there.
 	Installed() (dir string, ok bool)
+	// Install installs ComfyUI (horus setup -yes). It writes its text lines
+	// to out.
+	Install(ctx context.Context, out io.Writer) error
 }
 
 // Service sets up the model files of the workflows.

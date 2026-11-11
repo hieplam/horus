@@ -45,7 +45,10 @@ func (l *lockedBuffer) String() string { l.mu.Lock(); defer l.mu.Unlock(); retur
 // folder F is in <root>/F, and ComfyUI is installed.
 type diskFiles struct{ root string }
 
-func (d diskFiles) Installed() (string, bool)   { return d.root, true }
+func (d diskFiles) Installed() (string, bool) { return d.root, true }
+func (d diskFiles) Install(context.Context, io.Writer) error {
+	return errors.New("the MCP tools never install ComfyUI")
+}
 func (d diskFiles) Dirs(folder string) []string { return []string{filepath.Join(d.root, folder)} }
 func (d diskFiles) Own(folder string) string    { return filepath.Join(d.root, folder) }
 func (d diskFiles) Mapped(string) []string      { return nil }

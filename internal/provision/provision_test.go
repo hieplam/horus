@@ -34,7 +34,10 @@ func newMemFiles() *memFiles {
 	return &memFiles{root: filepath.Join(string(filepath.Separator), "m"), files: map[string][]byte{}}
 }
 
-func (m *memFiles) Installed() (string, bool)   { return m.root, true }
+func (m *memFiles) Installed() (string, bool) { return m.root, true }
+func (m *memFiles) Install(context.Context, io.Writer) error {
+	return errors.New("this test installs no ComfyUI")
+}
 func (m *memFiles) Dirs(folder string) []string { return []string{filepath.Join(m.root, folder)} }
 func (m *memFiles) Own(folder string) string    { return filepath.Join(m.root, folder) }
 func (m *memFiles) Mapped(string) []string      { return nil }

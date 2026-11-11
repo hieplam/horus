@@ -88,7 +88,7 @@ func asJSON(t *testing.T, v any) any {
 func TestToolsMatchPython(t *testing.T) {
 	useRepoWorkflows(t)
 	g := readGolden(t)
-	cs := connect(t, New(), nil)
+	cs := connect(t, New(&fakeImages{}), nil)
 
 	init := cs.InitializeResult()
 	if init.ServerInfo.Name != g.Server || init.ServerInfo.Version != g.Version {
@@ -160,7 +160,7 @@ func envelopeOf(t *testing.T, res *mcp.CallToolResult) map[string]any {
 // the text form with an indent of 1, and the key order of the envelope.
 func TestErrorEnvelope(t *testing.T) {
 	useRepoWorkflows(t)
-	cs := connect(t, New(), nil)
+	cs := connect(t, New(&fakeImages{}), nil)
 	res := callTool(t, cs, "describe_workflow", map[string]any{"workflow": "nope"})
 	if !res.IsError {
 		t.Fatal("isError is not set")
@@ -189,7 +189,7 @@ func TestErrorEnvelope(t *testing.T) {
 // isError, no structuredContent, and the field in the text, as pydantic does.
 func TestArgumentErrors(t *testing.T) {
 	useRepoWorkflows(t)
-	cs := connect(t, New(), nil)
+	cs := connect(t, New(&fakeImages{}), nil)
 	for _, c := range []struct {
 		args map[string]any
 		want string
@@ -203,11 +203,11 @@ func TestArgumentErrors(t *testing.T) {
 			t.Errorf("%v: isError=%v sc=%v text=%q", c.args, res.IsError, res.StructuredContent, text)
 		}
 	}
-	a, problems := parseArgs(json.RawMessage(`{"workflow":"w","subject":"s","seed":7.0,"width":null,"extra":1}`), generateImage().args)
+	a, problems := parseArgs(json.RawMessage(`{"workflow":"w","subject":"s","seed":7.0,"width":null,"extra":1}`), generateImage(nil).args)
 	if len(problems) > 0 || *a.intPtr("seed") != 7 || a.intPtr("width") != nil || a.boolean("overwrite") || a.strPtr("out_path") != nil {
 		t.Fatalf("args %v, problems %v", a, problems)
 	}
-	if _, problems := parseArgs(json.RawMessage(`{"workflow":"w","subject":"s","seed":7.5,"overwrite":"yes"}`), generateImage().args); len(problems) != 2 {
+	if _, problems := parseArgs(json.RawMessage(`{"workflow":"w","subject":"s","seed":7.5,"overwrite":"yes"}`), generateImage(nil).args); len(problems) != 2 {
 		t.Fatalf("problems %v", problems)
 	}
 }

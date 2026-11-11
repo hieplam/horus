@@ -17,7 +17,7 @@ func TestNoWorkflowsFolderNamesHorusRoot(t *testing.T) {
 	t.Setenv("HORUS_AUTOSTART", "0")
 	settings.Reset()
 	t.Cleanup(settings.Reset)
-	cs := connect(t, New(), nil)
+	cs := connect(t, New(&fakeImages{}), nil)
 	for name, args := range map[string]map[string]any{
 		"list_workflows":     {},
 		"describe_workflow":  {"workflow": "it-illustration"},

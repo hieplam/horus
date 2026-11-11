@@ -44,6 +44,8 @@ ROOT = Path(__file__).resolve().parent.parent
 GO_DIRS = [r"C:\Program Files\Go\bin", "/usr/local/go/bin"]
 SETUP_COMMANDS = ["installcomfyui", "startcomfyui", "installcomfymcp", "checksetup",
                   "syncworkflows", "newworkflow", "register", "runillustration"]
+# The package of a setup command that moved out of internal/scripts in Phase 2.
+SETUP_PACKAGES = {"runillustration": "internal/cli"}
 BUILD_TARGETS = [("windows", "amd64"), ("darwin", "arm64"), ("linux", "amd64")]
 CI_OSES = ["windows-latest", "macos-latest"]
 REAL_SUBJECT = ("On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. "
@@ -152,7 +154,7 @@ def go_test(pkgs: list[str], extra: list[str]) -> tuple[bool, str, str]:
 
 
 def row_graph(a: argparse.Namespace) -> tuple[bool, str]:
-    ok, detail, out = go_test(["./internal/comfy"], ["-v", "-run", "TestUIToAPIGolden"])
+    ok, detail, out = go_test(["./internal/graph"], ["-v", "-run", "TestUIToAPIGolden"])
     if ok and "--- PASS: TestUIToAPIGolden" not in out:
         return False, "TestUIToAPIGolden did not run"
     return ok, "TestUIToAPIGolden passes" if ok else detail
@@ -174,13 +176,15 @@ def row_downloader(a: argparse.Namespace) -> tuple[bool, str]:
 
 
 def row_setup(a: argparse.Namespace) -> tuple[bool, str]:
-    ok, detail, _ = go_test(["./internal/scripts/..."], [])
+    moved = sorted({"./" + p for p in SETUP_PACKAGES.values()})
+    ok, detail, _ = go_test(["./internal/scripts/...", *moved], [])
     if not ok:
         return False, detail
     go = go_exe()
     lacking = []
     for name in SETUP_COMMANDS:
-        code, out = run([go, "test", "-list", ".", f"./internal/scripts/{name}"])
+        pkg = SETUP_PACKAGES.get(name, f"internal/scripts/{name}")
+        code, out = run([go, "test", "-list", ".", f"./{pkg}"])
         if code != 0 or not re.search(r"^Test\w*", out, re.M):
             lacking.append(name)
     have = len(SETUP_COMMANDS) - len(lacking)

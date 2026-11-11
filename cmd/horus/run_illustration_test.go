@@ -1,20 +1,31 @@
-package runillustration
+// Tests of horus run-illustration through the wiring: the handler of
+// internal/cli, the image service and the real ComfyUI adapter, against the
+// fake ComfyUI of comfytest over HTTP. The flag errors, which need no
+// service, are tested in internal/cli.
+package main
 
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hieplam/horus/internal/cli"
 	"github.com/hieplam/horus/internal/comfy/comfytest"
 	"github.com/hieplam/horus/internal/generate"
 	"github.com/hieplam/horus/internal/settings"
 )
 
 const subject = "On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt."
+
+// runIllustration is horus run-illustration with the wiring of cmd/horus.
+func runIllustration(args []string, stdout, stderr io.Writer) int {
+	return cli.RunIllustration(args, stdout, stderr, imagesAt)
+}
 
 // setup copies the workflow it-illustration into a temporary workflows
 // folder, starts a fake ComfyUI and makes the wait intervals short.
@@ -24,7 +35,7 @@ func setup(t *testing.T) (fake *comfytest.Fake, tmp string) {
 	dst := filepath.Join(tmp, "workflows", "it-illustration")
 	os.MkdirAll(dst, 0o755)
 	for _, name := range []string{"manifest.json", "workflow.json", "models.json"} {
-		data, err := os.ReadFile(filepath.Join("..", "..", "..", "workflows", "it-illustration", name))
+		data, err := os.ReadFile(filepath.Join("..", "..", "workflows", "it-illustration", name))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -41,7 +52,7 @@ func setup(t *testing.T) (fake *comfytest.Fake, tmp string) {
 	t.Cleanup(func() {
 		generate.PollInterval, generate.ReportInterval, generate.AbsentLimit = oldPoll, oldReport, oldAbsent
 	})
-	fake = comfytest.New(t, filepath.Join("..", "..", "..", "tests", "fixtures", "object_info.json"))
+	fake = comfytest.New(t, filepath.Join("..", "..", "tests", "fixtures", "object_info.json"))
 	return fake, tmp
 }
 
@@ -61,7 +72,7 @@ func TestRunWritesAPNGAndPrintsOneJSONLine(t *testing.T) {
 	f, tmp := setup(t)
 	out := filepath.Join(tmp, "images", "queue.png")
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"-url", f.URL(), "-subject", subject, "-seed", "7", "-out", out, "-width", "1024", "-height", "768"}, &stdout, &stderr)
+	code := runIllustration([]string{"-url", f.URL(), "-subject", subject, "-seed", "7", "-out", out, "-width", "1024", "-height", "768"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr.String())
 	}
@@ -92,7 +103,7 @@ func TestRunReplacesAnExistingFileAndReadsTheSubjectFile(t *testing.T) {
 	sf := filepath.Join(tmp, "subject.txt")
 	os.WriteFile(sf, []byte("  "+subject+"\n"), 0o644)
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"-url", f.URL(), "-subject-file", sf, "-out", out}, &stdout, &stderr); code != 0 {
+	if code := runIllustration([]string{"-url", f.URL(), "-subject-file", sf, "-out", out}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr.String())
 	}
 	if data, _ := os.ReadFile(out); len(data) < 8 || string(data[:4]) != "\x89PNG" {
@@ -111,7 +122,7 @@ func TestStyleFileWrapsTheSubject(t *testing.T) {
 	sf := filepath.Join(tmp, "style.json")
 	os.WriteFile(sf, []byte(`{"prefix":"Flat vector.","suffix":"Soft light."}`), 0o644)
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"-url", f.URL(), "-subject", subject, "-style-file", sf, "-out", filepath.Join(tmp, "a.png")}, &stdout, &stderr); code != 0 {
+	if code := runIllustration([]string{"-url", f.URL(), "-subject", subject, "-style-file", sf, "-out", filepath.Join(tmp, "a.png")}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr.String())
 	}
 	if c := caption(t, f); c != "Flat vector. "+subject+" Soft light." {
@@ -123,7 +134,7 @@ func TestFailureIsOneJSONLineOnStderrAndExit1(t *testing.T) {
 	f, tmp := setup(t)
 	f.SetMode(comfytest.OOM)
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"-url", f.URL(), "-subject", subject, "-out", filepath.Join(tmp, "x.png")}, &stdout, &stderr)
+	code := runIllustration([]string{"-url", f.URL(), "-subject", subject, "-out", filepath.Join(tmp, "x.png")}, &stdout, &stderr)
 	if code != 1 || stdout.Len() != 0 {
 		t.Fatalf("exit %d, stdout %q", code, stdout.String())
 	}
@@ -137,21 +148,9 @@ func TestFailureIsOneJSONLineOnStderrAndExit1(t *testing.T) {
 
 	// ComfyUI is down and autostart is off: a failure, no image.
 	stderr.Reset()
-	if code := Run([]string{"-url", "http://127.0.0.1:1", "-subject", subject, "-out", filepath.Join(tmp, "y.png")}, &stdout, &stderr); code != 1 ||
+	if code := runIllustration([]string{"-url", "http://127.0.0.1:1", "-subject", subject, "-out", filepath.Join(tmp, "y.png")}, &stdout, &stderr); code != 1 ||
 		!strings.Contains(stderr.String(), `"ok":false`) {
 		t.Fatalf("exit %d: %s", code, stderr.String())
-	}
-}
-
-func TestFlagErrors(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	for _, args := range [][]string{nil, {"-subject", "a", "-subject-file", "b"}, {"-nope"}} {
-		if code := Run(args, &stdout, &stderr); code != 2 {
-			t.Errorf("%v: exit %d", args, code)
-		}
-	}
-	if code := Run([]string{"-subject-file", filepath.Join(t.TempDir(), "absent.txt")}, &stdout, &stderr); code != 1 {
-		t.Errorf("absent subject file: exit %d", code)
 	}
 }
 
@@ -171,7 +170,7 @@ func samplerSteps(t *testing.T, f *comfytest.Fake) float64 {
 func runJSON(t *testing.T, args ...string) map[string]any {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	if code := Run(args, &stdout, &stderr); code != 0 {
+	if code := runIllustration(args, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr.String())
 	}
 	var got map[string]any
@@ -223,7 +222,7 @@ func TestWorkflowPath(t *testing.T) {
 		t.Fatalf("caption: %q", c)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"-url", f.URL(), "-subject", subject, "-workflow", filepath.Join(tmp, "absent", "workflow.json")}, &stdout, &stderr); code != 1 {
+	if code := runIllustration([]string{"-url", f.URL(), "-subject", subject, "-workflow", filepath.Join(tmp, "absent", "workflow.json")}, &stdout, &stderr); code != 1 {
 		t.Fatalf("absent path: exit %d", code)
 	}
 }

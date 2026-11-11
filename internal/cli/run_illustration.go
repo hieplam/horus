@@ -1,18 +1,19 @@
-// Package runillustration makes one image without MCP. It ports
+// horus run-illustration makes one image without MCP. It ports
 // scripts/run-illustration.py.
 //
-// It calls internal/generate, the same code as the tool generate_image, so it
-// holds no second copy of the steps (convert the graph, submit, wait, download).
-// The prompt that the model receives is the subject, exactly as written. To
-// wrap a style around the subject, pass -style-file with a JSON file
-// {"prefix": ..., "suffix": ...} that you own.
+// It calls the image service internal/generate, the same code as the tool
+// generate_image, so it holds no second copy of the steps (convert the graph,
+// submit, wait, download). The prompt that the model receives is the subject,
+// exactly as written. To wrap a style around the subject, pass -style-file
+// with a JSON file {"prefix": ..., "suffix": ...} that you own.
 //
 // On success it prints one JSON line and exits 0:
 //
 //	{"ok":true,"prompt_id":...,"out":...,"seed":...,"steps":...,"width":...,"height":...,"execution_seconds":...,"comfy_output":...}
 //
 // On failure it prints {"ok":false,"error":...} to stderr and exits 1.
-package runillustration
+
+package cli
 
 import (
 	"context"
@@ -27,13 +28,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hieplam/horus/internal/comfy"
 	"github.com/hieplam/horus/internal/generate"
 	"github.com/hieplam/horus/internal/settings"
 )
 
-// Options is everything that Illustrate needs.
-type Options struct {
+// Images is what run-illustration needs from the image service.
+// cmd/horus gives it a *generate.Service.
+type Images interface {
+	Generate(ctx context.Context, r generate.Request, o generate.Options) (*generate.Result, error)
+}
+
+// IllustrationOptions is everything that Illustrate needs.
+type IllustrationOptions struct {
 	Subject  string
 	Workflow string
 	Out      string
@@ -42,14 +48,13 @@ type Options struct {
 	Height   any
 	// Steps overrides the step count of the sampler. nil: the value of the workflow.
 	Steps *int64
-	URL   string
 	// StylePath is a JSON file {prefix, suffix}. Empty: no style.
 	StylePath string
 	Timeout   time.Duration
 }
 
-// Result is the JSON line of a success.
-type Result struct {
+// IllustrationResult is the JSON line of a success.
+type IllustrationResult struct {
 	OK               bool     `json:"ok"`
 	PromptID         string   `json:"prompt_id"`
 	Out              string   `json:"out"`
@@ -61,8 +66,8 @@ type Result struct {
 	ComfyOutput      string   `json:"comfy_output"`
 }
 
-// buildPrompt is the subject, or the caller's prefix + subject + suffix.
-func buildPrompt(subject, stylePath string) (string, error) {
+// illustrationPrompt is the subject, or the caller's prefix + subject + suffix.
+func illustrationPrompt(subject, stylePath string) (string, error) {
 	if stylePath == "" {
 		return subject, nil
 	}
@@ -83,9 +88,9 @@ func buildPrompt(subject, stylePath string) (string, error) {
 	return *style.Prefix + " " + subject + " " + *style.Suffix, nil
 }
 
-// Illustrate makes one image through internal/generate.
-func Illustrate(ctx context.Context, o Options) (*Result, error) {
-	prompt, err := buildPrompt(o.Subject, o.StylePath)
+// Illustrate makes one image through the image service.
+func Illustrate(ctx context.Context, images Images, o IllustrationOptions) (*IllustrationResult, error) {
+	prompt, err := illustrationPrompt(o.Subject, o.StylePath)
 	if err != nil {
 		return nil, err
 	}
@@ -93,22 +98,23 @@ func Illustrate(ctx context.Context, o Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := generate.Generate(ctx, generate.Request{
+	res, err := images.Generate(ctx, generate.Request{
 		Workflow: o.Workflow, Subject: prompt, Seed: o.Seed, Width: o.Width, Height: o.Height,
 		OutPath: &out, Overwrite: true, Steps: o.Steps,
-	}, generate.Options{Client: comfy.New(o.URL), Timeout: o.Timeout})
+	}, generate.Options{Timeout: o.Timeout})
 	if err != nil {
 		return nil, err
 	}
-	return &Result{OK: true, PromptID: res.JobID, Out: res.Path, Seed: res.Seed, Steps: res.Steps,
+	return &IllustrationResult{OK: true, PromptID: res.JobID, Out: res.Path, Seed: res.Seed, Steps: res.Steps,
 		Width: res.Width, Height: res.Height, ExecutionSeconds: res.BackendSeconds, ComfyOutput: res.ComfyOutput}, nil
 }
 
-// workflowName turns the value of -workflow into a workflow name. A plain name
-// stays as it is. The path of a workflow.json inside a workflow folder becomes
-// the name of that folder, and the parent of the folder becomes the workflows
-// folder of this process, as the old script ran the file that it was given.
-func workflowName(v string) (string, error) {
+// illustrationWorkflow turns the value of -workflow into a workflow name. A
+// plain name stays as it is. The path of a workflow.json inside a workflow
+// folder becomes the name of that folder, and the parent of the folder becomes
+// the workflows folder of this process, as the old script ran the file that it
+// was given.
+func illustrationWorkflow(v string) (string, error) {
 	if !strings.ContainsAny(v, `/\`) && !strings.HasSuffix(strings.ToLower(v), ".json") {
 		return v, nil
 	}
@@ -131,8 +137,10 @@ func workflowName(v string) (string, error) {
 	return filepath.Base(dir), nil
 }
 
-// Run is the command horus run-illustration. It returns the exit code.
-func Run(args []string, stdout, stderr io.Writer) int {
+// RunIllustration is the command horus run-illustration. imagesAt gives the
+// image service for the value of -url (empty: the HORUS_COMFYUI_URL
+// setting). It returns the exit code.
+func RunIllustration(args []string, stdout, stderr io.Writer, imagesAt func(url string) Images) int {
 	fs := flag.NewFlagSet("horus run-illustration", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	subject := fs.String("subject", "", "the whole prompt: content and style, sent as written")
@@ -169,11 +177,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		text = string(data)
 	}
-	name, err := workflowName(*workflow)
+	name, err := illustrationWorkflow(*workflow)
 	if err != nil {
 		return fail(err)
 	}
-	o := Options{Subject: text, Workflow: name, Out: *out, Seed: *seed, URL: *url, StylePath: *style,
+	o := IllustrationOptions{Subject: text, Workflow: name, Out: *out, Seed: *seed, StylePath: *style,
 		Timeout: time.Duration(*timeout) * time.Second}
 	if *steps != 0 {
 		o.Steps = steps
@@ -186,7 +194,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	res, err := Illustrate(ctx, o)
+	res, err := Illustrate(ctx, imagesAt(*url), o)
 	if err != nil {
 		return fail(err)
 	}

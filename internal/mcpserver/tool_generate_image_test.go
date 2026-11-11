@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -82,12 +83,9 @@ func TestGenerateImageToolCallsTheService(t *testing.T) {
 	secs := 3.5
 	images := &fakeImages{result: &generate.Result{Workflow: "it-illustration", Path: "/x/a.png", Bytes: 8, Width: 1024, Height: 768,
 		Seed: 1<<64 - 1, Seconds: 1.5, BackendSeconds: &secs, JobID: "job-1"}}
-	var mu sync.Mutex
-	var got []string
+	got := make(chan string, 16)
 	cs := connect(t, New(images), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
-		mu.Lock()
-		got = append(got, r.Params.Message)
-		mu.Unlock()
+		got <- r.Params.Message
 	}})
 	params := &mcp.CallToolParams{Name: "generate_image", Arguments: json.RawMessage(`{"workflow": "it-illustration", "subject": "` +
 		testSubject + `", "out_path": "/x/a.png", "seed": 18446744073709551615, "width": 1024, "overwrite": true}`)}
@@ -114,12 +112,11 @@ func TestGenerateImageToolCallsTheService(t *testing.T) {
 		!reflect.DeepEqual(q.Seed, maxSeed) || q.Width != int64(1024) || q.Height != nil || !q.Overwrite || q.Steps != nil {
 		t.Fatalf("request: %+v", q)
 	}
-	mu.Lock()
-	if len(got) != 1 || got[0] != "job job-1 submitted" {
-		t.Fatalf("progress with a token: %v", got)
+	// The client can run its notification handler after CallTool returns, so
+	// the test waits for the notification (with a time limit).
+	if m := nextProgress(t, got); m != "job job-1 submitted" {
+		t.Fatalf("progress with a token: %q", m)
 	}
-	got = nil
-	mu.Unlock()
 
 	// Without a progressToken: no notification. Arguments not given are nil.
 	res = callTool(t, cs, "generate_image", map[string]any{"workflow": "it-illustration", "subject": testSubject})
@@ -129,10 +126,33 @@ func TestGenerateImageToolCallsTheService(t *testing.T) {
 	if q := images.requests()[1]; q.OutPath != nil || q.Seed != nil || q.Width != nil || q.Overwrite {
 		t.Fatalf("defaults: %+v", q)
 	}
-	mu.Lock()
-	defer mu.Unlock()
+	// The client runs its handlers in the order of arrival. A third call with a
+	// token and another job id follows the second call. If the second call had
+	// sent a notification, it would come before the third one.
+	images.result.JobID = "job-3"
+	params3 := &mcp.CallToolParams{Name: "generate_image", Arguments: map[string]any{"workflow": "it-illustration", "subject": testSubject}}
+	params3.SetProgressToken("tok-3")
+	if _, err := cs.CallTool(context.Background(), params3); err != nil {
+		t.Fatal(err)
+	}
+	if m := nextProgress(t, got); m != "job job-3 submitted" {
+		t.Fatalf("the next notification must be the one of the third call; the call without a token sent %q", m)
+	}
 	if len(got) != 0 {
-		t.Fatalf("progress without a token: %v", got)
+		t.Fatalf("more notifications than expected: %d", len(got))
+	}
+}
+
+// nextProgress returns the next progress message of ch. It fails the test
+// when none arrives in 10 seconds. Callers hold no lock.
+func nextProgress(t *testing.T, ch <-chan string) string {
+	t.Helper()
+	select {
+	case m := <-ch:
+		return m
+	case <-time.After(10 * time.Second):
+		t.Fatal("no progress notification in 10 seconds")
+		return ""
 	}
 }
 

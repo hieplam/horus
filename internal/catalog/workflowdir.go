@@ -1,6 +1,6 @@
 // The reader of the workflows folder for the setup of the model files (horus
 // workflow and the MCP tools that install, check and remove). It keeps the
-// rules of scripts/workflow.ps1: keys without case, the casts of PowerShell,
+// rules of scripts/workflow.ps1: keys without case, the casts of the script,
 // and the order of the keys of a JSON object. So it is a second reader of
 // models.json, beside Models: Models is the reader of catalog.py for the MCP
 // tools, this one is the reader of workflow.ps1. The two give the same files

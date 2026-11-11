@@ -78,7 +78,10 @@ func (s *slowDownloader) Download(ctx context.Context, f provision.Fetch, out io
 	if err := os.WriteFile(f.Dest+".part", make([]byte, s.part), 0o644); err != nil {
 		return false, err
 	}
-	s.ready <- f.Dest
+	select { // never blocks: a second download after a cancel stays in the buffer for the test to see
+	case s.ready <- f.Dest:
+	default:
+	}
 	<-ctx.Done()
 	return false, &provision.DownloadError{Kind: provision.DownloadFailed, Msg: "Download stopped: " + ctx.Err().Error()}
 }

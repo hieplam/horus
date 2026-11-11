@@ -49,6 +49,21 @@ commands.
 | 2026-11-11 | Tests that need the wire format moved to `cmd/horus`, the wiring: `TestGenerateImageTool` and `TestGenerateImageToolErrors` (from `internal/mcpserver`, through `mcpserver.New(newImages(""))`), and 7 tests of `run-illustration` (`run_illustration_test.go`, through `cli.RunIllustration` with `imagesAt`). 3 new tests there prove that the parts fit on the timeout, the cancel and out of memory. The 12 tests of `internal/generate` keep their names and cases, on a fake of `ComfyUI` (`fake_test.go`). `internal/mcpserver` gets 2 handler tests on a fake `Images`. `TestFlagErrors` moved to `internal/cli`. | A test file follows the rules of its package (T1 decision). `cmd/horus` can import every package. Each behaviour that a test proved stays proved: the parts that the adapter now does (the mapping of a failed job, the backend time, a cancelled call) got tests in `internal/comfy`. | Agent (T5) |
 | 2026-11-11 | `tools/goal_check.py`: the Phase 1 row `graph` now tests `./internal/graph`. The Phase 1 row `setup-commands` finds `runillustration` in `internal/cli` (`SETUP_PACKAGES`). | The old paths do not exist. The rows prove the same things. | Agent (T5) |
 | 2026-11-11 | Issue #75: horus itself does not send a progress notification late. The fix is in the tests only. A test that reads collected notifications waits for them on a channel with a time limit. It proves "none without a token" with a third call that has a token, because the client runs its handlers in the order of arrival. | Server: `session.NotifyProgress` calls `handleNotify`, which calls `Connection.Notify`, and that call writes the message before it returns. The tool handler returns after that, and only then the SDK writes the result. So the notification is on the wire before the result. Client: `readIncoming` gives a response straight to the waiting `CallTool`, and gives a notification to a queue that `handleAsync` runs in a new goroutine (`jsonrpc2/conn.go:625-690` of go-sdk v1.8.0). So `CallTool` can return before the handler runs. A sleep or a retry would not fix this. | Agent (#75) |
+| 2026-11-11 | `internal/modelfiles` is a `Store` with 8 methods: `ComfyUI`, `Dirs` (the folder order), `Own`, `Mapped`, `Map` (`extra_model_paths.yaml` with one backup), `Size`, `SHA256` and `Delete` (also a read-only file). An empty field reads the setting at each call, and the yaml file is read at each call, as each `horus workflow` child did. `internal/provision` declares the interface `ModelFiles` with the same methods. | Design rule 4. The interface uses only built-in types, so the adapter implements it without a shared type. | Agent (T6) |
+| 2026-11-11 | The refusal rules of a remove (another size: REFUSED; another workflow lists the file: KEPT_SHARED unless Force) are pure functions of `internal/provision` (`removeDecision`), with the checks of a file (`fileCheck`, `graphCheck`, `serverCheck`) and the choice of the yaml folders (`mappings`). `modelfiles.Delete` only deletes. | The task says that the decisions are the knowledge of the service. "Remove with the refusal rules" of the plan is read as: the adapter deletes, the service refuses. | Agent (T6) |
+| 2026-11-11 | The reader of the workflows folder with the rules of workflow.ps1 (keys without case, the casts of the script, the order of the keys) moved from `internal/scripts/workflow/files.go` to `internal/catalog/workflowdir.go` (`Folders`, `FindModelList`, `ReadModelList`, `ReadGraphRefs`). It is a second reader of models.json beside `catalog.Models`, with its own error texts. | The service then does its input and output only through its interfaces or the base package `catalog`, as `generate` reads the workflows through `catalog`. The two readers keep their own errors, because the parity golden files and the MCP contract hold both. | Agent (T6) |
+| 2026-11-11 | `internal/provision` declares `Downloader`, `Fetch`, `DownloadError` and `DownloadKind` (6 kinds, the same as `download.Kind`). The glue type `downloader` in `cmd/horus/wiring.go` calls `download.Download` and copies the kind of a `*download.Error` into a `*provision.DownloadError`. | A service cannot import an adapter, and an adapter cannot name a type of a service. No base package fits a download error. The glue is 20 lines of the wiring, and `cmd/horus/workflow_test.go` proves it for HTTP 401, HTTP 403, a full disk and a file conflict. | Agent (T6) |
+| 2026-11-11 | `internal/provision` declares `ComfyUI` with one method, `ObjectInfo`. `*comfy.Client` implements it. Two small differences from the old check: the time limit of `/object_info` is 60 s (the limit of the client), not 30 s; and an answer that is JSON but not an object counts as a server with no node class and no file, also when the answer holds model names. An answer that is not JSON gives the old result (each node class NO_NODE, each file NOT_SEEN). | One client of ComfyUI, no second HTTP code. A real ComfyUI always answers an object, and no test or golden file reaches the two cases. | Agent (T6) |
+| 2026-11-11 | The service returns a typed `Result`. Its JSON fields are the `HORUS_JSON` line, unchanged. Fields with `json:"-"` (`Want`, `Count`, `Users`, `Part`, `Err`, `Checked`, `CheckFiles`, `Quick`, `Mappings`) carry what the handler needs for the text lines and what the MCP tools need for the error codes. The lines of the downloader go live to `Watch.Out`; `Watch.Started`, `Watch.Downloading` and `Watch.Failed` give the other live lines of an install. `internal/cli/workflow.go` writes every line. | The service knows no output text (spec, "Service"). The parity test proves the text: `parity: 17 of 17 cases equal`. | Agent (T6) |
+| 2026-11-11 | A cancel stops an install after the download that runs: no next download, no change to `extra_model_paths.yaml`, and the error is the error of the context. The `.part` file stays. In `horus workflow install`, Ctrl+C now ends with the line `FAIL: context canceled`. Before, each remaining file was tried and failed at once, and the last line was `FAIL: <n> of <m> file(s) are not ready.` | The spec decision: a cancel ends the download through the context. Without the stop, the service tries every remaining file after the cancel, and a present file gets a full SHA-256 check first (minutes for 10 GB). This is the only difference that a command-line user can see, and only after Ctrl+C. | Agent (T6) |
+| 2026-11-11 | The error code of a failed download comes from the kind of the error (`HF_TOKEN_INVALID` for 401, `LICENSE_NOT_ACCEPTED` for 403, `DISK_FULL`, `FILE_CONFLICT`, else `DOWNLOAD_FAILED`), not from the text `error: 401` in any line. The kind is the status of the last attempt (the rule of `internal/download`). The details (`file`, `path`, `detail`, and the license for 403) are as before. | The task asks for the mapping on typed values. A run whose earlier attempt got 401 and whose last attempt got another error now gives `DOWNLOAD_FAILED`. | Agent (T6) |
+| 2026-11-11 | When the list of the workflows fails in a tool, the error is still `INTERNAL` "horus workflow list failed". Its detail `output_tail` is now `["FAIL: <error>"]`, the line that the child printed. The error "horus workflow ... printed no result" no longer exists: there is no child and no line to parse. | The server starts no child (spec). | Agent (T6) |
+| 2026-11-11 | The server resolves a relative `HORUS_MODELS_DIR` or `HORUS_TEXT_ENCODER_DIR` against its own working folder. The child of `internal/models` ran in `settings.Root()`. | The settings are absolute paths in `docs/setup.md` and in both test tools. The in-process service cannot change the working folder of the server. | Agent (T6) |
+| 2026-11-11 | `FreeMemory` stays in the tool `uninstall_workflow` (through `Images`), not in `provision.Remove`. | `horus workflow remove -yes` does not unload the models today. In the service, it would change the command. | Agent (T6) |
+| 2026-11-11 | `horus download-model` keeps its flag handling (`Main`) in `internal/download`. | Its flag `-token-env-var` names the token variable, with the default `HF_TOKEN`. In `internal/cli` that string breaks the rule `token`, and a variable name that passes through `provision` needs an exported option of the downloader: the loophole that this task closes. A method of `provision` that only passes the call to the downloader hides nothing (design rule 1). | Agent (T6) |
+| 2026-11-11 | `internal/download` exports no name of the token variable: `DefaultTokenVar` became `defaultTokenVar`, and the option `TokenEnvVar` became the field `tokenVar`, which only `Main` (the flag `-token-env-var`) and the tests of the package set. The rule `token` of archtest also flags a selector of the download package whose name has "token" in it, outside `internal/download`. Two planted files prove it: `cmd/horus/token_name.go`, and `cmd/horus/token_alias.go` with an import alias. | Before, another package could read the token with `os.Getenv(download.DefaultTokenVar)`, and no string named `HF_TOKEN`. The tests outside the package need no token: the fake servers are not huggingface.co, so the downloader sends no token, and `Root` points at a temporary folder. | Agent (T6) |
+| 2026-11-11 | The tests moved. The 6 command tests of `internal/scripts/workflow/workflow_test.go` and `TestModelToolsOnASandbox` went to `cmd/horus/workflow_test.go`, because they need the real model files adapter and the real downloader. `TestDownloadFailuresKeepTheTextThatModelsPyReads` became `TestDownloadFailuresKeepTheirTextAndTheirKind` (it also checks the kind). `TestInstallToolGivesTheCodeOfAFailedDownload` is new: 401, 403, a full disk and a conflict through `install_workflow`. `TestYAMLFolders` went to `internal/modelfiles`. `TestNumbersAsTheScriptPrintsThem` became `TestGB2AsTheScriptPrintsIt` (`internal/cli`) and `TestRoundGBAsTheScriptRoundsIt` (`internal/provision`). Of `internal/models`: `TestInstallMapsEachStatusToItsCode` and `TestRemoveMapsEachStatusToItsCode` test the mapping in `internal/mcpserver` on typed items; `TestListStatusAndInstallState` became `TestRowState` and `TestListCountsTheFilesOnDisk`; `TestPartSize` went to `internal/provision`; `TestCancelKillsTheProcessTree` became `TestInstallStopsWhenTheContextEnds` (service) and `TestInstallReportsProgressAndACancelStopsTheDownload` (`internal/mcpserver`, the test of the plan). `TestRunScriptReadsTheLinesAndTheResult` and `TestNoResultLineIsInternal` are gone: the child process and the parser of its line do not exist. `TestSizeText` stays in `internal/mcpserver`. | A test follows the rules of its package: the tests of `provision` and `mcpserver` use fakes of the adapters (`memFiles`, `diskFiles`, `slowDownloader`). The Go test functions went from 174 to 185. | Agent (T6) |
+| 2026-11-11 | The tests of `internal/mcpserver` that call no model tool give `New` a nil `Setup`. | They prove that the image tools and the envelope need no setup service. | Agent (T6) |
 
 ## Baseline
 
@@ -308,3 +323,72 @@ Stub check: in `progress.go`, the line `if token == nil || session == nil {` bec
     FAIL	github.com/hieplam/horus/cmd/horus	10.166s
 
 The tests fail in their time limit (10 s each). They do not hang and they do not pass.
+
+## T6
+
+Red, before the change (at `7ad4f65`):
+
+    go list ./internal/provision ./internal/modelfiles
+    stat ...\internal\provision: directory not found
+    stat ...\internal\modelfiles: directory not found      (exit 1)
+
+    git grep -n "HORUS_JSON" -- internal/mcpserver internal/provision internal/models
+    internal/models/models.go:36:const Mark = "HORUS_JSON "     (and 6 more lines of internal/models)
+
+    git grep -n "os/exec" -- internal/mcpserver internal/provision
+    internal/mcpserver/tool_models_test.go:16:	"os/exec"
+
+    python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>\horus.exe mcp
+    FAIL  layout - 9 packages off target, 5 listed packages missing
+    PASS  same-behaviour - ... 174 Go test functions (baseline 157); 0 changed contract files
+    FAIL  direction - 7 entries on the allow list; archtest: ok
+
+Green:
+
+    python tests/workflow_parity.py --horus bin/horus.exe
+    EQUAL     list
+    ... (17 lines EQUAL)
+    parity: 17 of 17 cases equal
+
+    python tests/mcp_contract.py --server-cmd <bin>\horus.exe mcp
+    PASS  install of an installed style -> ok, already_installed
+    PASS  install without accept_license -> LICENSE_CONFIRMATION_REQUIRED, action_by=human, with size
+    PASS  uninstall without confirm -> CONFIRMATION_REQUIRED, plan: 1 to delete, 2 shared kept; nothing deleted
+    PASS  uninstall with confirm deletes the 1 unshared file and keeps the 2 shared files
+    PASS  uninstall with remove_shared deletes the 2 shared files
+    PASS  after uninstall, list_workflows shows both styles not_installed
+    contract: 30 of 30 passed
+
+    go list ./internal/models ./internal/scripts/workflow
+    stat ...\internal\models: directory not found
+    stat ...\internal\scripts\workflow: directory not found      (exit 1)
+
+    git grep -n "os/exec" -- internal/mcpserver internal/provision
+    (no output, exit 1)
+
+    go test -count=1 -run TestInstallReportsProgressAndACancelStopsTheDownload -v ./internal/mcpserver
+    --- PASS: TestInstallReportsProgressAndACancelStopsTheDownload
+
+    python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>\horus.exe mcp
+    FAIL  layout - 7 packages off target, 3 listed packages missing
+    PASS  same-behaviour - contract: local 30 of 30; CI part skipped (--no-ci); parity: 17 of 17; go test ./...: ok; 185 Go test functions (baseline 157); 0 changed contract files
+    FAIL  os-boundary - 3 entries on the allow list; archtest: ok
+    FAIL  direction - 4 entries on the allow list; archtest: ok
+    PASS  process-tree - tree test: ok; 0 taskkill references
+    FAIL  backend - missing: internal/backend (task T7)
+    PASS  token - 0 entries on the allow list; archtest: ok
+    FAIL  commands - missing: internal/doctor (tasks T8 and T9)
+    goal: 3 of 8 rows passed
+
+    python tools/goal_check.py --no-ci   (Phase 1)
+    goal: 7 of 8 rows passed   (only real-image fails: it needs --real on the GPU machine)
+
+`gofmt -l .` prints nothing. `go vet ./...` is clean for windows, darwin/arm64 and linux/amd64. `lint-public: 0 finding(s)`. `go test ./...` passes.
+
+Stub checks, run on this PC with code that is not committed:
+
+- The stop after a cancel removed from `Install`: `TestInstallReportsProgressAndACancelStopsTheDownload` fails with `the install started the next download after the cancel: ...\text_encoders\qwen3vl_4b_int8_convrot.safetensors`, and `TestInstallStopsWhenTheContextEnds` fails with `err 2 of 2 file(s) are not ready., 2 downloads, mapped []`.
+- The new part of the rule `token` disabled: `TestPlanted` fails with `cmd/horus/token_name.go: the rules flag [], want [token]` and the same for `cmd/horus/token_alias.go`.
+- A `provision` that does nothing: the 17 parity cases and the install and uninstall checks of the contract test read its output, so they fail.
+
+Ratchet: packages off target 9 -> 7 (`internal/models` and `internal/scripts/workflow` are gone). Listed packages missing 5 -> 3 (`internal/modelfiles`, `internal/provision`). `direction` allow list 7 -> 4 (the entries `internal/models -> os/exec`, `internal/scripts/workflow -> internal/download` and `internal/scripts/workflow -> net/http` are gone). Go test functions 174 -> 185. `token` allow list 0 -> 0, with 2 more planted files.

@@ -1,5 +1,5 @@
 // The install action. Ports the install branch and Add-YamlMappings of
-// scripts/workflow.ps1. The download itself is downloadmodel.Download (task G3),
+// scripts/workflow.ps1. The download itself is download.Download (task G3),
 // which replaces download-model.ps1.
 package workflow
 
@@ -14,7 +14,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/hieplam/horus/internal/scripts/downloadmodel"
+	"github.com/hieplam/horus/internal/download"
 )
 
 func newGet(ctx context.Context, url string) (*http.Request, error) {
@@ -80,8 +80,8 @@ func (r *runner) install(m manifest, graph string) error {
 		}
 		r.say("-- %s -> %s", f.Role, dest)
 		tee := &lineTee{out: r.out}
-		_, err := r.opt.Download(r.ctx, downloadmodel.Options{
-			URL: f.URL, Dest: dest, ExpectedBytes: f.Bytes, SHA256: f.Sha256, TokenEnvVar: "HF_TOKEN", Out: tee,
+		_, err := r.opt.Download(r.ctx, download.Options{
+			URL: f.URL, Dest: dest, ExpectedBytes: f.Bytes, SHA256: f.Sha256, Out: tee,
 		})
 		if err != nil {
 			fmt.Fprintf(tee, "FAIL: %v\n", err)

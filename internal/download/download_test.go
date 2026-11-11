@@ -1,7 +1,7 @@
 // Tests of the port of scripts/download-model.ps1. Each test runs against a
 // local fake HTTPS server on an ephemeral port, in a temporary folder. No test
 // reaches the network: the transport sends every host name to the fake server.
-package downloadmodel
+package download
 
 import (
 	"bytes"

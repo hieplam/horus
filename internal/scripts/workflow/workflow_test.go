@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hieplam/horus/internal/download"
 	"github.com/hieplam/horus/internal/platform"
-	"github.com/hieplam/horus/internal/scripts/downloadmodel"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -49,7 +49,7 @@ func newSandbox(t *testing.T) *sandbox {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("HORUS_ROOT", root) // no .env of a real checkout is read
-	for _, k := range []string{"HORUS_MODELS_DIR", "HORUS_TEXT_ENCODER_DIR", "HORUS_COMFYUI_DIR", "HORUS_COMFYUI_URL", "HF_TOKEN"} {
+	for _, k := range []string{"HORUS_MODELS_DIR", "HORUS_TEXT_ENCODER_DIR", "HORUS_COMFYUI_DIR", "HORUS_COMFYUI_URL", download.DefaultTokenVar} {
 		t.Setenv(k, "")
 	}
 	settings.Reset()
@@ -122,11 +122,11 @@ func (s *sandbox) options(free uint64) Options {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	return Options{
-		Download: func(ctx context.Context, o downloadmodel.Options) (downloadmodel.Result, error) {
+		Download: func(ctx context.Context, o download.Options) (download.Result, error) {
 			o.Transport, o.Root = tr, s.root
 			o.Sleep = func(time.Duration) {}
 			o.FreeSpace = func(string) (uint64, error) { return free, nil }
-			return downloadmodel.Download(ctx, o)
+			return download.Download(ctx, o)
 		},
 		Now: func() time.Time { return time.Date(2026, 11, 10, 9, 8, 7, 0, time.UTC) },
 	}

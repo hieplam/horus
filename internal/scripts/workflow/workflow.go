@@ -45,14 +45,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hieplam/horus/internal/scripts/downloadmodel"
+	"github.com/hieplam/horus/internal/download"
 	"github.com/hieplam/horus/internal/settings"
 )
 
 // Options holds the test seams. The zero value is the real behaviour.
 type Options struct {
-	// Download downloads one file. Default: downloadmodel.Download.
-	Download func(ctx context.Context, o downloadmodel.Options) (downloadmodel.Result, error)
+	// Download downloads one file. Default: download.Download.
+	Download func(ctx context.Context, o download.Options) (download.Result, error)
 	// HTTPClient asks ComfyUI for /object_info. Default: a client with a 30 s limit.
 	HTTPClient *http.Client
 	// Now gives the time in the name of the backup of extra_model_paths.yaml.
@@ -193,7 +193,7 @@ func Main(ctx context.Context, args []string, out io.Writer, opt Options) int {
 		r.workflow = pos[1]
 	}
 	if r.opt.Download == nil {
-		r.opt.Download = downloadmodel.Download
+		r.opt.Download = download.Download
 	}
 	if r.opt.HTTPClient == nil {
 		r.opt.HTTPClient = &http.Client{Timeout: 30 * time.Second}

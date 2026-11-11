@@ -48,6 +48,7 @@ commands.
 | 2026-11-11 | T5 creates `internal/cli` with `cli.go` (the package comment) and `run_illustration.go`. `cli.RunIllustration` gets a function `imagesAt(url)` from `cmd/horus`, because the flag `-url` picks the ComfyUI. Exported names start with `Illustration` (`IllustrationOptions`, `IllustrationResult`) so that later commands in the same package do not collide. | T4 did not create the package (see the T4 row above). `run-illustration` calls the service `generate`, so its handler adds no entry. | Agent (T5) |
 | 2026-11-11 | Tests that need the wire format moved to `cmd/horus`, the wiring: `TestGenerateImageTool` and `TestGenerateImageToolErrors` (from `internal/mcpserver`, through `mcpserver.New(newImages(""))`), and 7 tests of `run-illustration` (`run_illustration_test.go`, through `cli.RunIllustration` with `imagesAt`). 3 new tests there prove that the parts fit on the timeout, the cancel and out of memory. The 12 tests of `internal/generate` keep their names and cases, on a fake of `ComfyUI` (`fake_test.go`). `internal/mcpserver` gets 2 handler tests on a fake `Images`. `TestFlagErrors` moved to `internal/cli`. | A test file follows the rules of its package (T1 decision). `cmd/horus` can import every package. Each behaviour that a test proved stays proved: the parts that the adapter now does (the mapping of a failed job, the backend time, a cancelled call) got tests in `internal/comfy`. | Agent (T5) |
 | 2026-11-11 | `tools/goal_check.py`: the Phase 1 row `graph` now tests `./internal/graph`. The Phase 1 row `setup-commands` finds `runillustration` in `internal/cli` (`SETUP_PACKAGES`). | The old paths do not exist. The rows prove the same things. | Agent (T5) |
+| 2026-11-11 | Issue #75: horus itself does not send a progress notification late. The fix is in the tests only. A test that reads collected notifications waits for them on a channel with a time limit. It proves "none without a token" with a third call that has a token, because the client runs its handlers in the order of arrival. | Server: `session.NotifyProgress` calls `handleNotify`, which calls `Connection.Notify`, and that call writes the message before it returns. The tool handler returns after that, and only then the SDK writes the result. So the notification is on the wire before the result. Client: `readIncoming` gives a response straight to the waiting `CallTool`, and gives a notification to a queue that `handleAsync` runs in a new goroutine (`jsonrpc2/conn.go:625-690` of go-sdk v1.8.0). So `CallTool` can return before the handler runs. A sleep or a retry would not fix this. | Agent (#75) |
 
 ## Baseline
 
@@ -268,3 +269,42 @@ Stub check: the old import back in a file that is not committed (`internal/gener
 Before the allow list was shortened, the new code made archtest fail the other way: `"internal/generate -> internal/comfy" no longer breaks the rule: remove this entry from allow_direction.txt` (and the same for `runillustration` and `mcpserver`).
 
 Ratchet: `direction` allow list 10 -> 7 (the entries of `generate`, `runillustration` and `mcpserver` are gone; no entry of `mcpserver` stays for T6). Packages off target 10 -> 9 (`internal/scripts/runillustration` is gone). Listed packages missing 7 -> 5 (`internal/graph`, `internal/cli`). Go test functions 164 -> 174.
+
+## Issue 75
+
+Red, before the change (at `7ad4f65`). On this PC (Windows) the test passes with the default `GOMAXPROCS`
+(`go test -count=300 -run TestGenerateImageToolCallsTheService ./internal/mcpserver` prints `ok`). With one
+processor it hangs, like the CI job `go linux/amd64` of PR #74:
+
+    GOMAXPROCS=1 go test -count=300 -timeout 40s -run TestGenerateImageToolCallsTheService ./internal/mcpserver
+    panic: test timed out after 40s
+        running tests:
+            TestGenerateImageToolCallsTheService (40s)
+    ... server_test.go:56                      (t.Cleanup closes the client session)
+    ... tool_generate_image_test.go:119        (t.Fatalf "progress with a token", with mu locked)
+    ... tool_generate_image_test.go:88         (the notification handler waits for mu)
+
+The same two defects are in `TestSDKProgressNotifications` (a read after a 10 ms poll and a sleep of 50 ms) and in
+`TestGenerateImageTool` of `cmd/horus` (reads `got` right after `CallTool`).
+
+Green (after the change):
+
+    GOMAXPROCS=1 go test -count=300 -timeout 60s -run TestGenerateImageToolCallsTheService ./internal/mcpserver
+    ok  	github.com/hieplam/horus/internal/mcpserver	1.773s
+    GOMAXPROCS=1 go test -count=100 -timeout 120s -run "TestGenerateImageTool|TestSDKProgress" ./cmd/horus ./internal/mcpserver
+    ok  	github.com/hieplam/horus/cmd/horus	4.743s
+    ok  	github.com/hieplam/horus/internal/mcpserver	1.676s
+
+Stub check: in `progress.go`, the line `if token == nil || session == nil {` became `if true || token == nil || session == nil {`
+(a server that sends no notification). Not committed.
+
+    --- FAIL: TestSDKProgressNotifications (10.00s)
+        server_test.go:253: progress messages [] after 10 seconds, want 4
+    --- FAIL: TestGenerateImageToolCallsTheService (10.00s)
+        tool_generate_image_test.go:117: no progress notification in 10 seconds
+    FAIL	github.com/hieplam/horus/internal/mcpserver	21.198s
+    --- FAIL: TestGenerateImageTool (10.02s)
+        image_test.go:197: no progress notification in 10 seconds
+    FAIL	github.com/hieplam/horus/cmd/horus	10.166s
+
+The tests fail in their time limit (10 s each). They do not hang and they do not pass.

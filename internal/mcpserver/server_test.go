@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -217,8 +216,7 @@ func TestArgumentErrors(t *testing.T) {
 // and sends none without a token.
 func TestSDKProgressNotifications(t *testing.T) {
 	useRepoWorkflows(t)
-	var mu sync.Mutex
-	var got []string
+	got := make(chan string, 16)
 	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: Version}, nil)
 	s.AddTool(&mcp.Tool{Name: "slow", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -228,33 +226,35 @@ func TestSDKProgressNotifications(t *testing.T) {
 			return okResult(map[string]any{}), nil
 		})
 	cs := connect(t, s, &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
-		mu.Lock()
-		got = append(got, r.Params.Message)
-		mu.Unlock()
+		got <- r.Params.Message
 	}})
-	params := &mcp.CallToolParams{Name: "slow", Arguments: map[string]any{}}
-	params.SetProgressToken("tok-1")
-	if _, err := cs.CallTool(context.Background(), params); err != nil {
-		t.Fatal(err)
+	// The client can run its notification handler after CallTool returns, and
+	// it runs its handlers in the order of arrival. So the test calls the tool
+	// with a token, then without one, then with a token again. The messages
+	// of the first and third call must arrive, and none between them.
+	withToken := func() {
+		params := &mcp.CallToolParams{Name: "slow", Arguments: map[string]any{}}
+		params.SetProgressToken("tok-1")
+		if _, err := cs.CallTool(context.Background(), params); err != nil {
+			t.Fatal(err)
+		}
 	}
+	withToken()
 	if _, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "slow", Arguments: map[string]any{}}); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		mu.Lock()
-		n := len(got)
-		mu.Unlock()
-		if n >= 2 || time.Now().After(deadline) {
-			break
+	withToken()
+	var seen []string
+	for len(seen) < 4 {
+		select {
+		case m := <-got:
+			seen = append(seen, m)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("progress messages %v after 10 seconds, want 4", seen)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
-	time.Sleep(50 * time.Millisecond) // a notification of the call without a token would arrive by now
-	mu.Lock()
-	defer mu.Unlock()
-	if strings.Join(got, ",") != "half,done" {
-		t.Fatalf("progress messages %v, want [half done] from the call with a token only", got)
+	if strings.Join(seen, ",") != "half,done,half,done" || len(got) != 0 {
+		t.Fatalf("progress messages %v (and %d more), want [half done half done]: the call without a token sends none", seen, len(got))
 	}
 }
 

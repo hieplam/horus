@@ -9,11 +9,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -158,12 +158,9 @@ func TestGenerateImageTool(t *testing.T) {
 	generate.PollInterval = 5 * time.Millisecond
 	t.Cleanup(func() { generate.PollInterval = old })
 
-	var mu sync.Mutex
-	var got []string
+	got := make(chan string, 64)
 	cs := connect(t, mcpserver.New(newImages("")), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
-		mu.Lock()
-		got = append(got, r.Params.Message)
-		mu.Unlock()
+		got <- fmt.Sprintf("%v %s", r.Params.ProgressToken, r.Params.Message)
 	}})
 	out := filepath.Join(tmp, "images", "a.png")
 	params := &mcp.CallToolParams{Name: "generate_image", Arguments: json.RawMessage(
@@ -186,29 +183,42 @@ func TestGenerateImageTool(t *testing.T) {
 	if err != nil || string(data[:8]) != "\x89PNG\r\n\x1a\n" {
 		t.Fatalf("no PNG: %v", err)
 	}
-	mu.Lock()
-	n := len(got)
-	first := ""
-	if n > 0 {
-		first = got[0]
-	}
-	mu.Unlock()
-	if n == 0 || first != "job job-1 submitted" {
-		t.Fatalf("progress with a token: %v", got)
+	// The client can run its notification handler after CallTool returns, so
+	// the test waits for the notifications (with a time limit). It runs its
+	// handlers in the order of arrival. A third call with another token
+	// follows the call without a token: every notification that arrives before
+	// the one of the third call must belong to the first call.
+	select {
+	case m := <-got:
+		if m != "tok-1 job job-1 submitted" {
+			t.Fatalf("progress with a token: %q", m)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no progress notification in 10 seconds")
 	}
 
 	// Without a progressToken: no notification.
-	mu.Lock()
-	got = nil
-	mu.Unlock()
 	res = callTool(t, cs, "generate_image", map[string]any{"workflow": "it-illustration", "subject": testSubject})
 	if res.IsError {
 		t.Fatalf("got %v", envelopeOf(t, res))
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if len(got) != 0 {
-		t.Fatalf("progress without a token: %v", got)
+	params3 := &mcp.CallToolParams{Name: "generate_image", Arguments: map[string]any{"workflow": "it-illustration", "subject": testSubject}}
+	params3.SetProgressToken("tok-3")
+	if _, err := cs.CallTool(context.Background(), params3); err != nil {
+		t.Fatal(err)
+	}
+	for third := false; !third; {
+		select {
+		case m := <-got:
+			switch {
+			case strings.HasPrefix(m, "tok-3 "):
+				third = true
+			case !strings.HasPrefix(m, "tok-1 "):
+				t.Fatalf("a notification that belongs to no call with a token: %q", m)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("no progress notification of the third call in 10 seconds")
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -20,6 +21,9 @@ func runMCP(args []string) int {
 		fmt.Fprintln(fs.Output(), "Serves list_workflows, describe_workflow, install_workflow, uninstall_workflow and generate_image over stdio.")
 	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

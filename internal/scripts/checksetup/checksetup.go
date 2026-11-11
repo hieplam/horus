@@ -28,6 +28,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -404,6 +405,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	modelsDir := fs.String("models-dir", "", "with -workflow: models folder (default: HORUS_MODELS_DIR)")
 	textDir := fs.String("text-encoder-dir", "", "with -workflow: folder of the text encoder on another drive (default: HORUS_TEXT_ENCODER_DIR)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	home, _ := os.UserHomeDir()

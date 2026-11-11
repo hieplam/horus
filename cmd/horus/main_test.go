@@ -33,3 +33,16 @@ func TestExitCodes(t *testing.T) {
 		t.Errorf("errors -json: exit %d, want 0", code)
 	}
 }
+
+// Issue #41: -h prints the flags and exits 0 for every command. A wrong flag
+// still exits 2.
+func TestHelpExitsZero(t *testing.T) {
+	for name := range commands {
+		if got := run([]string{name, "-h"}); got != 0 {
+			t.Errorf("horus %s -h exited %d, want 0", name, got)
+		}
+	}
+	if got := run([]string{"errors", "-no-such-flag"}); got != 2 {
+		t.Errorf("a wrong flag exited %d, want 2", got)
+	}
+}

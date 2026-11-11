@@ -6,6 +6,7 @@
 package newworkflow
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -57,6 +58,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	family := fs.String("model-family", "TBD", "the model family, for example \"FLUX 3 Image Klein\"")
 	wfDir := fs.String("workflows-dir", "", "the workflows folder (default: HORUS_WORKFLOWS_DIR, then <repo>/workflows)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if *name == "" || *description == "" {

@@ -85,6 +85,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	sevenZip := fs.String("seven-zip", "", "full path to 7z.exe (default: search PATH, then Program Files\\7-Zip)")
 	keep := fs.Bool("keep-archive", false, "do not delete the archive after a successful install")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if goos != "windows" {

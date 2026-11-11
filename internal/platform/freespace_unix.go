@@ -2,7 +2,7 @@
 
 // The free space of a file system on macOS and Linux. Ports the DriveInfo
 // check of scripts/download-model.ps1.
-package downloadmodel
+package platform
 
 import "syscall"
 

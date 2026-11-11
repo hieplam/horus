@@ -2,7 +2,7 @@
 
 // Other systems: the free space is not read, and the download goes on with a
 // warning, as download-model.ps1 does for a network path.
-package downloadmodel
+package platform
 
 import "errors"
 

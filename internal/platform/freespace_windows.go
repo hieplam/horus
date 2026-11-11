@@ -1,13 +1,13 @@
-// The free space of a drive on Windows. Ports the DriveInfo check of
+// The free space of a folder on Windows. Ports the DriveInfo check of
 // scripts/download-model.ps1.
-package downloadmodel
+package platform
 
 import (
 	"syscall"
 	"unsafe"
 )
 
-var getDiskFreeSpaceEx = syscall.NewLazyDLL("kernel32.dll").NewProc("GetDiskFreeSpaceExW")
+var procGetDiskFreeSpaceEx = kernel32.NewProc("GetDiskFreeSpaceExW")
 
 // freeSpace returns the bytes that the caller can write on the drive of dir.
 func freeSpace(dir string) (uint64, error) {
@@ -16,7 +16,7 @@ func freeSpace(dir string) (uint64, error) {
 		return 0, err
 	}
 	var avail, total, free uint64
-	r, _, e := getDiskFreeSpaceEx.Call(uintptr(unsafe.Pointer(p)),
+	r, _, e := procGetDiskFreeSpaceEx.Call(uintptr(unsafe.Pointer(p)),
 		uintptr(unsafe.Pointer(&avail)), uintptr(unsafe.Pointer(&total)), uintptr(unsafe.Pointer(&free)))
 	if r == 0 {
 		return 0, e

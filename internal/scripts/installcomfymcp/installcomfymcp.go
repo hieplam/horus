@@ -17,8 +17,9 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
+
+	"github.com/hieplam/horus/internal/platform"
 )
 
 // The pinned versions.
@@ -68,18 +69,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func venvPython(venv string) string {
-	if runtime.GOOS == "windows" {
-		return filepath.Join(venv, "Scripts", "python.exe")
-	}
-	return filepath.Join(venv, "bin", "python")
-}
+func venvPython(venv string) string { return platform.VenvBin(venv, "python") }
 
 func venvPrograms(venv string) []string {
-	if runtime.GOOS == "windows" {
-		return []string{filepath.Join(venv, "Scripts", "comfy-mcp.exe"), filepath.Join(venv, "Scripts", "comfy.exe")}
-	}
-	return []string{filepath.Join(venv, "bin", "comfy-mcp"), filepath.Join(venv, "bin", "comfy")}
+	return []string{platform.VenvBin(venv, "comfy-mcp"), platform.VenvBin(venv, "comfy")}
 }
 
 // Install makes the venv when it is missing and installs the pinned packages
@@ -101,18 +94,9 @@ func Install(ctx context.Context, o Options) error {
 		}
 		launcher := o.Launcher
 		if len(launcher) == 0 {
-			if runtime.GOOS == "windows" {
-				p, err := exec.LookPath("py.exe")
-				if err != nil {
-					return fmt.Errorf("The Python Launcher (py.exe) was not found. Install Python %s from python.org.", o.PythonVersion)
-				}
-				launcher = []string{p, "-" + o.PythonVersion}
-			} else {
-				p, err := exec.LookPath("python" + o.PythonVersion)
-				if err != nil {
-					return fmt.Errorf("python%s was not found. Install Python %s.", o.PythonVersion, o.PythonVersion)
-				}
-				launcher = []string{p}
+			var err error
+			if launcher, err = platform.PythonLauncher(o.PythonVersion); err != nil {
+				return err
 			}
 		}
 		if err := exec.CommandContext(ctx, launcher[0], append(append([]string{}, launcher[1:]...), "-c", "import sys")...).Run(); err != nil {

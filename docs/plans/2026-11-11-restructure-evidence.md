@@ -27,6 +27,16 @@ commands.
 | 2026-11-11 | A test file of a service follows the rules of the service, as the spec says. So T5 step 3 has one option only: a test of `internal/generate` uses a fake of the interface. A test that needs the wire format of the real `comfy.Client` goes to `internal/comfy` or `cmd/horus`. Today `internal/generate/generate_test.go` imports `internal/comfy`. | The spec wins over the plan. The other option of the plan keeps the entry `internal/generate -> internal/comfy` on the list. | Agent (T1) |
 | 2026-11-11 | The Red of T1 printed `directory not found` and `[setup failed]` (Go 1.27.3), not "no Go files" or "cannot find package". | It is the same fact: the package does not exist. | Agent (T1) |
 | 2026-11-11 | `tools/goal_check.py` does not change in T1. It reads the three lists in the format of T0 and prints their lengths. | The format of T0 fits the lists of T1. | Agent (T1) |
+| 2026-11-11 | The interface of `internal/platform` is 9 functions: `StartTree`, `EndTree`, `NoConsole`, `FreeSpace`, `IsRooted`, `VenvBin`, `ExeName`, `PythonLauncher` and `BlockDelete`. The id of a tree is a string: the name of the Job Object on Windows, the process group number on Unix. A caller stores the id and gives it to `EndTree`. | Design rule 2: a caller sees no SysProcAttr, handle or signal. A string id can go to a file, so a later process (T7 `Backend.Stop`) can end the tree. | Agent (T2) |
+| 2026-11-11 | On Windows, `StartTree` copies a handle of the Job Object into the root process. | Windows removes the name of a job when its last handle closes, also while processes of the job run. Measured: with the copy in the starter instead of the root, check 2 of the tree test fails with `2 of 2 processes alive 5 s after EndTree`. Limit: when the root ends and its children still run, the name is gone, and `EndTree` reaches nothing. For ComfyUI the root is the server, so this limit does not apply. | Agent (T2) |
+| 2026-11-11 | On Windows, the root starts suspended (`CREATE_SUSPENDED`). `StartTree` puts it in the job, then resumes its thread. The standard library `syscall` with kernel32 procedures is enough; no new dependency. | The root cannot start a child before it is in the job. | Agent (T2) |
+| 2026-11-11 | A tree on Windows starts with `CREATE_NO_WINDOW` and `CREATE_NEW_PROCESS_GROUP`. `horus start-comfyui` used `DETACHED_PROCESS` before. | With `DETACHED_PROCESS` the root has no console, so each console program that ComfyUI starts opens a new window. With `CREATE_NO_WINDOW` the tree shares one hidden console. The tree still gets no Ctrl+C and still lives after its starter. | Agent (T2) |
+| 2026-11-11 | The `horus workflow` child of `internal/models` now starts with `StartTree`. A cancel ends the tree with `EndTree`. On Windows: `TerminateJobObject` instead of `taskkill /T /F`. On Unix: a new session instead of a new process group, and SIGTERM, a wait of at most 3 s (`EndWait`), then SIGKILL, instead of SIGKILL at once. | The plan removes `taskkill`. The process tree has one implementation. `TestCancelKillsTheProcessTree` of `internal/models` and the contract test still pass. The child is a Go program, and SIGTERM ends it at once. | Agent (T2) |
+| 2026-11-11 | `StartTree` does not use `CREATE_BREAKAWAY_FROM_JOB`. The tree is a nested job in the job of its starter, if the starter is in one. | The old code did not break away either. A break-away fails when the outer job does not allow it. The tree test passes on this PC (started from a Claude Code session) and in CI on `windows-latest`. | Agent (T2) |
+| 2026-11-11 | `BlockDelete` (the test helper of `TestRemoveThatCannotDeleteGivesDeleteFailed`) is in `internal/platform`, not in a new package `internal/platform/platformtest`. | A new package raised the row `layout` from 12 to 13 packages off target (measured). The ratchet must not move the wrong way. | Agent (T2) |
+| 2026-11-11 | The default ComfyUI folder stays in `internal/settings` (`ComfyDir`). `internal/platform` gets only the venv paths. | `settings.ComfyDir` has no code for one OS today. T7 moves the layout of the install to `internal/backend`. | Agent (T2) |
+| 2026-11-11 | The free space function of `installcomfyui` now calls `platform.FreeSpace` on the root of the drive. On macOS and Linux it gives the error of `statfs`, not "not supported on this OS yet". | The command refuses on those systems before it reads the free space, so a user sees no change. The two copies of the free space code become one, as the plan says. | Agent (T2) |
+| 2026-11-11 | Check 1 of the tree test also sends SIGKILL to the process group of the ended starter on Unix, as a terminal does when it closes. A process of the tree in that group fails check 1. On Windows, check 1 has no such part. | The plan's stub check says that a start that is not detached fails check 1. Without the signal, a child on Unix lives after its parent ends also when it is not detached. | Agent (T2) |
 
 ## Baseline
 
@@ -110,6 +120,52 @@ Planted files: 34 under `internal/archtest/testdata/planted`. 23 are bad (os-bou
 Ratchet: rules that a test enforces 0 -> 3. Baseline of the next tasks: `os-boundary` 19 files, `direction` 10 pairs, `token` 4 files.
 
 Side measure: `layout` now reports 10 listed packages missing (11 at T0), because `internal/archtest` exists.
+
+## T2
+
+Red (before the change, at `5582e6a`):
+
+    go test ./internal/platform
+    stat ...\internal\platform: directory not found
+    FAIL	./internal/platform [setup failed]
+
+    python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>/horus.exe mcp
+    FAIL  os-boundary - 19 entries on the allow list; archtest: ok
+    FAIL  process-tree - missing: internal/platform (task T2); 8 taskkill references
+
+Green on this PC (Windows 11):
+
+    go test -count=1 -v ./internal/platform
+    --- PASS: TestVenvPathsFollowTheOS (0.00s)
+    --- PASS: TestIsRootedIsIsPathRootedOfThisOS (0.00s)
+    --- PASS: TestTreeOutlivesItsStarterAndEndsFromAnotherProcess (0.26s)
+    --- PASS: TestTreeEndsWithItsContext (0.08s)
+    --- PASS: TestEndTreeRefusesAnIDThatIsNotATree (0.00s)
+    --- PASS: TestFreeSpaceOfThisSystem (0.00s)
+    ok  	github.com/hieplam/horus/internal/platform	0.836s
+
+    python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>/horus.exe mcp
+    FAIL  layout - 12 packages off target, 9 listed packages missing
+    PASS  same-behaviour - contract: local 30 of 30; CI part skipped (--no-ci); parity: 17 of 17; go test ./...: ok; 164 Go test functions (baseline 157); 0 changed contract files
+    FAIL  os-boundary - 3 entries on the allow list; archtest: ok
+    FAIL  direction - 10 entries on the allow list; archtest: ok
+    PASS  process-tree - tree test: ok; 0 taskkill references
+    FAIL  backend - missing: internal/backend (task T7)
+    FAIL  token - 4 entries on the allow list; archtest: ok
+    FAIL  commands - missing: internal/cli, internal/doctor (tasks T8 and T9)
+    goal: 2 of 8 rows passed
+
+    git grep -n taskkill -- '*.go'
+    (no output, exit 1)
+
+Stub checks, run on this PC:
+
+- `EndTree` that returns nil: `check 2: 2 of 2 processes alive 5 s after EndTree`.
+- The job handle copied into the starter, not into the root: `check 2: 2 of 2 processes alive 5 s after EndTree`. The name of the job ends with the handle of the starter.
+
+The 3 files that stay on the allow list `os-boundary` are the `goos` variables of `checksetup.go`, `installcomfyui.go` and `startcomfyui.go` (tasks T7 and T8). The three test files that used `runtime.GOOS` now call `platform.ExeName` and `platform.BlockDelete`, and the venv test moved to `internal/platform`.
+
+Ratchet: `os-boundary` allow list 19 -> 3. `taskkill` references 8 -> 0. Packages off target 12 -> 12, listed packages missing 10 -> 9 (`internal/platform` exists). Go test functions 160 -> 164.
 
 ## T3
 

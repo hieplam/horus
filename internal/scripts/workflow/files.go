@@ -13,10 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hieplam/horus/internal/platform"
 )
 
 // modelExt matches a model file name. The -match of workflow.ps1 ignores case.
@@ -480,12 +481,7 @@ func trimQuotes(s string) string {
 }
 
 // isRooted is [IO.Path]::IsPathRooted.
-func isRooted(p string) bool {
-	if filepath.IsAbs(p) || filepath.VolumeName(p) != "" {
-		return true
-	}
-	return strings.HasPrefix(p, "/") || (runtime.GOOS == "windows" && strings.HasPrefix(p, `\`))
-}
+func isRooted(p string) bool { return platform.IsRooted(p) }
 
 // joinPath is Join-Path.
 func joinPath(a, b string) string { return filepath.Join(a, b) }

@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -72,6 +73,14 @@ func DefaultOptions() Options {
 		ExpandedBytes: ExpandedBytes, SpareBytes: SpareBytes,
 		FreeSpace: freeSpace, Sleep: time.Sleep, Client: http.DefaultClient, Stdout: os.Stdout,
 	}
+}
+
+// freeSpace returns the free bytes that the current user can use on the
+// drive of path. path itself can be missing: the check reads the root of its
+// drive.
+func freeSpace(path string) (int64, error) {
+	n, err := platform.FreeSpace(filepath.VolumeName(path) + `\`)
+	return int64(n), err
 }
 
 var goos = runtime.GOOS

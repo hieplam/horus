@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -115,8 +116,8 @@ func Start(ctx context.Context, o Options) error {
 		"--windows-standalone-build", "--listen", "127.0.0.1", "--port", port)
 	cmd.Dir = o.ComfyUIDir
 	cmd.Stdout, cmd.Stderr = outF, errF
-	detach(cmd)
-	if err := cmd.Start(); err != nil {
+	// A tree of its own: ComfyUI keeps running after this command ends.
+	if _, err := platform.StartTree(cmd); err != nil {
 		return fmt.Errorf("cannot start %s: %w", python, err)
 	}
 	exited := make(chan error, 1)

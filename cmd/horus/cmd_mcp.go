@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/hieplam/horus/internal/server"
+	"github.com/hieplam/horus/internal/mcpserver"
 )
 
 func init() { register("mcp", "serve the 5 horus tools over stdio (MCP)", runMCP) }
@@ -28,7 +28,7 @@ func runMCP(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := server.Run(ctx); err != nil && ctx.Err() == nil {
+	if err := mcpserver.Run(ctx); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "horus mcp: %v\n", err)
 		return 1
 	}

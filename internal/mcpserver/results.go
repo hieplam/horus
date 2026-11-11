@@ -1,6 +1,6 @@
 // Result models that more than one tool uses. Part of the port of
 // horus/server.py.
-package server
+package mcpserver
 
 import "github.com/hieplam/horus/internal/models"
 

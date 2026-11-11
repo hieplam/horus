@@ -20,3 +20,20 @@ type Image struct {
 	Subfolder string
 	Type      string
 }
+
+// Queue is where ComfyUI keeps one job in its queue. The adapter
+// internal/comfy reads it from the wire format. The service
+// internal/generate and Cancel read the fields.
+type Queue struct {
+	// Running is true while the server runs the job.
+	Running bool
+	// Position is the place of a waiting job in the queue, counted from 1.
+	// It is 0 when the job is not waiting.
+	Position int
+}
+
+// Pending reports whether the job waits in the queue.
+func (q Queue) Pending() bool { return q.Position > 0 }
+
+// Absent reports whether the server does not list the job at all.
+func (q Queue) Absent() bool { return !q.Running && q.Position == 0 }

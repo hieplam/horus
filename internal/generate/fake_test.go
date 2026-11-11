@@ -205,20 +205,20 @@ func (f *fakeComfy) History(ctx context.Context, id string) (*graph.Job, error) 
 	return &graph.Job{Done: true, Images: []graph.Image{{Filename: id + ".png", Type: "output"}}, BackendSeconds: ptr(3.5)}, nil
 }
 
-func (f *fakeComfy) QueueState(ctx context.Context, id string) (string, error) {
+func (f *fakeComfy) QueueState(ctx context.Context, id string) (graph.Queue, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	job, ok := f.jobs[id]
 	if !ok || contains(f.cancels, id) {
-		return "absent", nil
+		return graph.Queue{}, nil
 	}
 	switch job.Mode {
 	case Slow:
-		return "running", nil
+		return graph.Queue{Running: true}, nil
 	case Pending:
-		return "pending:2", nil
+		return graph.Queue{Position: 2}, nil
 	}
-	return "absent", nil
+	return graph.Queue{}, nil
 }
 
 func (f *fakeComfy) Cancel(ctx context.Context, id string) {

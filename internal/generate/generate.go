@@ -60,8 +60,8 @@ type ComfyUI interface {
 	// History polls the job one time: nil when the server does not list it
 	// yet, the horus error of the job when it failed.
 	History(ctx context.Context, jobID string) (*graph.Job, error)
-	// QueueState is "running", "pending:<position>" or "absent".
-	QueueState(ctx context.Context, jobID string) (string, error)
+	// QueueState says where the job is in the backend queue.
+	QueueState(ctx context.Context, jobID string) (graph.Queue, error)
 	// Cancel stops or removes the job. Errors are ignored.
 	Cancel(ctx context.Context, jobID string)
 	// View downloads one output image.
@@ -576,7 +576,7 @@ func wait(ctx context.Context, c ComfyUI, promptID string, timeout time.Duration
 			if err != nil {
 				return nil, err
 			}
-			if entry == nil && state == "absent" {
+			if entry == nil && state.Absent() {
 				if absentSince.IsZero() {
 					absentSince = now
 				}
@@ -591,10 +591,10 @@ func wait(ctx context.Context, c ComfyUI, promptID string, timeout time.Duration
 			if due {
 				elapsed := roundInt(now.Sub(t0).Seconds())
 				text := "finishing"
-				if state == "running" {
+				if state.Running {
 					text = "rendering"
-				} else if strings.HasPrefix(state, "pending") {
-					text = "waiting in the backend queue, position " + strings.SplitN(state, ":", 2)[1]
+				} else if state.Pending() {
+					text = fmt.Sprintf("waiting in the backend queue, position %d", state.Position)
 				}
 				report(ctx, elapsed, 0, fmt.Sprintf("%s, %d s", text, int64(elapsed)))
 				lastReport = now

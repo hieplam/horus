@@ -161,8 +161,8 @@ func TestClientJobCalls(t *testing.T) {
 	if err != nil || string(png[:8]) != "\x89PNG\r\n\x1a\n" {
 		t.Fatalf("View: %v", err)
 	}
-	if s, _ := c.QueueState(ctx, id); s != "absent" {
-		t.Fatalf("QueueState of a done job: %s", s)
+	if s, _ := c.QueueState(ctx, id); !s.Absent() {
+		t.Fatalf("QueueState of a done job: %+v", s)
 	}
 
 	f.SetMode(comfytest.Slow)
@@ -172,11 +172,11 @@ func TestClientJobCalls(t *testing.T) {
 	}
 	f.SetMode(comfytest.Pending)
 	pending, _ := c.Submit(ctx, api)
-	if s, _ := c.QueueState(ctx, slow); s != "running" {
-		t.Fatalf("slow: %s", s)
+	if s, _ := c.QueueState(ctx, slow); !s.Running {
+		t.Fatalf("slow: %+v", s)
 	}
-	if s, _ := c.QueueState(ctx, pending); s != "pending:2" {
-		t.Fatalf("pending: %s", s)
+	if s, _ := c.QueueState(ctx, pending); s != (graph.Queue{Position: 2}) {
+		t.Fatalf("pending: %+v", s)
 	}
 	c.Cancel(ctx, slow)
 	c.Cancel(ctx, pending)

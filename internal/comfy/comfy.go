@@ -313,28 +313,29 @@ func (c *Client) History(ctx context.Context, promptID string) (*graph.Job, erro
 	return &graph.Job{Done: true, Images: e.Images(), BackendSeconds: ExecutionSeconds(e)}, nil
 }
 
-// QueueState is "running", "pending:<position>" or "absent".
-func (c *Client) QueueState(ctx context.Context, promptID string) (string, error) {
+// QueueState reports where the job is in the queue: running, waiting at a
+// position, or absent.
+func (c *Client) QueueState(ctx context.Context, promptID string) (graph.Queue, error) {
 	var q struct {
 		Running [][]any `json:"queue_running"`
 		Pending [][]any `json:"queue_pending"`
 	}
 	if err := c.GetJSON(ctx, "/queue", 10*time.Second, &q); err != nil {
-		return "", err
+		return graph.Queue{}, err
 	}
 	for _, item := range q.Running {
 		if len(item) > 1 && item[1] == promptID {
-			return "running", nil
+			return graph.Queue{Running: true}, nil
 		}
 	}
 	pending := append([][]any(nil), q.Pending...)
 	sort.SliceStable(pending, func(i, j int) bool { return number(pending[i][0]) < number(pending[j][0]) })
 	for i, item := range pending {
 		if len(item) > 1 && item[1] == promptID {
-			return fmt.Sprintf("pending:%d", i+1), nil
+			return graph.Queue{Position: i + 1}, nil
 		}
 	}
-	return "absent", nil
+	return graph.Queue{}, nil
 }
 
 func number(v any) float64 {
@@ -351,9 +352,9 @@ func (c *Client) Cancel(ctx context.Context, promptID string) {
 	if err != nil {
 		return
 	}
-	if state == "running" {
+	if state.Running {
 		_ = c.PostJSON(ctx, "/interrupt", map[string]any{"prompt_id": promptID}, 10*time.Second, nil)
-	} else if strings.HasPrefix(state, "pending") {
+	} else if state.Pending() {
 		_ = c.PostJSON(ctx, "/queue", map[string]any{"delete": []string{promptID}}, 10*time.Second, nil)
 	}
 }

@@ -392,3 +392,5 @@ Stub checks, run on this PC with code that is not committed:
 - A `provision` that does nothing: the 17 parity cases and the install and uninstall checks of the contract test read its output, so they fail.
 
 Ratchet: packages off target 9 -> 7 (`internal/models` and `internal/scripts/workflow` are gone). Listed packages missing 5 -> 3 (`internal/modelfiles`, `internal/provision`). `direction` allow list 7 -> 4 (the entries `internal/models -> os/exec`, `internal/scripts/workflow -> internal/download` and `internal/scripts/workflow -> net/http` are gone). Go test functions 174 -> 185. `token` allow list 0 -> 0, with 2 more planted files.
+
+After the rebase on `9c5a6a5` (the fix of issue #75): `GOMAXPROCS=1 go test -count=50 ./internal/mcpserver ./cmd/horus` prints `ok` for both packages. `go test ./...` passes, `contract: 30 of 30 passed`, `parity: 17 of 17 cases equal`, `lint-public: 0 finding(s)`, and the goal tool gives the same 8 lines as above. The test of T6 that reads progress (`TestInstallReportsProgressAndACancelStopsTheDownload`) already waits on a channel with a time limit and holds no lock across a failure.

@@ -280,6 +280,37 @@ func TestSubmitWithoutPromptID(t *testing.T) {
 	}
 }
 
+// TestVersion is the answer that horus doctor reads (the check "ComfyUI
+// server"): the version of a server that answers, and an error for a server
+// that answers with an error or with no JSON, and for no server.
+func TestVersion(t *testing.T) {
+	server := func(status int, answer string) string {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/system_stats" {
+				http.NotFound(w, r)
+				return
+			}
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(answer))
+		}))
+		t.Cleanup(srv.Close)
+		return srv.URL
+	}
+	ctx := context.Background()
+	if v, err := New(server(200, `{"system":{"comfyui_version":"0.9.9"}}`) + "/").Version(ctx); err != nil || v != "0.9.9" {
+		t.Fatalf("Version = %q, %v", v, err)
+	}
+	if _, err := New(server(500, `{}`)).Version(ctx); err == nil {
+		t.Error("HTTP 500 gave no error")
+	}
+	if _, err := New(server(200, "not json")).Version(ctx); err == nil {
+		t.Error("an answer that is not JSON gave no error")
+	}
+	if _, err := New(freeURL(t)).Version(ctx); err == nil {
+		t.Error("no server gave no error")
+	}
+}
+
 // freeURL is the address of a port where nothing listens.
 func freeURL(t *testing.T) string {
 	t.Helper()

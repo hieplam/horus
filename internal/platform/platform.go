@@ -5,6 +5,7 @@
 //   - StartTree starts a process tree that keeps running after its starter
 //     ends. EndTree ends that tree, also from another process.
 //   - NoConsole starts a child without a console window.
+//   - Programs finds a program on the PATH and runs it to its end.
 //   - FreeSpace gives the free bytes of a folder.
 //   - IsRooted, VenvBin, ExeName and PythonLauncher give the paths and the
 //     program names of this OS.

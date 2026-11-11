@@ -7,7 +7,8 @@ import "testing"
 // plus errors. install-workflow-models is dropped (spec, design decisions).
 var portMap = []string{"mcp", "workflow", "download-model", "check-setup", "install-comfyui", "start-comfyui",
 	"install-comfy-mcp", "sync-workflows", "new-workflow", "register", "run-illustration", "errors",
-	"stop-comfyui"} // stop-comfyui: new in Phase 2 (task T7)
+	"stop-comfyui",    // stop-comfyui: new in Phase 2 (task T7)
+	"doctor", "setup"} // new in Phase 2 (task T8)
 
 func TestEveryPortMapRowHasACommand(t *testing.T) {
 	for _, name := range portMap {

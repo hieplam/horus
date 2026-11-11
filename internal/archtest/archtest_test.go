@@ -54,8 +54,8 @@ func readTree(t *testing.T, root string) []File {
 	return files
 }
 
-// TestRules applies the rules to the module and compares the result with the
-// allow lists.
+// TestRules applies the rules to the module. Every break fails the test:
+// archtest has no allow list.
 func TestRules(t *testing.T) {
 	files := readTree(t, filepath.Join("..", ".."))
 	if len(files) < 50 {
@@ -65,14 +65,8 @@ func TestRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, rule := range Rules {
-		data, err := os.ReadFile("allow_" + rule + ".txt")
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, p := range Compare(rule, found, ParseAllow(string(data))) {
-			t.Error(p)
-		}
+	for _, p := range Problems(found) {
+		t.Error(p)
 	}
 }
 
@@ -155,26 +149,28 @@ func TestPlanted(t *testing.T) {
 	}
 }
 
-// TestCompare proves the two answers of an allow list: a violation that is
-// not on the list, and an entry that no longer breaks the rule.
-func TestCompare(t *testing.T) {
-	found := []Violation{{Rule: RuleToken, File: "a.go", Key: "a.go", Why: "x"}}
-	if p := Compare(RuleToken, found, []string{"a.go"}); len(p) != 0 {
-		t.Errorf("exact list: %v", p)
+// TestProblems proves that each break gives one text, once for each rule
+// and key, and that no allow list file exists: a file allow_<rule>.txt of
+// the Phase 2 mechanism must not come back.
+func TestProblems(t *testing.T) {
+	found := []Violation{
+		{Rule: RuleToken, File: "b.go", Key: "b.go", Why: "x"},
+		{Rule: RuleToken, File: "b.go", Key: "b.go", Why: "x"},
+		{Rule: RuleDirection, File: "a/a.go", Key: "a -> b", Why: "y"},
 	}
-	p := Compare(RuleToken, found, nil)
-	if len(p) != 1 || !strings.Contains(p[0], "the allow list only becomes shorter") {
-		t.Errorf("violation not on the list: %v", p)
+	p := Problems(found)
+	want := []string{
+		"direction: a -> b: y (a/a.go). Fix the code: archtest has no allow list",
+		"token: b.go: x (b.go). Fix the code: archtest has no allow list",
 	}
-	p = Compare(RuleToken, found, []string{"a.go", "b.go"})
-	if len(p) != 1 || !strings.Contains(p[0], `"b.go" no longer breaks the rule: remove this entry`) {
-		t.Errorf("extra entry: %v", p)
+	if !slices.Equal(p, want) {
+		t.Errorf("Problems: %q, want %q", p, want)
 	}
-	p = Compare(RuleToken, found, []string{"a.go", "a.go"})
-	if len(p) != 1 || !strings.Contains(p[0], "remove this entry") {
-		t.Errorf("entry two times: %v", p)
+	if p := Problems(nil); len(p) != 0 {
+		t.Errorf("no violation: %q", p)
 	}
-	if got := ParseAllow("# head\r\n\r\ninternal/a.go\r\n  b -> c  \n"); !slices.Equal(got, []string{"internal/a.go", "b -> c"}) {
-		t.Errorf("ParseAllow: %q", got)
+	lists, err := filepath.Glob("allow_*.txt")
+	if err != nil || len(lists) != 0 {
+		t.Errorf("allow list files exist: %v %v", lists, err)
 	}
 }

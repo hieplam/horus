@@ -169,6 +169,20 @@ func (c *Client) IsUp(ctx context.Context) (bool, error) {
 	return false, err
 }
 
+// Version gives the ComfyUI version that /system_stats reports. An error
+// means that no good answer came within 5 s.
+func (c *Client) Version(ctx context.Context) (string, error) {
+	var v struct {
+		System struct {
+			Version string `json:"comfyui_version"`
+		} `json:"system"`
+	}
+	if err := c.GetJSON(ctx, "/system_stats", 5*time.Second, &v); err != nil {
+		return "", err
+	}
+	return v.System.Version, nil
+}
+
 // Address is the address of the server for this request, for the text of
 // an error. The adapter starts no program: internal/backend starts ComfyUI.
 func (c *Client) Address() string { return c.base() }

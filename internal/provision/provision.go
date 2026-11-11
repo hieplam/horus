@@ -95,6 +95,9 @@ type Backend interface {
 	// Installed gives the install folder, and reports if ComfyUI is
 	// installed there.
 	Installed() (dir string, ok bool)
+	// Install installs ComfyUI (horus setup -yes). It writes its text lines
+	// to out.
+	Install(ctx context.Context, out io.Writer) error
 }
 
 // Service sets up the model files of the workflows.

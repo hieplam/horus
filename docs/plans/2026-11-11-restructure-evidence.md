@@ -99,6 +99,7 @@ commands.
 | 2026-11-11 | T10: three limits of the checks are accepted, not filed. `layout` passes on an empty package with the right name: the ratified oracle is `go list` against the list, and the rows `direction` and `same-behaviour` prove where the code is. `backend` does not judge the content of the PNG: the agent opens the PNG and judges it, as in T7. `commands` runs the Go tests of `internal/cli`, `internal/doctor` and `internal/provision`, not of `cmd/horus` (`TestSetupWithoutYesChangesNoFile`, the old command names): `go test ./...` of `same-behaviour` runs them, and `8 of 8` needs both rows. | Each limit is covered by another part of the same tool or by the visual check of the ratified oracle. | Agent (T10) |
 | 2026-11-11 | T10: `horus doctor` checks `http://127.0.0.1:8188` also when `HORUS_COMFYUI_URL` names another port. The old `check-setup` did the same. Filed as #82, a follow-up outside the epic. | It threatens no goal row: the behaviour did not change in Phase 2. | Agent (T10) |
 | 2026-11-11 | T10: the real run of the row `backend` on `9699bb8` started after 6 GPU readings (18:37 to 19:28) that were not quiet: 472 to 910 MiB, 37 to 57 %. At 19:28 the game process had ended (the GPU apps list had only its client window), and the reading was 483 MiB, 28 %. The run passed at once, so there is no second run to record. | Standing rule: wait for a free GPU, at most 6 readings of 10 minutes (task brief). The memory was below 1.5 GB in every reading. The process that used the GPU had ended. A failed run gets one more run, and none was needed. | Agent (T10) |
+| 2026-11-11 | Issue #90: `QueueState` returns `graph.Queue{Running bool; Position int}` with the methods `Pending()` and `Absent()`, declared in the base package `internal/graph` next to `graph.Job`. The `ComfyUI` interface of `internal/generate` keeps its 9 methods. | The type is a pure value that both sides may import (the import rules allow `graph` for both). No wiring change is needed in `cmd/horus`. All 9 methods are still called by the service, so none is removed. The progress texts are built from the same words, so the output is the same. | Agent (#90) |
 
 ## Baseline
 
@@ -987,3 +988,33 @@ The only entry is the golden file that moved with its package, with 100 percent 
 | Checks that pass on a stub (found by T10) | 2 issues (#80, #81) | 0 | Stub probes 1 to 4 |
 
 Stub check of the whole result: the tool gave `goal: 1 of 8 rows passed` at T0 on the tree before the work, so the 8 passes come from the work.
+
+## Issue 90
+
+Goal: no text code passes between `generate` and `comfy` (design rule 2). The progress texts of `generate_image` do not change.
+
+Red (`git grep -n 'pending:\|HasPrefix(state, "pending")\|SplitN(state' -- internal ':!*_test.go'` on `d9827a2`):
+
+    internal/comfy/comfy.go:316:// QueueState is "running", "pending:<position>" or "absent".
+    internal/comfy/comfy.go:334:			return fmt.Sprintf("pending:%d", i+1), nil
+    internal/comfy/comfy.go:356:	} else if strings.HasPrefix(state, "pending") {
+    internal/generate/generate.go:63:	// QueueState is "running", "pending:<position>" or "absent".
+    internal/generate/generate.go:596:				} else if strings.HasPrefix(state, "pending") {
+    internal/generate/generate.go:597:					text = "waiting in the backend queue, position " + strings.SplitN(state, ":", 2)[1]
+
+Green (the same command prints nothing; `go test ./...` ok for every package; `GOMAXPROCS=1 go test -count=10 ./internal/generate ./internal/comfy ./cmd/horus` ok):
+
+    contract: 30 of 30 passed
+    goal_check --phase 2 --no-ci: 6 PASS rows
+    Go test functions: 210 -> 211 (new: TestQueueStates in internal/graph)
+
+`TestTimeoutCancelsTheJob` in `internal/generate` still checks `rendering, ` and `waiting in the backend queue, position 2, `. The test of `internal/comfy` on `comfytest` checks the typed state for a done (absent), a running and a pending job (`graph.Queue{Position: 2}`).
+
+Stub check: a `QueueState` of the fake that returns `graph.Queue{}` for a running job:
+
+    --- FAIL: TestTimeoutCancelsTheJob (0.13s)
+        generate_test.go:329: running: {Code:GENERATION_FAILED Message:the job left the backend queue without a result ...
+
+Interface question: the service calls all 9 methods of `ComfyUI`, so no method is removed.
+
+Ratchet: text codes that a service parses from an adapter: 1 -> 0.

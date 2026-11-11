@@ -1,5 +1,5 @@
 // horus download-model: download one model file with size and SHA-256 checks.
-// Ports scripts/download-model.ps1; the work is in internal/scripts/downloadmodel.
+// Ports scripts/download-model.ps1; the work is in internal/download.
 package main
 
 import (
@@ -7,13 +7,13 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/hieplam/horus/internal/scripts/downloadmodel"
+	"github.com/hieplam/horus/internal/download"
 )
 
 func init() {
 	register("download-model", "download one model file with size and SHA-256 checks", func(args []string) int {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		return downloadmodel.Main(ctx, args, os.Stdout, downloadmodel.Options{})
+		return download.Main(ctx, args, os.Stdout, download.Options{})
 	})
 }

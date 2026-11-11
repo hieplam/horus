@@ -37,6 +37,10 @@ commands.
 | 2026-11-11 | The default ComfyUI folder stays in `internal/settings` (`ComfyDir`). `internal/platform` gets only the venv paths. | `settings.ComfyDir` has no code for one OS today. T7 moves the layout of the install to `internal/backend`. | Agent (T2) |
 | 2026-11-11 | The free space function of `installcomfyui` now calls `platform.FreeSpace` on the root of the drive. On macOS and Linux it gives the error of `statfs`, not "not supported on this OS yet". | The command refuses on those systems before it reads the free space, so a user sees no change. The two copies of the free space code become one, as the plan says. | Agent (T2) |
 | 2026-11-11 | Check 1 of the tree test also sends SIGKILL to the process group of the ended starter on Unix, as a terminal does when it closes. A process of the tree in that group fails check 1. On Windows, check 1 has no such part. | The plan's stub check says that a start that is not detached fails check 1. Without the signal, a child on Unix lives after its parent ends also when it is not detached. | Agent (T2) |
+| 2026-11-11 | `horus download-model` keeps its flag handling (`Main` in `command.go`) in `internal/download`. `cmd/horus` calls it. `internal/cli` is not created in T4. | A handler can import services and base packages only. Before T6 the only callee is the adapter `internal/download`, so a file in `internal/cli` would add an entry to `allow_direction.txt`. The list must not grow. The 13 tests of the old package call `Main` and move unchanged. T6 creates `internal/provision` and `internal/cli`, and can move the flag handling then. | Agent (T4) |
+| 2026-11-11 | `internal/download` exports the constant `DefaultTokenVar`. `internal/scripts/workflow/install.go` no longer sets `TokenEnvVar`, because the downloader already defaults to the same variable. `workflow_test.go` clears the variable by `download.DefaultTokenVar`. | The token rule flags a string that names the variable. A constant of the download package names it once, in the one allowed place. The lookup (environment first, then the `.env` file) did not change. | Agent (T4) |
+| 2026-11-11 | The entry `internal/scripts/workflow -> internal/scripts/downloadmodel` of `allow_direction.txt` is renamed to `internal/scripts/workflow -> internal/download`. The line of `layers.go` for the old package is deleted, because `internal/download` is already in the target table. | A rename is not a new entry. T6 removes it. | Agent (T4) |
+| 2026-11-11 | `tools/goal_check.py`: the Phase 1 row `downloader` now tests `./internal/download`. | The old path does not exist. It still needs 9 passed tests (13 pass). | Agent (T4) |
 
 ## Baseline
 
@@ -183,3 +187,21 @@ Green: `python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>/horus.ex
 Ratchet: packages off target 12 -> 11.
 
 Decision: `internal/archtest/layers.go` already lists `internal/mcpserver` as a handler in the target table. So the line `internal/server` was deleted, not renamed. The entry of `allow_direction.txt` was renamed to `internal/mcpserver -> internal/comfy`.
+
+## T4
+
+Red, before the move: `go list ./internal/download` (exit 1):
+
+    stat ...\internal\download: directory not found
+
+Before: `go test -list .` of the old package printed 13 tests. After: `go test -list . ./internal/download` prints the same 13 names (checked with a diff).
+
+Green: `go test ./...` passes. `python tools/goal_check.py --phase 2` prints:
+
+    FAIL  layout - 10 packages off target, 7 listed packages missing
+    PASS  same-behaviour - ... parity: 17 of 17; go test ./...: ok; 164 Go test functions (baseline 157); 0 changed contract files
+    PASS  token - 0 entries on the allow list; archtest: ok
+
+`python tests/mcp_contract.py --server-cmd <bin>/horus.exe mcp` prints `contract: 30 of 30 passed`. `python tests/workflow_parity.py --horus bin/horus.exe` prints `parity: 17 of 17 cases equal`. `gofmt -l .` prints nothing. `lint-public: 0 finding(s)`. `go vet ./...` is clean for windows, darwin/arm64 and linux/amd64.
+
+Ratchet: `token` allow list 4 -> 0. Packages off target 11 -> 10. Go test functions 164 -> 164. The `direction` list keeps 10 entries (one renamed).

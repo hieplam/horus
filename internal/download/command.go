@@ -1,6 +1,6 @@
 // The command horus download-model. Ports the parameters, the output and the
 // exit codes of scripts/download-model.ps1.
-package downloadmodel
+package download
 
 import (
 	"context"

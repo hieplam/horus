@@ -1,4 +1,4 @@
-// Package downloadmodel downloads one file and keeps it only if its size and
+// Package download downloads one file and keeps it only if its size and
 // SHA-256 hash are correct. It ports scripts/download-model.ps1. Go's net/http
 // replaces curl.exe.
 //
@@ -17,7 +17,7 @@
 //     huggingface.co or a host that ends with .huggingface.co. A redirect to
 //     another host does not get it. The token is never in a URL, an argument or
 //     an output line.
-package downloadmodel
+package download
 
 import (
 	"context"
@@ -79,6 +79,10 @@ func (e *Error) Error() string { return e.Msg }
 
 func fail(k Kind, format string, a ...any) *Error { return &Error{k, fmt.Sprintf(format, a...)} }
 
+// DefaultTokenVar is the name of the variable that holds the Hugging Face
+// token. This package reads the token itself; no other package passes it.
+const DefaultTokenVar = "HF_TOKEN"
+
 // Options is one download.
 type Options struct {
 	URL           string // https address of the file
@@ -117,7 +121,7 @@ func Download(ctx context.Context, o Options) (Result, error) {
 		o.Out = io.Discard
 	}
 	if o.TokenEnvVar == "" {
-		o.TokenEnvVar = "HF_TOKEN"
+		o.TokenEnvVar = DefaultTokenVar
 	}
 	if o.MaxAttempts <= 0 {
 		o.MaxAttempts = 4

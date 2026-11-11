@@ -166,7 +166,7 @@ def row_workflow_cli(a: argparse.Namespace) -> tuple[bool, str]:
 
 
 def row_downloader(a: argparse.Namespace) -> tuple[bool, str]:
-    ok, detail, out = go_test(["./internal/scripts/downloadmodel"], ["-v"])
+    ok, detail, out = go_test(["./internal/download"], ["-v"])
     if not ok:
         return False, detail
     n = len(re.findall(r"^--- PASS", out, re.M))

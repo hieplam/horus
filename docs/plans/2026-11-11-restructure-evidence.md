@@ -144,8 +144,8 @@ Green on this PC (Windows 11):
     --- PASS: TestFreeSpaceOfThisSystem (0.00s)
     ok  	github.com/hieplam/horus/internal/platform	0.836s
 
-    python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>/horus.exe mcp
-    FAIL  layout - 12 packages off target, 9 listed packages missing
+    python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>/horus.exe mcp   (rebased on T3, 7f52f09)
+    FAIL  layout - 11 packages off target, 8 listed packages missing
     PASS  same-behaviour - contract: local 30 of 30; CI part skipped (--no-ci); parity: 17 of 17; go test ./...: ok; 164 Go test functions (baseline 157); 0 changed contract files
     FAIL  os-boundary - 3 entries on the allow list; archtest: ok
     FAIL  direction - 10 entries on the allow list; archtest: ok
@@ -165,7 +165,7 @@ Stub checks, run on this PC:
 
 The 3 files that stay on the allow list `os-boundary` are the `goos` variables of `checksetup.go`, `installcomfyui.go` and `startcomfyui.go` (tasks T7 and T8). The three test files that used `runtime.GOOS` now call `platform.ExeName` and `platform.BlockDelete`, and the venv test moved to `internal/platform`.
 
-Ratchet: `os-boundary` allow list 19 -> 3. `taskkill` references 8 -> 0. Packages off target 12 -> 12, listed packages missing 10 -> 9 (`internal/platform` exists). Go test functions 160 -> 164.
+Ratchet: `os-boundary` allow list 19 -> 3. `taskkill` references 8 -> 0. Packages off target 11 -> 11 (T2 adds no package outside the list), listed packages missing 9 -> 8 (`internal/platform` exists). Go test functions 160 -> 164. Contract `30 of 30 passed`, parity `17 of 17 cases equal`, `gofmt -l .` prints nothing, `lint-public: 0 finding(s)`.
 
 ## T3
 

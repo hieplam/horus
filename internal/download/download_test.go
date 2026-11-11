@@ -122,7 +122,7 @@ func newJob(t *testing.T, f *fake, url string, body []byte) *job {
 		Dest:          filepath.Join(t.TempDir(), "models", "vae", "model.safetensors"),
 		ExpectedBytes: int64(len(body)),
 		SHA256:        sum(body),
-		TokenEnvVar:   tokenVar,
+		tokenVar:      tokenVar,
 		Root:          t.TempDir(), // an empty folder: no .env
 		Transport:     f.transport(),
 		FreeSpace:     func(string) (uint64, error) { return 1 << 40, nil },

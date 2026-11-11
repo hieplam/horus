@@ -2,7 +2,7 @@
 // horus/server.py.
 package mcpserver
 
-import "github.com/hieplam/horus/internal/models"
+import "github.com/hieplam/horus/internal/provision"
 
 // InstallFile is one model file of a workflow and its state. The keys are in
 // the order of InstallFile of server.py.
@@ -17,7 +17,7 @@ type InstallFile struct {
 
 // fileRows is _file_rows of server.py: the items of one kind whose status is
 // in states, as InstallFile rows.
-func fileRows(items []models.Item, kind string, states map[string]string) []InstallFile {
+func fileRows(items []provision.Item, kind string, states map[string]string) []InstallFile {
 	rows := []InstallFile{}
 	for _, i := range items {
 		state, ok := states[i.Status]

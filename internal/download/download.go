@@ -11,9 +11,11 @@
 //   - It needs the rest of the file plus 1 GiB of free space on the drive.
 //   - It retries a stopped download and resumes the .part file with a Range
 //     header.
-//   - The Hugging Face token comes from the environment variable named by
-//     TokenEnvVar, or from the .env file in the repo root. Only this package
-//     reads it. It goes only in a header, only over https, and only to the host
+//   - The Hugging Face token comes from the environment variable HF_TOKEN
+//     (horus download-model -token-env-var names another one), or from the
+//     .env file in the repo root. Only this package reads it, and no other
+//     package can name the variable: neither the name nor the option that
+//     sets it is exported. It goes only in a header, only over https, and only to the host
 //     huggingface.co or a host that ends with .huggingface.co. A redirect to
 //     another host does not get it. The token is never in a URL, an argument or
 //     an output line.
@@ -79,9 +81,9 @@ func (e *Error) Error() string { return e.Msg }
 
 func fail(k Kind, format string, a ...any) *Error { return &Error{k, fmt.Sprintf(format, a...)} }
 
-// DefaultTokenVar is the name of the variable that holds the Hugging Face
+// defaultTokenVar is the name of the variable that holds the Hugging Face
 // token. This package reads the token itself; no other package passes it.
-const DefaultTokenVar = "HF_TOKEN"
+const defaultTokenVar = "HF_TOKEN"
 
 // Options is one download.
 type Options struct {
@@ -89,8 +91,11 @@ type Options struct {
 	Dest          string // path of the final file; the folder is made when needed
 	ExpectedBytes int64  // exact size of the file in bytes
 	SHA256        string // expected SHA-256, 64 hexadecimal characters
-	TokenEnvVar   string // the variable that holds the token; default HF_TOKEN
 	MaxAttempts   int    // default 4
+	// tokenVar is the variable that holds the token; default HF_TOKEN. Only
+	// the flag -token-env-var of horus download-model and the tests of this
+	// package set it.
+	tokenVar string
 
 	// Out gets the text lines of download-model.ps1. Default: io.Discard.
 	Out io.Writer
@@ -120,8 +125,8 @@ func Download(ctx context.Context, o Options) (Result, error) {
 	if o.Out == nil {
 		o.Out = io.Discard
 	}
-	if o.TokenEnvVar == "" {
-		o.TokenEnvVar = DefaultTokenVar
+	if o.tokenVar == "" {
+		o.tokenVar = defaultTokenVar
 	}
 	if o.MaxAttempts <= 0 {
 		o.MaxAttempts = 4
@@ -197,7 +202,7 @@ func Download(ctx context.Context, o Options) (Result, error) {
 	}
 
 	// 3. Token, only for Hugging Face hosts.
-	token := readToken(o.TokenEnvVar, o.Root)
+	token := readToken(o.tokenVar, o.Root)
 	if token != "" && !TokenAllowed(u) {
 		say("Warning: the host %s is not huggingface.co. The token is not sent.", u.Hostname())
 	}

@@ -72,8 +72,8 @@ type Images interface {
 }
 
 // tools is the list of the 5 tools. Each tool lives in its own file.
-func tools(images Images) []tool {
-	return []tool{listWorkflows(images), describeWorkflow(), installWorkflow(), uninstallWorkflow(images), generateImage(images)}
+func tools(images Images, setup Setup) []tool {
+	return []tool{listWorkflows(images, setup), describeWorkflow(setup), installWorkflow(setup), uninstallWorkflow(images, setup), generateImage(images)}
 }
 
 func (t tool) definition() *mcp.Tool {
@@ -114,17 +114,18 @@ func pyNone(v any) any {
 }
 
 // New makes the server with the 5 tools. The tools make images, and ask
-// the image backend, through images.
-func New(images Images) *mcp.Server {
+// the image backend, through images. They set up the model files of a
+// workflow through setup.
+func New(images Images, setup Setup) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: Version}, &mcp.ServerOptions{Instructions: Instructions})
-	for _, t := range tools(images) {
+	for _, t := range tools(images, setup) {
 		s.AddTool(t.definition(), t.handler())
 	}
 	return s
 }
 
 // Run serves the tools over stdio until the client closes the connection.
-func Run(ctx context.Context, images Images) error {
+func Run(ctx context.Context, images Images, setup Setup) error {
 	if path := settings.Get("HORUS_LOG_FILE", ""); path != "" {
 		if f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
 			defer f.Close()
@@ -133,7 +134,7 @@ func Run(ctx context.Context, images Images) error {
 			logf("WARNING", "cannot open HORUS_LOG_FILE: %v", err)
 		}
 	}
-	return New(images).Run(ctx, &mcp.StdioTransport{})
+	return New(images, setup).Run(ctx, &mcp.StdioTransport{})
 }
 
 type teeWriter struct {

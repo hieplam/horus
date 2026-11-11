@@ -115,9 +115,11 @@ var planted = map[string][]string{
 	"internal/catalog/token_raw.go":     {RuleToken},
 	"internal/catalog/token_env.go":     {RuleToken},
 	"internal/download/token.go":        nil,
-	"internal/settings/settings.go":     nil, // the refusal
-	"internal/catalog/token_invalid.go": nil, // the error code HF_TOKEN_INVALID
-	"internal/catalog/token_comment.go": nil, // HF_TOKEN in a comment
+	"internal/settings/settings.go":     nil,         // the refusal
+	"internal/catalog/token_invalid.go": nil,         // the error code HF_TOKEN_INVALID
+	"internal/catalog/token_comment.go": nil,         // HF_TOKEN in a comment
+	"cmd/horus/token_name.go":           {RuleToken}, // a name of internal/download that names the token
+	"cmd/horus/token_alias.go":          {RuleToken}, // the same through an import alias
 }
 
 // TestPlanted proves that the rules flag each planted bad file, and only

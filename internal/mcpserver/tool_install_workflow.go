@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/herr"
-	"github.com/hieplam/horus/internal/models"
+	"github.com/hieplam/horus/internal/provision"
 )
 
 // InstallResult is the result of install_workflow, in the key order of server.py.
@@ -24,7 +25,7 @@ type InstallResult struct {
 	Seconds          float64       `json:"seconds"`
 }
 
-func installWorkflow() tool {
+func installWorkflow(setup Setup) tool {
 	return tool{
 		name:  "install_workflow",
 		title: "Install an image workflow",
@@ -49,7 +50,7 @@ func installWorkflow() tool {
 			"InstallFile": installFileModel,
 		}),
 		body: func(ctx context.Context, c *call) (any, error) {
-			return install(ctx, c)
+			return install(ctx, c, setup)
 		},
 	}
 }
@@ -75,22 +76,20 @@ type licenseFile struct {
 	Bytes int64  `json:"bytes"`
 }
 
-func install(ctx context.Context, c *call) (any, error) {
+func install(ctx context.Context, c *call, setup Setup) (any, error) {
 	t0 := time.Now()
 	w, err := catalog.Get(c.args.str("workflow"))
 	if err != nil {
 		return nil, err
 	}
-	status, err := models.ListStatus(ctx)
+	status, err := listStatus(ctx, setup)
 	if err != nil {
 		return nil, err
 	}
-	if row, ok := status[w.Name]; ok && models.InstallState(&row) == "installed" {
-		res, err := models.Check(ctx, w, true)
-		if err != nil {
-			return nil, err
-		}
-		if res.OK {
+	if row, ok := status[w.Name]; ok && row.State() == "installed" {
+		req := request(w)
+		req.Quick = true
+		if res, _ := setup.Check(context.WithoutCancel(ctx), req); res.OK {
 			files := fileRows(res.Items, "file", map[string]string{"OK": "present"})
 			return InstallResult{Workflow: w.Name, InstallState: "installed", AlreadyInstalled: true, Files: files, Seconds: seconds(t0)}, nil
 		}
@@ -114,14 +113,20 @@ func install(ctx context.Context, c *call) (any, error) {
 			map[string]any{"license": lic.Name, "license_url": lic.URL, "download_bytes": lic.DownloadBytes, "files": files})
 	}
 	total := float64(lic.DownloadBytes)
-	run := &models.Run{}
+	var mu sync.Mutex
+	current := "" // the file that the install downloads now
+	watch := provision.Watch{Downloading: func(_, dest string) {
+		mu.Lock()
+		current = dest
+		mu.Unlock()
+	}}
 	type outcome struct {
-		res *models.Result
+		res *provision.Result
 		err error
 	}
 	done := make(chan outcome, 1)
 	go func() {
-		res, err := models.Install(ctx, w, run)
+		res, err := setup.Install(ctx, request(w), watch)
 		done <- outcome{res, err}
 	}()
 	tick := time.NewTicker(ProgressInterval)
@@ -129,16 +134,21 @@ func install(ctx context.Context, c *call) (any, error) {
 	for {
 		select {
 		case o := <-done:
-			// A cancel of the call ends ctx: models.Install kills the child and
-			// returns the error of ctx. The .part file stays.
+			// A cancel of the call ends ctx: the install stops the download
+			// and returns the error of ctx. The .part file stays.
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			if o.err != nil {
-				return nil, o.err
+				return nil, installError(o.res, o.err, w)
 			}
 			files := fileRows(o.res.Items, "download", map[string]string{"DOWNLOADED": "downloaded", "PRESENT": "present"})
 			return InstallResult{Workflow: w.Name, InstallState: "installed", AlreadyInstalled: false, Files: files, Seconds: seconds(t0)}, nil
 		case <-tick.C:
-			dest := run.CurrentDest()
-			n := models.PartSize(dest)
+			mu.Lock()
+			dest := current
+			mu.Unlock()
+			n := setup.PartSize(dest)
 			parts := strings.Split(strings.ReplaceAll(dest, "\\", "/"), "/")
 			name := parts[len(parts)-1]
 			msg := "checking files"

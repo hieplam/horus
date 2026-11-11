@@ -159,7 +159,7 @@ func TestGenerateImageTool(t *testing.T) {
 	t.Cleanup(func() { generate.PollInterval = old })
 
 	got := make(chan string, 64)
-	cs := connect(t, mcpserver.New(newImages("")), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
+	cs := connect(t, mcpserver.New(newImages(""), nil), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
 		got <- fmt.Sprintf("%v %s", r.Params.ProgressToken, r.Params.Message)
 	}})
 	out := filepath.Join(tmp, "images", "a.png")
@@ -228,7 +228,7 @@ func TestGenerateImageToolErrors(t *testing.T) {
 	t.Setenv("HORUS_COMFYUI_URL", "http://127.0.0.1:1")
 	t.Setenv("HORUS_AUTOSTART", "0")
 	settings.Reset()
-	cs := connect(t, mcpserver.New(newImages("")), nil)
+	cs := connect(t, mcpserver.New(newImages(""), nil), nil)
 	for _, c := range []struct {
 		args map[string]any
 		code string

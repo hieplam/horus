@@ -87,7 +87,7 @@ func asJSON(t *testing.T, v any) any {
 func TestToolsMatchPython(t *testing.T) {
 	useRepoWorkflows(t)
 	g := readGolden(t)
-	cs := connect(t, New(&fakeImages{}), nil)
+	cs := connect(t, New(&fakeImages{}, nil), nil)
 
 	init := cs.InitializeResult()
 	if init.ServerInfo.Name != g.Server || init.ServerInfo.Version != g.Version {
@@ -159,7 +159,7 @@ func envelopeOf(t *testing.T, res *mcp.CallToolResult) map[string]any {
 // the text form with an indent of 1, and the key order of the envelope.
 func TestErrorEnvelope(t *testing.T) {
 	useRepoWorkflows(t)
-	cs := connect(t, New(&fakeImages{}), nil)
+	cs := connect(t, New(&fakeImages{}, nil), nil)
 	res := callTool(t, cs, "describe_workflow", map[string]any{"workflow": "nope"})
 	if !res.IsError {
 		t.Fatal("isError is not set")
@@ -188,7 +188,7 @@ func TestErrorEnvelope(t *testing.T) {
 // isError, no structuredContent, and the field in the text, as pydantic does.
 func TestArgumentErrors(t *testing.T) {
 	useRepoWorkflows(t)
-	cs := connect(t, New(&fakeImages{}), nil)
+	cs := connect(t, New(&fakeImages{}, nil), nil)
 	for _, c := range []struct {
 		args map[string]any
 		want string

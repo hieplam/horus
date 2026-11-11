@@ -1,10 +1,7 @@
 # Rule direction: the imports that break the import rules of the spec today.
 # One "<package> -> <import>" pair on each line.
 # This list only becomes shorter: remove a line when its import is gone.
-internal/models -> os/exec
 internal/scripts/checksetup -> net/http
 internal/scripts/checksetup -> os/exec
 internal/scripts/installcomfymcp -> os/exec
 internal/scripts/register -> os/exec
-internal/scripts/workflow -> internal/download
-internal/scripts/workflow -> net/http

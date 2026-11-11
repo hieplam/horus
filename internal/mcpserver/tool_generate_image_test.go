@@ -84,7 +84,7 @@ func TestGenerateImageToolCallsTheService(t *testing.T) {
 	images := &fakeImages{result: &generate.Result{Workflow: "it-illustration", Path: "/x/a.png", Bytes: 8, Width: 1024, Height: 768,
 		Seed: 1<<64 - 1, Seconds: 1.5, BackendSeconds: &secs, JobID: "job-1"}}
 	got := make(chan string, 16)
-	cs := connect(t, New(images), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
+	cs := connect(t, New(images, nil), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
 		got <- r.Params.Message
 	}})
 	params := &mcp.CallToolParams{Name: "generate_image", Arguments: json.RawMessage(`{"workflow": "it-illustration", "subject": "` +
@@ -161,7 +161,7 @@ func nextProgress(t *testing.T, ch <-chan string) string {
 func TestGenerateImageToolReturnsTheServiceError(t *testing.T) {
 	useRepoWorkflows(t)
 	images := &fakeImages{err: herr.New("BACKEND_UNAVAILABLE", "ComfyUI does not answer", nil)}
-	cs := connect(t, New(images), nil)
+	cs := connect(t, New(images, nil), nil)
 	res := callTool(t, cs, "generate_image", map[string]any{"workflow": "it-illustration", "subject": testSubject})
 	e, _ := envelopeOf(t, res)["error"].(map[string]any)
 	if !res.IsError || e["code"] != "BACKEND_UNAVAILABLE" || e["action_by"] != "human" {

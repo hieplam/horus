@@ -70,7 +70,7 @@ sequenceDiagram
   A->>S: call generate_image with a subject
   S->>C: ask GET /system_stats: are you running?
   opt ComfyUI does not answer
-    S->>C: start it with the child "horus start-comfyui" (Windows only)
+    S->>C: start it through the backend, as "horus start-comfyui" does (Windows only)
   end
   S->>C: ask GET /object_info: do you list the model files of this workflow?
   S->>C: send the graph with POST /prompt
@@ -103,7 +103,9 @@ horus register
 The server finds the repo through `HORUS_ROOT`, then the nearest folder at or
 above the current folder that has a `workflows` folder, then the folder of the
 program. It needs ComfyUI and the setup of [`setup.md`](setup.md). When ComfyUI
-does not answer, `generate_image` starts it with `horus start-comfyui`.
+does not answer, `generate_image` starts it in the same way as `horus start-comfyui`
+(the backend of `internal/backend`, in the process of the server).
+`horus stop-comfyui` stops a ComfyUI that horus started, and no other one.
 
 ## The tools
 

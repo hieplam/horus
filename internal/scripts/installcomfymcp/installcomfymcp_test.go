@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -161,16 +160,6 @@ func TestMissingLauncherFails(t *testing.T) {
 	err := Install(context.Background(), r.opts)
 	if err == nil || !strings.HasPrefix(err.Error(), "Python 3.12 was not found.") {
 		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestVenvPathsFollowTheOS(t *testing.T) {
-	want := map[string]string{"windows": filepath.Join("v", "Scripts", "python.exe")}
-	if w, ok := want[runtime.GOOS]; ok && venvPython("v") != w {
-		t.Errorf("venvPython = %s, want %s", venvPython("v"), w)
-	}
-	if runtime.GOOS != "windows" && venvPython("v") != filepath.Join("v", "bin", "python") {
-		t.Errorf("venvPython = %s", venvPython("v"))
 	}
 }
 

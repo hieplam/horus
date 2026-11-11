@@ -32,6 +32,7 @@ import (
 
 	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/herr"
+	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -167,7 +168,7 @@ var startCommand = func(ctx context.Context, serverURL string) (*exec.Cmd, error
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, exe, "start-comfyui", "-server-url", serverURL)
-	hideWindow(cmd)
+	platform.NoConsole(cmd)
 	return cmd, nil
 }
 

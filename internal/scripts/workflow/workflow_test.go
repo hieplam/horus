@@ -12,17 +12,18 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/scripts/downloadmodel"
 	"github.com/hieplam/horus/internal/settings"
 )
@@ -290,17 +291,12 @@ func TestRemoveThatCannotDeleteGivesDeleteFailed(t *testing.T) {
 	p := filepath.Join(s.models, "vae", "demo-vae.safetensors")
 	must(t, os.MkdirAll(filepath.Dir(p), 0o755))
 	must(t, os.WriteFile(p, vaeData, 0o644))
-	if runtime.GOOS == "windows" {
-		f, err := os.Open(p) // Go opens without FILE_SHARE_DELETE, so the delete fails
-		must(t, err)
-		defer f.Close()
-	} else {
-		if os.Geteuid() == 0 {
-			t.Skip("root can delete in a read-only folder")
-		}
-		must(t, os.Chmod(filepath.Dir(p), 0o555))
-		defer os.Chmod(filepath.Dir(p), 0o755)
+	undo, err := platform.BlockDelete(p)
+	if errors.Is(err, platform.ErrCannotBlock) {
+		t.Skip(err)
 	}
+	must(t, err)
+	defer undo()
 	code, lines, res := s.run(t, Options{}, "remove", "demo", "-yes")
 	if code != 1 || res == nil || res.OK || res.Message != "1 file(s) were not deleted." {
 		t.Fatalf("exit %d, result %+v", code, res)

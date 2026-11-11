@@ -6,11 +6,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -50,11 +50,7 @@ func fakeClaude(t *testing.T) (dir, path string) {
 		t.Fatal(err)
 	}
 	dir = t.TempDir()
-	name := "claude"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	path = filepath.Join(dir, name)
+	path = filepath.Join(dir, platform.ExeName("claude"))
 	if err := os.WriteFile(path, data, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -28,6 +28,7 @@ import (
 
 	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/herr"
+	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -165,8 +166,6 @@ func command(ctx context.Context, action, name string, extra []string) (*exec.Cm
 	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Dir = settings.Root()
 	cmd.Env = os.Environ()
-	prepare(cmd)
-	cmd.Cancel = func() error { return killTree(cmd.Process) }
 	cmd.WaitDelay = WaitDelay
 	return cmd, nil
 }
@@ -188,7 +187,11 @@ func RunScript(ctx context.Context, action, name string, extra []string, run *Ru
 	out := &lineWriter{line: func(l string) { run.stdoutLine(l, onLine) }}
 	errw := &lineWriter{line: run.stderrLine}
 	cmd.Stdout, cmd.Stderr = out, errw
-	err = cmd.Run()
+	// The child starts a tree of its own, so the end of ctx ends the child
+	// and every process that it started.
+	if _, err = platform.StartTree(cmd); err == nil {
+		err = cmd.Wait()
+	}
 	out.flush()
 	errw.flush()
 	if ctx.Err() != nil {

@@ -35,6 +35,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -125,7 +126,7 @@ func Download(ctx context.Context, o Options) (Result, error) {
 		o.Sleep = time.Sleep
 	}
 	if o.FreeSpace == nil {
-		o.FreeSpace = freeSpace
+		o.FreeSpace = platform.FreeSpace
 	}
 	if o.Transport == nil {
 		o.Transport = http.DefaultTransport

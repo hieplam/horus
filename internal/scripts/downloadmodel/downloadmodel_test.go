@@ -382,14 +382,6 @@ func TestFreeSpaceUnderSizePlusOneGiBIsRefused(t *testing.T) {
 	mustHold(t, j.Dest, body)
 }
 
-// The real free space of a temporary folder can be read on this system.
-func TestFreeSpaceOfThisSystem(t *testing.T) {
-	n, err := freeSpace(t.TempDir())
-	if err != nil || n == 0 {
-		t.Fatalf("freeSpace: %d, %v", n, err)
-	}
-}
-
 // Case 8.
 func TestHTTP401And403GiveTwoOutcomes(t *testing.T) {
 	for code, want := range map[int]struct {

@@ -50,3 +50,5 @@ Green: `python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>/horus.ex
     goal: 1 of 8 rows passed
 
 Ratchet: rows with a measuring command 0 to 8.
+
+Phase 1 (python tools/goal_check.py --no-ci, unchanged behaviour): 7 of 8 rows passed. Only real-image fails (needs --real on the GPU machine).

@@ -129,6 +129,11 @@ func TestRowState(t *testing.T) {
 		if got := c.row.State(); got != c.want {
 			t.Errorf("%+v: %s, want %s", c.row, got, c.want)
 		}
+		if c.row != nil {
+			if got := InstallState(c.row.Present, c.row.Files); got != c.want {
+				t.Errorf("InstallState(%d, %d) = %s, want %s", c.row.Present, c.row.Files, got, c.want)
+			}
+		}
 	}
 }
 

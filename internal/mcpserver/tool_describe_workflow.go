@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hieplam/horus/internal/catalog"
+	"github.com/hieplam/horus/internal/provision"
 )
 
 // DescribeResult is the result of describe_workflow, in the key order of server.py.
@@ -87,17 +88,11 @@ func describeWorkflow(setup Setup) tool {
 					present++
 				}
 			}
-			state := "not_installed"
-			if len(files) > 0 && present == len(files) {
-				state = "installed"
-			} else if present > 0 {
-				state = "partially_installed"
-			}
 			d, err := catalog.DetailOf(w)
 			if err != nil {
 				return nil, err
 			}
-			return describeResult(d, state, files), nil
+			return describeResult(d, provision.InstallState(present, len(files)), files), nil
 		},
 	}
 }

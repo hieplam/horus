@@ -2,12 +2,9 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/hieplam/horus/internal/backend"
@@ -96,33 +93,11 @@ func (d downloader) Download(ctx context.Context, f provision.Fetch, out io.Writ
 	return res.Skipped, err
 }
 
-// doctorAt is the doctor service for the flags of horus doctor.
-func doctorAt(p cli.DoctorPlace) cli.Doctor {
+// doctorAt is the doctor service, and the setup service for the model
+// check, for the flags of horus doctor. The model check reads the address of
+// ComfyUI from the setting, as horus workflow check does without -server-url.
+func doctorAt(p cli.DoctorPlace) (cli.Doctor, cli.Setup) {
 	install := newBackend(cli.BackendPlace{Dir: p.ComfyUIDir, ServerURL: p.ServerURL})
-	models := workflowCheck{place: cli.SetupPlace{ComfyUIDir: p.ComfyUIDir, ModelsDir: p.ModelsDir, TextEncoderDir: p.TextEncoderDir}, setupAt: setupAt}
-	return doctor.New(comfy.New(p.ServerURL), install, platform.Programs{}, models)
-}
-
-// workflowCheck gives internal/doctor the model check: the command horus
-// workflow check, in this process, with its text lines. It is the check
-// that the doctor ran as a child process "horus workflow check" before.
-type workflowCheck struct {
-	place   cli.SetupPlace
-	setupAt func(cli.SetupPlace) cli.Setup
-}
-
-func (w workflowCheck) Check(ctx context.Context, workflow string, quick bool) ([]string, bool, error) {
-	args := []string{"check", workflow}
-	if quick {
-		args = append(args, "-quick")
-	}
-	var buf bytes.Buffer
-	code := cli.Workflow(ctx, args, &buf, &buf, func(cli.SetupPlace) cli.Setup { return w.setupAt(w.place) })
-	var lines []string
-	sc := bufio.NewScanner(&buf)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for sc.Scan() {
-		lines = append(lines, strings.TrimRight(sc.Text(), "\r"))
-	}
-	return lines, code == 0, nil
+	setup := setupAt(cli.SetupPlace{ComfyUIDir: p.ComfyUIDir, ModelsDir: p.ModelsDir, TextEncoderDir: p.TextEncoderDir})
+	return doctor.New(comfy.New(p.ServerURL), install, platform.Programs{}), setup
 }

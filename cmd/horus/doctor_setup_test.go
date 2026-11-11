@@ -51,59 +51,66 @@ func useComfyURL(t *testing.T, s *sandbox) {
 	settings.Reset()
 }
 
+// runDoctor runs horus doctor on the services of doctorAt, with the venv in
+// a temporary folder.
+func (s *sandbox) runDoctor(t *testing.T, args ...string) (int, string) {
+	t.Helper()
+	full := append(args, "-comfyui-dir", s.comfy, "-server-url", s.comfyUI.URL, "-models-dir", s.models,
+		"-venv-path", filepath.Join(t.TempDir(), "venv"))
+	var out bytes.Buffer
+	code := cli.RunDoctor(context.Background(), "doctor", full, &out, &out, doctorAt)
+	return code, out.String()
+}
+
 // TestDoctorThroughTheWiring: the doctor service of doctorAt finds the
-// ComfyUI folder through the backend, asks the server, and runs the model
-// check of horus workflow check in this process, with its text lines.
+// ComfyUI folder through the backend and asks the server. The setup service
+// of doctorAt runs the model check of horus workflow check, and the handler
+// writes its lines with an indent.
 func TestDoctorThroughTheWiring(t *testing.T) {
 	s := newSandbox(t)
 	useComfyURL(t, s)
 	place := cli.DoctorPlace{ComfyUIDir: s.comfy, ServerURL: s.comfyUI.URL, ModelsDir: s.models}
 	tmp := t.TempDir()
-	o := doctor.Options{ServerURL: s.comfyUI.URL, VenvPath: filepath.Join(tmp, "venv"), RepoRoot: tmp, Home: tmp, Workflow: "demo"}
+	o := doctor.Options{ServerURL: s.comfyUI.URL, VenvPath: filepath.Join(tmp, "venv"), RepoRoot: tmp, Home: tmp}
+	doc, _ := doctorAt(place)
+	rs := doc.Check(context.Background(), o)
+	if len(rs) != 7 || !rs[0].OK || rs[0].Detail != s.comfy || !rs[1].OK {
+		t.Fatalf("results: %+v", rs)
+	}
+
 	before := snapshot(t, s.root)
-	rs := doctorAt(place).Check(context.Background(), o)
+	code, out := s.runDoctor(t, "-workflow", "demo")
 	if after := snapshot(t, s.root); after != before {
 		t.Fatalf("horus doctor changed a file:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
-	if len(rs) != 8 || !rs[0].OK || rs[0].Detail != s.comfy || !rs[1].OK {
-		t.Fatalf("results: %+v", rs)
-	}
-	models := rs[7]
-	lines := strings.Join(models.Lines, "\n")
-	if models.OK || models.Name != "models for 'demo'" || !strings.Contains(lines, "MISSING   vae demo-vae.safetensors") ||
-		!strings.Contains(lines, "Checking workflow 'demo': 2 model file(s).") || strings.Contains(lines, cli.Mark) {
-		t.Fatalf("model check: %+v\n%s", models, lines)
+	if code != 1 || !strings.Contains(out, "\n      MISSING   vae demo-vae.safetensors") ||
+		!strings.Contains(out, "\n      Checking workflow 'demo': 2 model file(s).\n") ||
+		!strings.Contains(out, "\nFAIL  models for 'demo' - see lines above. Fix: horus workflow install demo\n") ||
+		strings.Contains(out, cli.Mark) {
+		t.Fatalf("model check: exit %d\n%s", code, out)
 	}
 
 	// After an install the check passes; -quick passes -quick to the check.
 	if code, ls, _ := s.run(t, s.seams(1<<50), "install", "demo"); code != 0 {
 		t.Fatalf("install: exit %d\n%s", code, strings.Join(ls, "\n"))
 	}
-	o.Quick = true
-	rs = doctorAt(place).Check(context.Background(), o)
-	models = rs[7]
-	lines = strings.Join(models.Lines, "\n")
-	if !models.OK || !strings.Contains(lines, "Checking workflow 'demo': 2 model file(s), size only.") {
-		t.Fatalf("model check after the install: %+v\n%s", models, lines)
+	_, out = s.runDoctor(t, "-workflow", "demo", "-quick")
+	if !strings.Contains(out, "\n      Checking workflow 'demo': 2 model file(s), size only.\n") ||
+		!strings.Contains(out, "\n      OK: workflow 'demo' is ready.\nPASS  models for 'demo' - all files present, size checked") {
+		t.Fatalf("model check after the install:\n%s", out)
 	}
 }
 
-// TestWorkflowCheckGivesTheLinesAndTheExitCode is the glue alone: ok is the
-// exit code 0 of horus workflow check, and a check that cannot start (no
-// such workflow) is a failed check with its line.
-func TestWorkflowCheckGivesTheLinesAndTheExitCode(t *testing.T) {
+// TestDoctorModelCheckOfAnUnknownWorkflow: a model check that cannot start
+// (no such workflow) is a failed check with the FAIL line of horus workflow
+// check, indented.
+func TestDoctorModelCheckOfAnUnknownWorkflow(t *testing.T) {
 	s := newSandbox(t)
 	useComfyURL(t, s)
-	sm := s.seams(1 << 50)
-	w := workflowCheck{place: cli.SetupPlace{ComfyUIDir: s.comfy, ModelsDir: s.models},
-		setupAt: func(p cli.SetupPlace) cli.Setup { return newSetup(p, sm) }}
-	lines, ok, err := w.Check(context.Background(), "other", false)
-	if err != nil || ok || strings.Join(lines, "\n") != "FAIL: No workflow 'other'. Known: demo" {
-		t.Fatalf("ok %v, err %v, lines %q", ok, err, lines)
-	}
-	lines, ok, err = w.Check(context.Background(), "demo", true)
-	if err != nil || ok || len(lines) < 2 || lines[0] != "Checking workflow 'demo': 2 model file(s), size only." {
-		t.Fatalf("ok %v, err %v, lines %q", ok, err, lines)
+	code, out := s.runDoctor(t, "-workflow", "other", "-quick")
+	want := "\n      FAIL: No workflow 'other'. Known: demo\nFAIL  models for 'other' - see lines above. Fix: horus workflow install other\n"
+	if code != 1 || !strings.Contains(out, want) {
+		t.Fatalf("exit %d\n%s", code, out)
 	}
 }
 

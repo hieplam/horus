@@ -15,19 +15,6 @@ import (
 	"github.com/hieplam/horus/internal/platform"
 )
 
-type fakeModels struct {
-	ok    bool
-	err   error
-	asked []string
-	quick []bool
-}
-
-func (f *fakeModels) Check(_ context.Context, workflow string, quick bool) ([]string, bool, error) {
-	f.asked = append(f.asked, workflow)
-	f.quick = append(f.quick, quick)
-	return []string{"OK        vae", "MISSING   unet"}, f.ok, f.err
-}
-
 // fakeServer answers with version, or with err.
 type fakeServer struct {
 	version string
@@ -53,21 +40,17 @@ type rig struct {
 	server  fakeServer
 	install fakeInstall
 	look    lookFunc
-	models  Models
 	opts    Options
 }
 
 func (r *rig) check() []Result {
-	return New(r.server, r.install, r.look, r.models).Check(context.Background(), r.opts)
+	return New(r.server, r.install, r.look).Check(context.Background(), r.opts)
 }
 
 // text writes the results as horus doctor does, for the messages of a test.
 func text(rs []Result) string {
 	var b strings.Builder
 	for _, r := range rs {
-		for _, l := range r.Lines {
-			b.WriteString("      " + l + "\n")
-		}
 		word := "FAIL"
 		if r.OK {
 			word = "PASS"
@@ -279,63 +262,10 @@ func TestOneMissingPieceGivesOneFailLine(t *testing.T) {
 	}
 }
 
-func TestModelsLinesAndFailureCount(t *testing.T) {
-	r := newRig(t)
-	m := &fakeModels{ok: false}
-	r.opts.Workflow, r.models = "it-illustration", m
-	rs := r.check()
-	if Failed(rs) != 1 || len(rs) != 8 {
-		t.Fatalf("failed %d:\n%s", Failed(rs), text(rs))
-	}
-	last := rs[7]
-	if last.Name != "models for 'it-illustration'" || last.Detail != "see lines above. Fix: horus workflow install it-illustration" ||
-		strings.Join(last.Lines, "|") != "OK        vae|MISSING   unet" {
-		t.Fatalf("model result: %+v", last)
-	}
-	if len(m.asked) != 1 || m.asked[0] != "it-illustration" || m.quick[0] {
-		t.Fatalf("asked: %v, quick %v", m.asked, m.quick)
-	}
-
-	// The quick check reads sizes only, so its line must not say "verified".
-	r = newRig(t)
-	m = &fakeModels{ok: true}
-	r.opts.Workflow, r.models, r.opts.Quick = "it-illustration", m, true
-	rs = r.check()
-	if Failed(rs) != 0 || !strings.Contains(text(rs), "PASS  models for 'it-illustration' - all files present, size checked") || !m.quick[0] {
-		t.Fatalf("failed %d, quick %v:\n%s", Failed(rs), m.quick, text(rs))
-	}
-	if strings.Contains(text(rs), "verified") {
-		t.Fatalf("size-only check says verified:\n%s", text(rs))
-	}
-
-	r = newRig(t)
-	r.opts.Workflow, r.models = "it-illustration", &fakeModels{ok: true}
-	if rs := r.check(); Failed(rs) != 0 || !strings.Contains(text(rs), "PASS  models for 'it-illustration' - all files present and verified (SHA-256 checked)") {
-		t.Fatalf("failed %d:\n%s", Failed(rs), text(rs))
-	}
-
-	// A check that cannot run fails by name.
-	r = newRig(t)
-	r.opts.Workflow, r.models = "it-illustration", &fakeModels{err: errors.New("boom")}
-	if rs := r.check(); Failed(rs) != 1 || !strings.Contains(text(rs), "FAIL  models for 'it-illustration' - cannot run the model check: boom") {
-		t.Fatalf("failed %d:\n%s", Failed(rs), text(rs))
-	}
-}
-
-func TestNoWorkflowFlagMeansNoModelCheck(t *testing.T) {
-	r := newRig(t)
-	m := &fakeModels{}
-	r.models = m
-	if rs := r.check(); len(rs) != 7 || len(m.asked) != 0 {
-		t.Fatalf("%d results, asked: %v", len(rs), m.asked)
-	}
-}
-
-// TestCheckChangesNoFile runs every check, with a model check, and compares
+// TestCheckChangesNoFile runs every check and compares
 // the files of the rig before and after: horus doctor is read-only.
 func TestCheckChangesNoFile(t *testing.T) {
 	r := newRig(t)
-	r.opts.Workflow, r.models = "it-illustration", &fakeModels{ok: true}
 	snap := func() string {
 		var b strings.Builder
 		filepath.WalkDir(r.opts.Home, func(p string, d os.DirEntry, err error) error {

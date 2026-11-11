@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 """Goal check of the Go port (epic: port horus to Go, Phase 1).
 
-    python tools/goal_check.py [--no-ci] [--real] [--real-out <folder>] [--server-cmd <words...>]
+    python tools/goal_check.py [--phase 2] [--no-ci] [--real] [--real-out <folder>] [--server-cmd <words...>]
 
-Checks the 8 goal rows of docs/specs/2026-11-10-go-port.md. It prints one line
+Without --phase, it checks the 8 goal rows of Phase 1 (docs/specs/2026-11-10-go-port.md).
+With --phase 2, it checks the 8 goal rows of Phase 2 (docs/specs/2026-11-11-restructure.md):
+layout, same-behaviour, os-boundary, direction, process-tree, backend, token, commands.
+The rows backend and commands pass only with --real, because their oracle needs the
+owner's PC (the real image, horus doctor, horus setup).
+The rows os-boundary, direction and token read the allow lists
+internal/archtest/allow_os-boundary.txt, allow_direction.txt and allow_token.txt
+(task T1 creates them) and print their lengths.
+
+It prints one line
 for each row, "PASS  <row> - <detail>" or "FAIL  <row> - <detail>", and then
 "goal: N of 8 rows passed". The exit code is 0 only when N is 8.
 A row whose tool or folder does not exist yet fails with a detail that says
@@ -44,6 +53,12 @@ REAL_SIZE = (1536, 1024)  # the default size of workflows/it-illustration/manife
 REAL_TIMEOUT = 3600  # seconds; the server's own limit is HORUS_GENERATE_TIMEOUT (1800 s) plus the start of ComfyUI
 PNG_SIGNATURE = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])  # the 8 bytes that start every PNG file
 ROWS = ["contract", "graph", "workflow-cli", "downloader", "setup-commands", "builds", "real-image", "no-python"]
+ROWS2 = ["layout", "same-behaviour", "os-boundary", "direction", "process-tree", "backend", "token", "commands"]
+PACKAGE_LIST = ROOT / "tools" / "phase2_packages.txt"
+ARCHTEST_DIR = "internal/archtest"
+ALLOW_LIST = {"os-boundary": "allow_os-boundary.txt", "direction": "allow_direction.txt", "token": "allow_token.txt"}
+BASELINE_COMMIT = "3e27da4"  # main before the first move task; the contract files are compared with it
+BASELINE_TESTS = 157 # Go test functions at BASELINE_COMMIT (go test -list . ./...); same-behaviour never goes below it
 
 
 def run(cmd: list[str], env: dict | None = None, timeout: int = 900) -> tuple[int, str]:
@@ -291,6 +306,167 @@ def row_no_python(a: argparse.Namespace) -> tuple[bool, str]:
     return True, "0 lines left"
 
 
+def go_files() -> list[str]:
+    _, out = run(["git", "ls-files", "*.go"], timeout=60)
+    return [f for f in out.splitlines() if f.endswith(".go")]
+
+
+def count_taskkill() -> int:
+    """Lines of Go files that name taskkill (the Windows program that ends a process tree)."""
+    n = 0
+    for f in go_files():
+        try:
+            n += len(re.findall(r"taskkill", (ROOT / f).read_text(encoding="utf-8", errors="replace"), re.I))
+        except OSError:
+            pass
+    return n
+
+
+def packages_off_target() -> tuple[list[str], list[str]] | str:
+    """(packages that exist but are not on the list, packages on the list that do not exist), or an error text."""
+    go = go_exe()
+    if not go:
+        return "go not found"
+    if not PACKAGE_LIST.is_file():
+        return f"missing: {PACKAGE_LIST.relative_to(ROOT).as_posix()}"
+    code, out = run([go, "list", "./..."])
+    if code != 0:
+        return f"go list failed: {last_line(out)}"
+    have = {ln.strip() for ln in out.splitlines() if ln.strip()}
+    want = {ln.strip() for ln in PACKAGE_LIST.read_text(encoding="utf-8").splitlines() if ln.strip()}
+    return sorted(have - want), sorted(want - have)
+
+
+def row2_layout(a: argparse.Namespace) -> tuple[bool, str]:
+    res = packages_off_target()
+    if isinstance(res, str):
+        return False, res
+    extra, missing = res
+    detail = f"{len(extra)} packages off target, {len(missing)} listed packages missing"
+    return not extra and not missing, detail
+
+
+def go_test_count() -> tuple[int, str]:
+    go = go_exe()
+    if not go:
+        return -1, "go not found"
+    code, out = run([go, "test", "-list", ".", "./..."])
+    if code != 0:
+        return -1, f"go test -list failed: {last_line(out)}"
+    return len(re.findall(r"^Test\w+$", out, re.M)), ""
+
+
+def changed_contract_files() -> list[str] | str:
+    """Files of the contract (the two Python tests, fixtures and golden files) that differ from the baseline.
+    A rename with the same content (R100) is no change: a golden file moves with its package."""
+    code, out = run(["git", "diff", "--name-status", "-M", BASELINE_COMMIT, "--",
+                     "tests/mcp_contract.py", "tests/workflow_parity.py", "tests/fixtures", "*golden*"], timeout=60)
+    if code != 0:
+        return f"git diff against {BASELINE_COMMIT} failed: {last_line(out)}"
+    return [ln for ln in out.splitlines() if ln.strip() and not ln.startswith("R100")]
+
+
+def row2_same(a: argparse.Namespace) -> tuple[bool, str]:
+    parts, ok = [], True
+    ok_c, detail_c = row_contract(a)
+    ok &= ok_c
+    parts.append("contract: " + detail_c)
+    code, out = run([sys.executable, "tests/workflow_parity.py"], timeout=900)
+    parity = re.search(r"parity: 17 of 17 cases equal", out) is not None and code == 0
+    ok &= parity
+    parts.append("parity: " + ("17 of 17" if parity else last_line(out)))
+    go = go_exe()
+    if go:
+        code, out = run([go, "test", "./..."])
+        ok &= code == 0
+        parts.append("go test ./...: " + ("ok" if code == 0 else "failed, " + last_line(out)))
+    else:
+        ok = False
+        parts.append("go not found")
+    n, err = go_test_count()
+    if n < 0:
+        ok = False
+        parts.append(err)
+    else:
+        ok &= n >= BASELINE_TESTS
+        parts.append(f"{n} Go test functions (baseline {BASELINE_TESTS})")
+    changed = changed_contract_files()
+    if isinstance(changed, str):
+        ok = False
+        parts.append(changed)
+    else:
+        ok &= not changed
+        parts.append(f"{len(changed)} changed contract files" + (": " + ", ".join(changed[:3]) if changed else ""))
+    return ok, "; ".join(parts)
+
+
+def allow_length(rule: str) -> tuple[int | None, str]:
+    path = ROOT / ARCHTEST_DIR / ALLOW_LIST[rule]
+    if not path.is_file():
+        return None, f"missing: {ARCHTEST_DIR}/{ALLOW_LIST[rule]} (task T1)"
+    lines = [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines()]
+    return len([ln for ln in lines if ln and not ln.startswith("#")]), ""
+
+
+def row2_archtest(rule: str):
+    def check(a: argparse.Namespace) -> tuple[bool, str]:
+        if not (ROOT / ARCHTEST_DIR).is_dir():
+            return False, f"missing: {ARCHTEST_DIR} (task T1); allow list length unknown"
+        n, err = allow_length(rule)
+        if n is None:
+            return False, err
+        ok, detail, _ = go_test([f"./{ARCHTEST_DIR}"], [])
+        return ok and n == 0, f"{n} entries on the allow list; archtest: {'ok' if ok else detail}"
+    return check
+
+
+def row2_process_tree(a: argparse.Namespace) -> tuple[bool, str]:
+    kills = count_taskkill()
+    if not (ROOT / "internal" / "platform").is_dir():
+        return False, f"missing: internal/platform (task T2); {kills} taskkill references"
+    ok, detail, out = go_test(["./internal/platform"], ["-v", "-run", "Tree"])
+    if ok and not re.search(r"^--- PASS: Test\w*Tree", out, re.M):
+        return False, f"no passing test with Tree in its name in internal/platform; {kills} taskkill references"
+    return ok and kills == 0, f"tree test: {'ok' if ok else detail}; {kills} taskkill references"
+
+
+def row2_backend(a: argparse.Namespace) -> tuple[bool, str]:
+    if not (ROOT / "internal" / "backend").is_dir():
+        return False, "missing: internal/backend (task T7)"
+    ok, detail, _ = go_test(["./internal/backend"], [])
+    if not ok:
+        return False, detail
+    if not a.real:
+        return False, "Go tests ok; needs --real on the owner's PC for the image through the backend"
+    ok_r, detail_r = row_real(a)
+    return ok_r, detail_r
+
+
+def row2_commands(a: argparse.Namespace) -> tuple[bool, str]:
+    missing = [p for p in ("internal/cli", "internal/doctor") if not (ROOT / p).is_dir()]
+    if missing:
+        return False, "missing: " + ", ".join(missing) + " (tasks T8 and T9)"
+    ok, detail, _ = go_test(["./internal/cli", "./internal/doctor"], [])
+    if not ok:
+        return False, detail
+    if not a.real:
+        return False, "Go tests ok; needs --real on the owner's PC for horus doctor and horus setup"
+    exe = (a.server_cmd or ["horus"])[0]
+    code, out = run([exe, "doctor"], timeout=300)
+    fails = len(re.findall(r"^FAIL\b", out, re.M))
+    if code != 0 or fails:
+        return False, f"horus doctor: exit {code}, {fails} FAIL lines"
+    code, out = run([exe, "setup", "it-illustration"], timeout=300)
+    if code != 0 or not re.search(r"nothing (is )?missing", out, re.I):
+        return False, f"horus setup it-illustration: exit {code}, the plan does not say that nothing is missing"
+    return True, "horus doctor: 0 FAIL lines; horus setup it-illustration: nothing is missing"
+
+
+CHECKS2 = {"layout": row2_layout, "same-behaviour": row2_same, "os-boundary": row2_archtest("os-boundary"),
+           "direction": row2_archtest("direction"), "process-tree": row2_process_tree,
+           "backend": row2_backend, "token": row2_archtest("token"), "commands": row2_commands}
+
+
 CHECKS = {"contract": row_contract, "graph": row_graph, "workflow-cli": row_workflow_cli,
           "downloader": row_downloader, "setup-commands": row_setup, "builds": row_builds,
           "real-image": row_real, "no-python": row_no_python}
@@ -302,17 +478,20 @@ def main() -> int:
     ap.add_argument("--no-ci", action="store_true", help="leave out the CI part of the contract row")
     ap.add_argument("--real", action="store_true", help="run the real-image row (GPU machine only)")
     ap.add_argument("--real-out", help="folder for the PNG of the real-image row (default: .scratch/real-image)")
+    ap.add_argument("--phase", type=int, choices=[1, 2], default=1,
+                    help="goal rows to check: 1 = the Go port (default), 2 = the three layers")
     a = ap.parse_args()
+    rows, checks = (ROWS2, CHECKS2) if a.phase == 2 else (ROWS, CHECKS)
     passed = 0
-    for row in ROWS:
+    for row in rows:
         try:
-            ok, detail = CHECKS[row](a)
+            ok, detail = checks[row](a)
         except Exception as exc:  # a row never raises
             ok, detail = False, f"check failed to run: {type(exc).__name__}: {exc}"
         passed += ok
         print(f"{'PASS' if ok else 'FAIL'}  {row} - {detail}", flush=True)
-    print(f"goal: {passed} of {len(ROWS)} rows passed")
-    return 0 if passed == len(ROWS) else 1
+    print(f"goal: {passed} of {len(rows)} rows passed")
+    return 0 if passed == len(rows) else 1
 
 
 if __name__ == "__main__":

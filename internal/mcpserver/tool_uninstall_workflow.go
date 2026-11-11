@@ -8,7 +8,6 @@ import (
 
 	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/herr"
-	"github.com/hieplam/horus/internal/models"
 )
 
 // UninstallResult is the result of uninstall_workflow, in the key order of server.py.
@@ -18,7 +17,7 @@ type UninstallResult struct {
 	FreedBytes int64         `json:"freed_bytes"`
 }
 
-func uninstallWorkflow(images Images) tool {
+func uninstallWorkflow(images Images, setup Setup) tool {
 	return tool{
 		name:  "uninstall_workflow",
 		title: "Uninstall an image workflow",
@@ -48,9 +47,12 @@ func uninstallWorkflow(images Images) tool {
 			if confirm {
 				images.FreeMemory(ctx) // an open model file cannot be deleted on Windows
 			}
-			res, err := models.Remove(ctx, w, confirm, c.args.boolean("remove_shared"))
+			req := request(w)
+			req.Yes, req.Force = confirm, c.args.boolean("remove_shared")
+			// A remove runs to the end: it must not stop in the middle.
+			res, err := setup.Remove(context.WithoutCancel(ctx), req)
 			if err != nil {
-				return nil, err
+				return nil, removeError(res)
 			}
 			files := fileRows(res.Items, "file", map[string]string{
 				"DELETED": "deleted", "WOULD_DELETE": "would_delete", "KEPT_SHARED": "kept_shared", "ABSENT": "absent"})

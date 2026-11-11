@@ -8,7 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hieplam/horus/internal/catalog"
-	"github.com/hieplam/horus/internal/models"
+	"github.com/hieplam/horus/internal/provision"
 )
 
 // WorkflowSummary is one row of list_workflows, in the key order of server.py.
@@ -30,7 +30,7 @@ type ListResult struct {
 	BackendRunning bool              `json:"backend_running"`
 }
 
-func listWorkflows(images Images) tool {
+func listWorkflows(images Images, setup Setup) tool {
 	return tool{
 		name:  "list_workflows",
 		title: "List image workflows",
@@ -60,7 +60,7 @@ func listWorkflows(images Images) tool {
 			if err != nil {
 				return nil, err
 			}
-			status, err := models.ListStatus(ctx)
+			status, err := listStatus(ctx, setup)
 			if err != nil {
 				return nil, err
 			}
@@ -74,7 +74,7 @@ func listWorkflows(images Images) tool {
 				if err != nil {
 					return nil, err
 				}
-				var row *models.Row
+				var row *provision.Row
 				if r, ok := status[w.Name]; ok {
 					row = &r
 				}
@@ -91,7 +91,7 @@ func listWorkflows(images Images) tool {
 				}
 				rows = append(rows, WorkflowSummary{
 					Name: s.Name, Title: s.Title, Summary: s.Summary, GoodFor: s.GoodFor, NotGoodFor: s.NotGoodFor,
-					Output: s.Output, TypicalSeconds: s.TypicalSeconds, InstallState: models.InstallState(row), DownloadBytes: size,
+					Output: s.Output, TypicalSeconds: s.TypicalSeconds, InstallState: row.State(), DownloadBytes: size,
 				})
 			}
 			return ListResult{Workflows: rows, BackendRunning: running}, nil

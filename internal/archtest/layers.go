@@ -35,7 +35,6 @@ var layers = map[string]string{
 
 	// Phase 1 packages. Each one has the layer of the package that its code
 	// moves to. Remove a line when its package is gone.
-	"internal/models":                  service, // internal/provision
 	"internal/scripts/checksetup":      service, // internal/doctor
 	"internal/scripts/installcomfymcp": service, // internal/provision
 	"internal/scripts/installcomfyui":  adapter, // internal/backend
@@ -43,7 +42,6 @@ var layers = map[string]string{
 	"internal/scripts/register":        service, // internal/provision
 	"internal/scripts/startcomfyui":    adapter, // internal/backend
 	"internal/scripts/syncworkflows":   service, // internal/devtools
-	"internal/scripts/workflow":        service, // internal/provision
 }
 
 // mayImport gives, for each layer, the layers of the module that its

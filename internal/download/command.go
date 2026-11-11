@@ -23,7 +23,7 @@ func Main(ctx context.Context, args []string, out io.Writer, base Options) int {
 	fs.StringVar(&o.Dest, "destination", "", "full path of the final file; the folder is made when needed")
 	fs.Int64Var(&o.ExpectedBytes, "expected-bytes", 0, "exact size of the file in bytes")
 	fs.StringVar(&o.SHA256, "sha256", "", "expected SHA-256 hash, 64 hexadecimal characters")
-	fs.StringVar(&o.TokenEnvVar, "token-env-var", "HF_TOKEN", "name of the variable that holds the access token (environment, then .env)")
+	fs.StringVar(&o.tokenVar, "token-env-var", "HF_TOKEN", "name of the variable that holds the access token (environment, then .env)")
 	fs.IntVar(&o.MaxAttempts, "max-attempts", 4, "number of download attempts")
 	fs.Usage = func() {
 		fmt.Fprintln(out, "Usage: horus download-model -url <https address> -destination <file> -expected-bytes <n> -sha256 <hex>")

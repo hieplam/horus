@@ -19,6 +19,14 @@ commands.
 | 2026-11-11 | The row `process-tree` needs a passing test whose name has `Tree` in it, in `internal/platform`. The row counts each occurrence of `taskkill` in Go files (8 today, in 6 lines). | The plan names "the tree test" but no test name. | Plan (T0) |
 | 2026-11-11 | The rows `backend` and `commands` pass only with `--real`. Without it they print that the Go tests are fine and that the owner's PC is needed. `commands` passes when `horus doctor` has 0 FAIL lines and the plan of `horus setup it-illustration` says "nothing is missing". | Their oracle runs on the owner's PC, like the real-image row of Phase 1. | Plan (T0) |
 | 2026-11-11 | The baseline commit of `same-behaviour` is `3e27da4`. The baseline number of Go test functions is 157. | Measured at T0 (see the Baseline section). | Plan (T0) |
+| 2026-11-11 | The rule `token` flags a Go string whose value is `HF_TOKEN`, or that starts with `HF_TOKEN=` (a line of a `.env` file). It does not flag the error code `HF_TOKEN_INVALID`, a comment, or a longer text. The exempt places are `internal/download` and the two files of the refusal: `internal/settings/settings.go` and `internal/settings/settings_test.go`. The allow list has 4 files. | The `next_step` text of `HF_TOKEN_INVALID` in `internal/herr` names `HF_TOKEN`, and `internal/herr/testdata/errors.golden.json` holds that text. A golden file must not change, so a plain text match could never reach 0. Code that reads the token names the variable in a string of its own. | Agent (T1) |
+| 2026-11-11 | The rule `os-boundary` flags a file when a part of its name after the first `_` is an OS name of Go or `unix`, when a `//go:build` line names an OS, when it uses `runtime.GOOS`, or when it imports `syscall` or `golang.org/x/sys/...`. Test files count. Nothing under `internal/platform` or `internal/backend` is flagged. There is no planted file for an old `// +build` line: `gofmt` adds a `//go:build` line to such a file, and CI fails a file that `gofmt -l` lists. The code still reads both kinds of line. | The spec names the four cases. The baseline of 19 files counts `_unix` files and test files. | Agent (T1) |
+| 2026-11-11 | The layers of the Phase 1 packages in `internal/archtest/layers.go`: `internal/server` and `internal/scripts/runillustration` are handlers. `internal/models`, `checksetup`, `installcomfymcp`, `newworkflow`, `register`, `syncworkflows` and `workflow` are services. `downloadmodel`, `installcomfyui` and `startcomfyui` are adapters. A package that is not in the table fails the rule `direction`. | Each one gets the layer of the package that its code moves to (spec table, plan T1 step 2). `runillustration` moves to `internal/cli` (plan T5 step 5). | Agent (T1) |
+| 2026-11-11 | `internal/archtest` and `internal/comfy/comfytest` are in the layer "test". Only a test file can import them. The spec sets no import limit for them, so archtest sets none. | The spec says only that a test file can import `comfytest`. | Agent (T1) |
+| 2026-11-11 | An entry of the allow list `direction` is a pair `<package> -> <import>` for the whole package, test files included. The ban of a service is on the exact import paths `net/http` and `os/exec`. | The plan writes the entry as `internal/generate -> internal/comfy` (T5 Red). The spec names the two paths. | Agent (T1) |
+| 2026-11-11 | A test file of a service follows the rules of the service, as the spec says. So T5 step 3 has one option only: a test of `internal/generate` uses a fake of the interface. A test that needs the wire format of the real `comfy.Client` goes to `internal/comfy` or `cmd/horus`. Today `internal/generate/generate_test.go` imports `internal/comfy`. | The spec wins over the plan. The other option of the plan keeps the entry `internal/generate -> internal/comfy` on the list. | Agent (T1) |
+| 2026-11-11 | The Red of T1 printed `directory not found` and `[setup failed]` (Go 1.27.3), not "no Go files" or "cannot find package". | It is the same fact: the package does not exist. | Agent (T1) |
+| 2026-11-11 | `tools/goal_check.py` does not change in T1. It reads the three lists in the format of T0 and prints their lengths. | The format of T0 fits the lists of T1. | Agent (T1) |
 
 ## Baseline
 
@@ -52,3 +60,53 @@ Green: `python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>/horus.ex
 Ratchet: rows with a measuring command 0 to 8.
 
 Phase 1 (python tools/goal_check.py --no-ci, unchanged behaviour): 7 of 8 rows passed. Only real-image fails (needs --real on the GPU machine).
+
+## T1
+
+Red, before the package existed: `go test ./internal/archtest` (exit 1):
+
+    stat ...\internal\archtest: directory not found
+    FAIL	./internal/archtest [setup failed]
+
+Green: `go test -v ./internal/archtest`:
+
+    --- PASS: TestRules (0.03s)
+    --- PASS: TestPlanted (0.01s)
+    --- PASS: TestCompare (0.00s)
+    ok  	github.com/hieplam/horus/internal/archtest	0.792s
+
+Green: `python tools/goal_check.py --phase 2 --no-ci --server-cmd <worktree>\bin\horus.exe mcp` (exit 1):
+
+    FAIL  layout - 12 packages off target, 10 listed packages missing
+    PASS  same-behaviour - contract: local 30 of 30; CI part skipped (--no-ci); parity: 17 of 17; go test ./...: ok; 160 Go test functions (baseline 157); 0 changed contract files
+    FAIL  os-boundary - 19 entries on the allow list; archtest: ok
+    FAIL  direction - 10 entries on the allow list; archtest: ok
+    FAIL  process-tree - missing: internal/platform (task T2); 8 taskkill references
+    FAIL  backend - missing: internal/backend (task T7)
+    FAIL  token - 4 entries on the allow list; archtest: ok
+    FAIL  commands - missing: internal/cli, internal/doctor (tasks T8 and T9)
+    goal: 1 of 8 rows passed
+
+Green: a new file `internal/catalog/x_windows.go` (`package catalog`), not committed:
+
+    --- FAIL: TestRules (0.03s)
+        archtest_test.go:74: os-boundary: internal/catalog/x_windows.go: the file name has the OS name windows (internal/catalog/x_windows.go). Fix the code: the allow list only becomes shorter
+    FAIL	github.com/hieplam/horus/internal/archtest	0.662s
+
+Stub check 1: `Scan` changed to `return nil, nil`, not committed. `go test -run TestPlanted ./internal/archtest` fails with 23 lines `the rules flag [], want [...]`, one for each planted bad file:
+
+    --- FAIL: TestPlanted (0.00s)
+        archtest_test.go:151: internal/catalog/name_windows.go: the rules flag [], want [os-boundary]
+        archtest_test.go:151: internal/catalog/goos.go: the rules flag [], want [os-boundary]
+        ...
+
+Stub check 2: the extra line `internal/catalog/catalog.go` in `allow_token.txt`, not committed:
+
+    --- FAIL: TestRules (0.03s)
+        archtest_test.go:74: token: "internal/catalog/catalog.go" no longer breaks the rule: remove this entry from allow_token.txt
+
+Planted files: 34 under `internal/archtest/testdata/planted`. 23 are bad (os-boundary 8, direction 12, token 3). 11 must not be flagged: the two exempt packages, a build tag that is not an OS, a handler that imports a service, a test file that imports `comfytest`, the wiring, a package that imports itself, the download package and the refusal with `HF_TOKEN`, `HF_TOKEN_INVALID`, and a comment.
+
+Ratchet: rules that a test enforces 0 -> 3. Baseline of the next tasks: `os-boundary` 19 files, `direction` 10 pairs, `token` 4 files.
+
+Side measure: `layout` now reports 10 listed packages missing (11 at T0), because `internal/archtest` exists.

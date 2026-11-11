@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"testing"
@@ -62,7 +63,7 @@ func (f *fakeComfy) SetMode(m string) {
 	f.mode = m
 }
 
-// SetDown makes the server not answer, with HORUS_AUTOSTART off.
+// SetDown makes the server not answer.
 func (f *fakeComfy) SetDown() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -113,14 +114,50 @@ func (f *fakeComfy) IsUp(ctx context.Context) (bool, error) {
 	return !f.down, nil
 }
 
-func (f *fakeComfy) EnsureUp(ctx context.Context) (bool, error) {
+func (f *fakeComfy) Address() string { return "http://fake" }
+
+// SetUp makes the server answer again.
+func (f *fakeComfy) SetUp() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.down {
-		return false, herr.New("BACKEND_UNAVAILABLE", "ComfyUI does not answer at the fake, and HORUS_AUTOSTART is off", nil)
-	}
-	return false, nil
+	f.down = false
 }
+
+// fakeBackend is a fake of the interface Backend. Each Start counts, writes
+// the lines, then calls start (nil: the start brings the fake server up).
+type fakeBackend struct {
+	mu     sync.Mutex
+	comfy  *fakeComfy
+	starts int
+	lines  string
+	start  func() error
+}
+
+func (b *fakeBackend) Start(ctx context.Context, out io.Writer) error {
+	b.mu.Lock()
+	b.starts++
+	lines, start := b.lines, b.start
+	b.mu.Unlock()
+	io.WriteString(out, lines)
+	if start != nil {
+		return start()
+	}
+	b.comfy.SetUp()
+	return nil
+}
+
+func (b *fakeBackend) Starts() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.starts
+}
+
+// notInstalled is an error of a start of a ComfyUI that is not installed,
+// as internal/backend gives it.
+type notInstalled struct{ msg string }
+
+func (e notInstalled) Error() string      { return e.msg }
+func (e notInstalled) NotInstalled() bool { return true }
 
 func (f *fakeComfy) ObjectInfo(ctx context.Context) (graph.ObjectInfo, error) {
 	f.mu.Lock()

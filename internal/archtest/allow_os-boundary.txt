@@ -2,5 +2,3 @@
 # that hold code for one operating system today. One file on each line.
 # This list only becomes shorter: remove a line when its file is clean.
 internal/scripts/checksetup/checksetup.go
-internal/scripts/installcomfyui/installcomfyui.go
-internal/scripts/startcomfyui/startcomfyui.go

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Goal check of the Go port (epic: port horus to Go, Phase 1).
 
-    python tools/goal_check.py [--phase 2] [--no-ci] [--real] [--real-out <folder>] [--server-cmd <words...>]
+    python tools/goal_check.py [--phase 2] [--no-ci] [--real] [--real-out <folder>] [--server-cmd <words...>] [--only <row...>]
 
 Without --phase, it checks the 8 goal rows of Phase 1 (docs/specs/2026-11-10-go-port.md).
 With --phase 2, it checks the 8 goal rows of Phase 2 (docs/specs/2026-11-11-restructure.md):
@@ -45,7 +45,7 @@ GO_DIRS = [r"C:\Program Files\Go\bin", "/usr/local/go/bin"]
 SETUP_COMMANDS = ["installcomfyui", "startcomfyui", "installcomfymcp", "checksetup",
                   "syncworkflows", "newworkflow", "register", "runillustration"]
 # The package of a setup command that moved out of internal/scripts in Phase 2.
-SETUP_PACKAGES = {"runillustration": "internal/cli"}
+SETUP_PACKAGES = {"runillustration": "internal/cli", "installcomfyui": "internal/backend", "startcomfyui": "internal/backend"}
 BUILD_TARGETS = [("windows", "amd64"), ("darwin", "arm64"), ("linux", "amd64")]
 CI_OSES = ["windows-latest", "macos-latest"]
 REAL_SUBJECT = ("On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. "
@@ -243,17 +243,23 @@ async def real_call(cmd: list[str], out: Path) -> dict:
 
 
 def row_real(a: argparse.Namespace) -> tuple[bool, str]:
+    ok, detail, _ = real_image(a)
+    return ok, detail
+
+
+def real_image(a: argparse.Namespace) -> tuple[bool, str, dict]:
+    """Make the real image through the MCP server. Returns ok, the detail and the envelope."""
     if not a.real:
-        return False, "needs --real on the GPU machine"
+        return False, "needs --real on the GPU machine", {}
     try:
         import asyncio
 
         import mcp  # noqa: F401
     except ImportError:
-        return False, "the MCP client is not installed (pip install mcp==2.3.0)"
+        return False, "the MCP client is not installed (pip install mcp==2.3.0)", {}
     cmd = a.server_cmd or ["horus", "mcp"]
     if not shutil.which(cmd[0]) and not Path(cmd[0]).is_file():
-        return False, f"server command not found: {cmd[0]}"
+        return False, f"server command not found: {cmd[0]}", {}
     folder = Path(a.real_out).resolve() if a.real_out else ROOT / ".scratch" / "real-image"
     folder.mkdir(parents=True, exist_ok=True)
     out = folder / f"real-image-seed{REAL_SEED}-{time.strftime('%Y%m%d-%H%M%S')}.png"
@@ -263,18 +269,18 @@ def row_real(a: argparse.Namespace) -> tuple[bool, str]:
     except BaseExceptionGroup as group:  # the MCP client wraps each error in a task group
         while isinstance(group, BaseExceptionGroup) and group.exceptions:
             group = group.exceptions[0]
-        return False, f"the MCP call failed: {type(group).__name__}: {str(group)[:160]}"
+        return False, f"the MCP call failed: {type(group).__name__}: {str(group)[:160]}", {}
     took = time.monotonic() - t0
     if not env.get("ok"):
         err = env.get("error") or {}
-        return False, f"generate_image failed: {err.get('code')}: {str(err.get('message'))[:160]}"
+        return False, f"generate_image failed: {err.get('code')}: {str(err.get('message'))[:160]}", env
     path = Path((env.get("result") or {}).get("path") or "")
     size = png_size(path) if path.name else None
     if size is None:
-        return False, f"generate_image returned ok, but {path} is not a PNG file"
+        return False, f"generate_image returned ok, but {path} is not a PNG file", env
     if size != REAL_SIZE:
-        return False, f"the PNG is {size[0]}x{size[1]}, needs {REAL_SIZE[0]}x{REAL_SIZE[1]} ({path})"
-    return True, f"{size[0]}x{size[1]} {path} (seed {REAL_SEED}, {took:.0f} s)"
+        return False, f"the PNG is {size[0]}x{size[1]}, needs {REAL_SIZE[0]}x{REAL_SIZE[1]} ({path})", env
+    return True, f"{size[0]}x{size[1]} {path} (seed {REAL_SEED}, {took:.0f} s)", env
 
 
 def row_no_python(a: argparse.Namespace) -> tuple[bool, str]:
@@ -442,8 +448,11 @@ def row2_backend(a: argparse.Namespace) -> tuple[bool, str]:
         return False, detail
     if not a.real:
         return False, "Go tests ok; needs --real on the owner's PC for the image through the backend"
-    ok_r, detail_r = row_real(a)
-    return ok_r, detail_r
+    ok_r, detail_r, env = real_image(a)
+    if ok_r and (env.get("result") or {}).get("started_backend") is not True:
+        # The row proves a start through the backend: a ComfyUI that already answered proves nothing.
+        return False, f"started_backend is not true: ComfyUI already answered; stop it first ({detail_r})"
+    return ok_r, detail_r + ("; started through the backend" if ok_r else "")
 
 
 def row2_commands(a: argparse.Namespace) -> tuple[bool, str]:
@@ -484,8 +493,15 @@ def main() -> int:
     ap.add_argument("--real-out", help="folder for the PNG of the real-image row (default: .scratch/real-image)")
     ap.add_argument("--phase", type=int, choices=[1, 2], default=1,
                     help="goal rows to check: 1 = the Go port (default), 2 = the three layers")
+    ap.add_argument("--only", nargs="+", metavar="ROW",
+                    help="check only these rows, for example --only backend (the summary counts these rows)")
     a = ap.parse_args()
     rows, checks = (ROWS2, CHECKS2) if a.phase == 2 else (ROWS, CHECKS)
+    if a.only:
+        unknown = [r for r in a.only if r not in rows]
+        if unknown:
+            ap.error("unknown row(s) for this phase: " + ", ".join(unknown))
+        rows = [r for r in rows if r in a.only]
     passed = 0
     for row in rows:
         try:

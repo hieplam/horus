@@ -29,8 +29,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -39,7 +37,6 @@ import (
 	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/graph"
 	"github.com/hieplam/horus/internal/herr"
-	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -172,68 +169,9 @@ func (c *Client) IsUp(ctx context.Context) (bool, error) {
 	return false, err
 }
 
-// StartTimeout is the time limit of `horus start-comfyui`, as in comfy.py.
-var StartTimeout = 420 * time.Second
-
-// startCommand makes the command that starts ComfyUI: `horus start-comfyui`
-// of the same binary. Tests replace it.
-var startCommand = func(ctx context.Context, serverURL string) (*exec.Cmd, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	cmd := exec.CommandContext(ctx, exe, "start-comfyui", "-server-url", serverURL)
-	platform.NoConsole(cmd)
-	return cmd, nil
-}
-
-// EnsureUp returns true when this call started the server. It returns
-// BACKEND_UNAVAILABLE (or BACKEND_NOT_INSTALLED) when it cannot.
-func (c *Client) EnsureUp(ctx context.Context) (bool, error) {
-	up, err := c.IsUp(ctx)
-	if err != nil || up {
-		return false, err
-	}
-	if !settings.Autostart() {
-		return false, herr.New("BACKEND_UNAVAILABLE", fmt.Sprintf("ComfyUI does not answer at %s, and HORUS_AUTOSTART is off", c.base()), nil)
-	}
-	sctx, cancel := context.WithTimeout(ctx, StartTimeout)
-	defer cancel()
-	cmd, err := startCommand(sctx, c.base())
-	if err != nil {
-		return false, err
-	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	cmd.WaitDelay = 10 * time.Second // a child that keeps the pipes open must not block this call
-	runErr := cmd.Run()
-	up = false
-	if runErr == nil {
-		if up, err = c.IsUp(ctx); err != nil {
-			return false, err
-		}
-	}
-	if !up {
-		lines := strings.Split(strings.TrimSpace(stdout.String()+stderr.String()), "\n")
-		for i := range lines {
-			lines[i] = strings.TrimRight(lines[i], "\r")
-		}
-		if len(lines) == 1 && lines[0] == "" {
-			lines = []string{}
-		}
-		if len(lines) > 8 {
-			lines = lines[len(lines)-8:]
-		}
-		code := "BACKEND_UNAVAILABLE"
-		for _, l := range lines {
-			if strings.Contains(l, "was not found") {
-				code = "BACKEND_NOT_INSTALLED"
-			}
-		}
-		return false, herr.New(code, "horus could not start ComfyUI at "+c.base(), map[string]any{"start_output_tail": lines})
-	}
-	return true, nil
-}
+// Address is the address of the server for this request, for the text of
+// an error. The adapter starts no program: internal/backend starts ComfyUI.
+func (c *Client) Address() string { return c.base() }
 
 // Free unloads the models. Errors are ignored.
 func (c *Client) Free(ctx context.Context) {

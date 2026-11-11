@@ -64,6 +64,16 @@ commands.
 | 2026-11-11 | `internal/download` exports no name of the token variable: `DefaultTokenVar` became `defaultTokenVar`, and the option `TokenEnvVar` became the field `tokenVar`, which only `Main` (the flag `-token-env-var`) and the tests of the package set. The rule `token` of archtest also flags a selector of the download package whose name has "token" in it, outside `internal/download`. Two planted files prove it: `cmd/horus/token_name.go`, and `cmd/horus/token_alias.go` with an import alias. | Before, another package could read the token with `os.Getenv(download.DefaultTokenVar)`, and no string named `HF_TOKEN`. The tests outside the package need no token: the fake servers are not huggingface.co, so the downloader sends no token, and `Root` points at a temporary folder. | Agent (T6) |
 | 2026-11-11 | The tests moved. The 6 command tests of `internal/scripts/workflow/workflow_test.go` and `TestModelToolsOnASandbox` went to `cmd/horus/workflow_test.go`, because they need the real model files adapter and the real downloader. `TestDownloadFailuresKeepTheTextThatModelsPyReads` became `TestDownloadFailuresKeepTheirTextAndTheirKind` (it also checks the kind). `TestInstallToolGivesTheCodeOfAFailedDownload` is new: 401, 403, a full disk and a conflict through `install_workflow`. `TestYAMLFolders` went to `internal/modelfiles`. `TestNumbersAsTheScriptPrintsThem` became `TestGB2AsTheScriptPrintsIt` (`internal/cli`) and `TestRoundGBAsTheScriptRoundsIt` (`internal/provision`). Of `internal/models`: `TestInstallMapsEachStatusToItsCode` and `TestRemoveMapsEachStatusToItsCode` test the mapping in `internal/mcpserver` on typed items; `TestListStatusAndInstallState` became `TestRowState` and `TestListCountsTheFilesOnDisk`; `TestPartSize` went to `internal/provision`; `TestCancelKillsTheProcessTree` became `TestInstallStopsWhenTheContextEnds` (service) and `TestInstallReportsProgressAndACancelStopsTheDownload` (`internal/mcpserver`, the test of the plan). `TestRunScriptReadsTheLinesAndTheResult` and `TestNoResultLineIsInternal` are gone: the child process and the parser of its line do not exist. `TestSizeText` stays in `internal/mcpserver`. | A test follows the rules of its package: the tests of `provision` and `mcpserver` use fakes of the adapters (`memFiles`, `diskFiles`, `slowDownloader`). The Go test functions went from 174 to 185. | Agent (T6) |
 | 2026-11-11 | The tests of `internal/mcpserver` that call no model tool give `New` a nil `Setup`. | They prove that the image tools and the envelope need no setup service. | Agent (T6) |
+| 2026-11-11 | `internal/backend` declares `Backend` with 5 methods: `Install(ctx, out)`, `Start(ctx, out)`, `Stop(ctx, out)` (each returns an error and writes its text lines to `out`), `Installed() (dir, ok)` and `Layout() Layout` (`Dir`, `ComfyUI`, `Python`, `Logs`). No pid, no job name and no archive is in a signature. | The result of the Mac test run (#53, PASS) is the requirement of the second backend: `comfy --workspace <dir>/ComfyUI install --m-series --version 0.44.0`, `... launch --background -- --listen 127.0.0.1 --port 8188`, `... stop`, `main.py` and `models` in `<dir>/ComfyUI`, Python in `<dir>/ComfyUI/.venv/bin/python`, the log `<dir>/ComfyUI/user/comfyui_8188.log`. Each fact fits one method or one field of `Layout`, so the comfy-cli backend of Phase 3 needs no change of the interface. The archive, 7-Zip and the state file are fields and files of the Windows backend only. | Agent (T7) |
+| 2026-11-11 | The Windows backend `Portable` compiles on every OS. `backend.New` gives `*Portable` on Windows and else a value that embeds it and answers `platform.ErrNotSupported` ("not supported on this OS yet", a new variable of `internal/platform`) for `Install`, `Start` and `Stop`. `Installed` and `Layout` work on every OS. | The tests of the old packages ran the portable code with a fake `python.exe` and a fake `7z.exe` on Windows, macOS and Linux, and they still do. On macOS, `horus workflow install` still finds a ComfyUI in `HORUS_COMFYUI_DIR` (the parity test runs on `macos-latest`), because the layout `<dir>/ComfyUI/main.py` is the same for both backends. | Agent (T7) |
+| 2026-11-11 | `Start` writes `horus-comfyui.state.json` next to the two log files: the tree id of `platform.StartTree`, the pid of the root, the address and the time. `Stop` reads it. Without a state file for the same address, `Stop` ends nothing: when a server answers there, it refuses with exit 1 ("horus did not start the ComfyUI that answers at ..."); when nothing answers, it says "Nothing to stop" with exit 0. With a state file, it calls `platform.EndTree`, deletes the file, and waits up to 15 s until the server no longer answers. A state file whose tree has ended (ComfyUI ended by itself, the PC restarted) gives "was not running any more", or, when another server answers at the address, an error that horus did not start it. `Start` deletes the file when ComfyUI stops during the wait. | The state must live after the end of the starting process (the MCP server). On Windows the tree id is the random name of a Job Object, and Windows removes the name with the last process of the job, so an old id can reach no other process. Limit: on Unix the id is a process group number, which the system can give again after a restart. The Unix backend answers "not supported" in Phase 2, and the comfy-cli backend of Phase 3 stops ComfyUI with `comfy stop`. | Agent (T7) |
+| 2026-11-11 | `internal/generate` declares `Backend` with one method, `Start(ctx, out)`. The service decides the autostart: when `IsUp` is false it reports "starting the image backend", reads `HORUS_AUTOSTART`, calls `Start` one time, and checks `IsUp` again. A failed start is `BACKEND_NOT_INSTALLED` when the error has a method `NotInstalled() bool` that returns true (the error of `backend.Start` for a folder without `python_embeded\python.exe` or `ComfyUI\main.py`), else `BACKEND_UNAVAILABLE`. `start_output_tail` holds the last 8 lines of the text of the start and its error. The interface `ComfyUI` loses `EnsureUp` and gets `Address()` for the text of the errors. `internal/comfy` starts no program: `os/exec`, `os` and `internal/platform` are gone from it. | The task: the adapter does not start programs, the service or the wiring decides. The code is a typed test of the error, not the old text match on "was not found". Three small differences, none in a test or a golden file: the lines of the tail no longer start with `horus start-comfyui: `; the limit of 420 s of the child process is gone, so the 300 s wait of `Start` is the limit; a call that is cancelled during the start gives the error of the context, as every other step of the service does. | Agent (T7) |
+| 2026-11-11 | `internal/provision` declares `Backend` with one method, `Installed() (dir, ok)`, and the install check of `horus workflow install` uses it. `ModelFiles.ComfyUI` and `modelfiles.Store.ComfyUI` are gone. `provision` does not declare `Install` yet. | One source of truth: only `internal/backend` decides if ComfyUI is installed. The install folder comes from one place for both adapters: the field of the flag `-comfyui-dir`, else `settings.ComfyDir()`. `modelfiles` still joins `<dir>/ComfyUI/models` and `<dir>/ComfyUI/extra_model_paths.yaml`: that is the layout of ComfyUI itself, the same in both backends (#53). In T7 no code of `provision` calls `Install`. T8 (`horus setup`) adds it to the interface when its plan needs it (design rule 1). | Agent (T7) |
+| 2026-11-11 | The handlers of `install-comfyui`, `start-comfyui` and the new `stop-comfyui` are in `internal/cli/comfyui.go`. `internal/cli` declares `Backend` (`Install`, `Start`, `Stop`) and `BackendPlace` (the flags), and `cmd/horus` gives `backendAt`, as it gives `setupAt` and `imagesAt`. Exit codes: 0 done, 1 a failed step (a refusal of `stop-comfyui` too), 2 a bad flag or "not supported on this OS yet". | A method of `provision` that only passes the call to the backend hides nothing (design rule 1, the T6 decision on `download-model`). The handler imports no adapter: the import rules hold. | Agent (T7) |
+| 2026-11-11 | The flag `-server-url` of `horus start-comfyui` now defaults to `HORUS_COMFYUI_URL` (then `http://127.0.0.1:8188`), not to a fixed `http://127.0.0.1:8188`. `stop-comfyui` has the same default. | The autostart always gave the child `-server-url` with the setting, so the port of an autostart followed `HORUS_COMFYUI_URL`, and it still does. The command alone did not. Without the change, `HORUS_COMFYUI_URL=...:8189 horus stop-comfyui` and `start-comfyui` would act on different ports. Without the variable, the output is the same as before. | Agent (T7) |
+| 2026-11-11 | The tests moved. The 14 install tests and 5 start tests of the old packages are in `internal/backend` (`install_test.go`, `start_test.go`; the install rig is `installRig`). The 2 `TestNotSupportedOffWindows` and 2 `TestBadFlagExits2` became `TestComfyUINotSupportedOffWindows` and `TestComfyUIBadFlagExits2` in `internal/cli`, each for the three commands. Of `internal/comfy`: `TestEnsureUpAutostartOff` is the message check in `TestBackendDownAutostartOff`; `TestEnsureUpWhenUpStartsNothing`, `TestEnsureUpStartFails` and `TestEnsureUpStartsTheServer` became `TestUpBackendStartsNothing`, `TestStartOfAComfyUIThatIsNotInstalled`, `TestFailedStartKeepsTheLastEightLines` and `TestDownBackendStartsOneTime` (`internal/generate`, on a fake backend); `TestStartCommandIsHorusStartComfyUI` became `TestPortFollowsTheSetting` (`internal/backend`); `TestHelperStart` is gone (there is no child). The install check of `TestDirsInTheOrderOfTheSpec` (`internal/modelfiles`) is in `TestInstalledAndLayout`. New: `TestStopEndsTheTreeThatStartStarted`, `TestStopRefusesAComfyUIThatHorusDidNotStart`, `TestStopWithAStaleState`, `TestOtherOSAnswersNotSupported`, `TestComfyUIOutputAndExitCodes`, `TestComfyUIFlagsPickThePlace`. | Go test functions 185 -> 189. | Agent (T7) |
+| 2026-11-11 | `tools/goal_check.py`: with `--real`, the row `backend` also needs `started_backend: true` in the result, so an image from a ComfyUI that already answered does not pass. A new flag `--only <row...>` checks only the rows named. The Phase 1 row `setup-commands` finds `installcomfyui` and `startcomfyui` in `internal/backend`. | The row proves "after a start through the backend". The real run of this PC runs only the row `backend` (`--only backend`): the other rows run `go test ./...` in the environment of the real run (`HORUS_ROOT` of the main checkout), and that is not needed to prove this row. | Agent (T7) |
+| 2026-11-11 | The real run of the row `backend` uses a second ComfyUI on port 8189, from a second install folder that reads the owner's install through junctions (`python_embeded` and each folder of `ComfyUI`, except its own `user`, `input`, `output` and `temp`; the 36 small files of the `ComfyUI` folder are copies). The owner's ComfyUI on port 8188 keeps running. | The owner's ComfyUI is the owner's app: horus must not stop it (standing rule: `Backend.Stop` ends only a ComfyUI that horus started). A second ComfyUI 0.44 from the same folder does not start: "Another ComfyUI is already using this database: '<ComfyUI dir>\ComfyUI\user\comfyui.db'" (first run below). The second folder gives the second ComfyUI its own database. The backend runs the same command line in it, through the same code; only `HORUS_COMFYUI_DIR` and `HORUS_COMFYUI_URL` differ. | Agent (T7) |
 
 ## Baseline
 
@@ -394,3 +404,117 @@ Stub checks, run on this PC with code that is not committed:
 Ratchet: packages off target 9 -> 7 (`internal/models` and `internal/scripts/workflow` are gone). Listed packages missing 5 -> 3 (`internal/modelfiles`, `internal/provision`). `direction` allow list 7 -> 4 (the entries `internal/models -> os/exec`, `internal/scripts/workflow -> internal/download` and `internal/scripts/workflow -> net/http` are gone). Go test functions 174 -> 185. `token` allow list 0 -> 0, with 2 more planted files.
 
 After the rebase on `9c5a6a5` (the fix of issue #75): `GOMAXPROCS=1 go test -count=50 ./internal/mcpserver ./cmd/horus` prints `ok` for both packages. `go test ./...` passes, `contract: 30 of 30 passed`, `parity: 17 of 17 cases equal`, `lint-public: 0 finding(s)`, and the goal tool gives the same 8 lines as above. The test of T6 that reads progress (`TestInstallReportsProgressAndACancelStopsTheDownload`) already waits on a channel with a time limit and holds no lock across a failure.
+
+## T7
+
+Step 1: issue #53 has a result (PASS, 2026-11-11). Its layout, start command and stop command are in the first T7 row of the Decisions table.
+
+Red, before the change (at `d527cc8`):
+
+    go list ./internal/backend
+    stat ...\internal\backend: directory not found      (exit 1)
+
+    python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>\horus.exe mcp
+    FAIL  layout - 7 packages off target, 3 listed packages missing
+    FAIL  os-boundary - 3 entries on the allow list; archtest: ok
+    FAIL  backend - missing: internal/backend (task T7)
+
+Green, Go tests on this PC (Windows 11):
+
+    go test -count=1 -v -run "Stop|NotSupported|Installed|Port" ./internal/backend
+    --- PASS: TestOtherOSAnswersNotSupported (0.00s)
+    --- PASS: TestInstalledAndLayout (0.00s)
+    --- PASS: TestPortFollowsTheSetting (1.31s)
+    --- PASS: TestStopEndsTheTreeThatStartStarted (0.93s)
+    --- PASS: TestStopRefusesAComfyUIThatHorusDidNotStart (1.47s)
+    --- PASS: TestStopWithAStaleState (0.40s)
+    ok  	github.com/hieplam/horus/internal/backend
+
+    go test ./internal/backend ./internal/generate
+    ok  	github.com/hieplam/horus/internal/backend
+    ok  	github.com/hieplam/horus/internal/generate
+
+    GOMAXPROCS=1 go test -count=20 ./internal/backend ./internal/generate ./internal/mcpserver ./cmd/horus
+    ok  	github.com/hieplam/horus/internal/backend	199.149s
+    ok  	github.com/hieplam/horus/internal/generate	20.304s
+    ok  	github.com/hieplam/horus/internal/mcpserver	3.005s
+    ok  	github.com/hieplam/horus/cmd/horus	18.214s
+
+`TestDownBackendStartsOneTime` (fake backend): a generate call on a ComfyUI that is down calls `Start` 1 time, and the next call 0 times. `TestStopEndsTheTreeThatStartStarted`: a starter process calls `Start` and ends. The stand-in ComfyUI (the test binary, which answers on its port) and its grandchild live. `Stop` ends both (0 of 2 alive within 5 s), and the port closes. `TestStopRefusesAComfyUIThatHorusDidNotStart`: with no state file, or with a state file of another address, `Stop` refuses, and 2 of 2 processes and the tree of the other address live. The tests use free ports from `127.0.0.1:0`, never 8188 or 8189, and end every process that they start.
+
+    python tests/mcp_contract.py --server-cmd <bin>\horus.exe mcp
+    contract: 30 of 30 passed
+    python tests/workflow_parity.py --horus <bin>\horus.exe
+    parity: 17 of 17 cases equal
+
+    python tools/goal_check.py --phase 2 --no-ci --server-cmd <bin>\horus.exe mcp
+    FAIL  layout - 5 packages off target, 2 listed packages missing
+    PASS  same-behaviour - contract: local 30 of 30; CI part skipped (--no-ci); parity: 17 of 17; go test ./...: ok; 189 Go test functions (baseline 157); 0 changed contract files
+    FAIL  os-boundary - 1 entries on the allow list; archtest: ok
+    FAIL  direction - 4 entries on the allow list; archtest: ok
+    PASS  process-tree - tree test: ok; 0 taskkill references
+    FAIL  backend - Go tests ok; needs --real on the owner's PC for the image through the backend
+    PASS  token - 0 entries on the allow list; archtest: ok
+    FAIL  commands - missing: internal/doctor (tasks T8 and T9)
+    goal: 3 of 8 rows passed
+
+    python tools/goal_check.py --no-ci   (Phase 1)
+    goal: 7 of 8 rows passed   (only real-image fails: it needs --real on the GPU machine)
+
+`gofmt -l .` prints nothing. `go vet ./...` is clean for windows, darwin/arm64 and linux/amd64. `lint-public: 0 finding(s)`. `git grep -n "os/exec\|platform" -- internal/comfy` prints nothing.
+
+### The real run on this PC
+
+The owner's ComfyUI ran on port 8188 the whole time (pid 14432 before and after each step). The run used port 8189 (`HORUS_COMFYUI_URL=http://127.0.0.1:8189`, `HORUS_AUTOSTART=1`, `HORUS_ROOT` = the main checkout).
+
+GPU before the runs: `329 MiB, 0 %` (16:22 and 16:23). After the runs: `193 MiB, 0 %`.
+
+The refusal, against the owner's ComfyUI. There is no state file, and this path calls no `EndTree` (proven by `TestStopRefusesAComfyUIThatHorusDidNotStart`):
+
+    horus stop-comfyui
+    horus stop-comfyui: horus did not start the ComfyUI that answers at http://127.0.0.1:8188 (<ComfyUI dir>\horus-comfyui.state.json holds no ComfyUI that horus started), so it does not stop it. Stop it where it was started.
+    exit 1
+    port 8188 listening, pid 14432
+
+Run 1 (16:23), from the same install folder: the backend started ComfyUI, and ComfyUI ended at once. The tool printed `FAIL  backend - generate_image failed: BACKEND_UNAVAILABLE: horus could not start ComfyUI at http://127.0.0.1:8189`. The log `horus-comfyui.err.log` of that start:
+
+    [ERROR] ASSETS_STARTUP_FAILED: in_use
+    Another ComfyUI is already using this database: '<ComfyUI dir>\ComfyUI\user\comfyui.db'.
+
+Run 2 (16:26), from a second install folder that reads the owner's install through junctions (see Decisions), with its own `ComfyUI\user`:
+
+    port 8189 closed
+    python tools/goal_check.py --phase 2 --real --only backend --real-out <scratch> --server-cmd <bin>\horus.exe mcp
+    PASS  backend - 1536x1024 <scratch>\real-image-seed7-20261111-162629.png (seed 7, 237 s); started through the backend
+    goal: 1 of 1 rows passed
+
+    horus stop-comfyui      (HORUS_COMFYUI_URL=http://127.0.0.1:8189)
+    The ComfyUI that horus started at http://127.0.0.1:8189 (process 20312) was not running any more.
+    port 8188 listening, pid 14432
+    port 8189 closed
+
+The image shows a mint-green server box on the left and a sky-blue server box on the right, with sun-yellow envelopes on a lilac conveyor belt between them: it shows the subject (`REAL_SUBJECT` of `tools/goal_check.py`). The ComfyUI of run 2 had already ended when the tool ended. The Python MCP client puts the server in a Job Object that ends with the client (decision G9 of `2026-11-10-go-port-evidence.md`). So a start and a stop of a live ComfyUI ran next, with the same folder and port:
+
+    horus start-comfyui     (HORUS_COMFYUI_URL=http://127.0.0.1:8189)
+    Started ComfyUI (process 18112). Waiting for http://127.0.0.1:8189 ...
+    OK: ComfyUI answers at http://127.0.0.1:8189
+    exit 0  (the starter has ended)
+    port 8189 listening, pid 18112
+    processes of the tree: 18112 python.exe, 12584 conhost.exe
+    horus stop-comfyui      (HORUS_COMFYUI_URL=http://127.0.0.1:8189)
+    OK: stopped the ComfyUI that horus started at http://127.0.0.1:8189 (process 18112).
+    exit 0
+    port 8188 listening, pid 14432
+    port 8189 closed
+    processes of that tree alive 5 s after the stop: 0 of 2
+
+The second install folder was removed after the run (each junction with a non-recursive delete). The owner's folder still has its `main.py`, its `python.exe` and 26 entries in `models`.
+
+Stub checks, run on this PC with code that is not committed:
+
+- `Stop` that returns nil at once: `TestStopEndsTheTreeThatStartStarted` fails with `2 of 2 processes alive 5 s after Stop` and `the server still answers after Stop`.
+- `Stop` that does not compare the address of the state file: `TestStopRefusesAComfyUIThatHorusDidNotStart` fails with `Stop ended the tree of another address`.
+- `Start` that returns nil at once: `TestStartsThePythonOfThePortableBuildAndWaitsForTheServer` fails (`fake python args = ""`), and `TestStopEndsTheTreeThatStartStarted` fails with `timeout: the record of the fake ComfyUI`.
+- A service that does not call `Start`: `TestDownBackendStartsOneTime` fails with `BACKEND_UNAVAILABLE: horus could not start ComfyUI at http://fake`. In the real run, a start that leaves ComfyUI down gives the same code (run 1 above).
+
+Ratchet: packages off target 7 -> 5 (`internal/scripts/installcomfyui` and `internal/scripts/startcomfyui` are gone). Listed packages missing 3 -> 2 (`internal/backend` exists). `os-boundary` allow list 3 -> 1. Images after a start through the backend 0 -> 1. Go test functions 185 -> 189. Contract `30 of 30 passed`, parity `17 of 17 cases equal`.

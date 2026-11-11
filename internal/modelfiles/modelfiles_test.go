@@ -71,13 +71,6 @@ func TestDirsInTheOrderOfTheSpec(t *testing.T) {
 	if s.Own("vae") != filepath.Join(own, "vae") || fmt.Sprint(s.Mapped("vae")) != fmt.Sprint([]string{filepath.Join(dir, "extra", "vae")}) {
 		t.Errorf("own %s, mapped %v", s.Own("vae"), s.Mapped("vae"))
 	}
-	if _, ok := s.ComfyUI(); ok {
-		t.Error("ComfyUI without main.py is not installed")
-	}
-	os.WriteFile(filepath.Join(s.ComfyUIDir, "ComfyUI", "main.py"), []byte("#"), 0o644)
-	if d, ok := s.ComfyUI(); !ok || d != s.ComfyUIDir {
-		t.Errorf("ComfyUI %s %v", d, ok)
-	}
 }
 
 // TestMapBacksUpTheFileOneTime: one backup before the change, and one block

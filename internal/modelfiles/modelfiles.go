@@ -41,13 +41,6 @@ type Store struct {
 	Now func() time.Time
 }
 
-// ComfyUI gives the ComfyUI portable folder, and reports if ComfyUI is
-// installed there (its ComfyUI/main.py is a file).
-func (s *Store) ComfyUI() (dir string, installed bool) {
-	dir = s.comfyUIDir()
-	return dir, isFile(filepath.Join(dir, "ComfyUI", "main.py"))
-}
-
 // Dirs gives the folders where a model file of this folder is looked for, in
 // order, as full paths, each one time.
 func (s *Store) Dirs(folder string) []string {

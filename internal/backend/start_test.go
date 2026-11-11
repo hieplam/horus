@@ -1,9 +1,8 @@
-package startcomfyui
+package backend
 
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,42 +12,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hieplam/horus/internal/platform"
 )
-
-// The test binary is also the fake python.exe of the portable build: when
-// HORUS_FAKE_PY is set, TestMain acts as that program. The same fake runs on
-// Windows, macOS and Linux.
-func TestMain(m *testing.M) {
-	if os.Getenv("HORUS_FAKE_PY") != "" {
-		os.Exit(fakePython(os.Args[1:]))
-	}
-	os.Exit(m.Run())
-}
-
-// fakePython records its process id, its folder and its arguments, writes one
-// line to each output, then exits with HORUS_FAKE_EXIT, or waits (the test
-// kills it).
-func fakePython(args []string) int {
-	wd, _ := os.Getwd()
-	rec := fmt.Sprintf("pid %d\ndir %s\nargs %s\n", os.Getpid(), wd, strings.Join(args, " "))
-	if err := os.WriteFile(os.Getenv("HORUS_FAKE_RECORD")+".tmp", []byte(rec), 0o644); err == nil {
-		os.Rename(os.Getenv("HORUS_FAKE_RECORD")+".tmp", os.Getenv("HORUS_FAKE_RECORD"))
-	}
-	fmt.Fprintln(os.Stdout, "fake comfyui stdout line")
-	fmt.Fprintln(os.Stderr, "fake comfyui stderr line")
-	if v := os.Getenv("HORUS_FAKE_EXIT"); v != "" {
-		n, _ := strconv.Atoi(v)
-		return n
-	}
-	time.Sleep(60 * time.Second)
-	return 0
-}
 
 type rig struct {
 	dir    string
 	record string
 	out    *bytes.Buffer
-	opts   Options
+	p      *Portable
 	srv    *httptest.Server
 }
 
@@ -58,17 +30,7 @@ type rig struct {
 // alwaysUp is true. It never answers 200 when neverUp is true.
 func newRig(t *testing.T, alwaysUp, neverUp bool) *rig {
 	t.Helper()
-	dir := t.TempDir()
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pyDir := filepath.Join(dir, "python_embeded")
-	os.MkdirAll(pyDir, 0o755)
-	copyFile(t, exe, filepath.Join(pyDir, "python.exe"))
-	os.MkdirAll(filepath.Join(dir, "ComfyUI"), 0o755)
-	os.WriteFile(filepath.Join(dir, "ComfyUI", "main.py"), []byte("x"), 0o644)
-
+	dir := fakeInstall(t)
 	r := &rig{dir: dir, record: filepath.Join(t.TempDir(), "py.record"), out: &bytes.Buffer{}}
 	t.Setenv("HORUS_FAKE_PY", "1")
 	t.Setenv("HORUS_FAKE_RECORD", r.record)
@@ -88,20 +50,37 @@ func newRig(t *testing.T, alwaysUp, neverUp bool) *rig {
 		io.WriteString(w, `{"system":{}}`)
 	}))
 	t.Cleanup(r.srv.Close)
-	// Kill the fake python before the temporary folders go: Windows cannot
+	// End the fake python before the temporary folders go: Windows cannot
 	// delete a folder that a running program holds open.
 	t.Cleanup(func() {
-		if pid := r.field("pid"); pid != "" {
-			n, _ := strconv.Atoi(pid)
-			if p, err := os.FindProcess(n); err == nil {
+		if st, _ := readState(filepath.Join(dir, stateName)); st != nil {
+			platform.EndTree(st.Tree)
+		}
+		if pid, _ := strconv.Atoi(r.field("pid")); pid > 0 {
+			if p, err := os.FindProcess(pid); err == nil {
 				p.Kill()
 				time.Sleep(300 * time.Millisecond)
 			}
 		}
 	})
-	r.opts = Options{ComfyUIDir: dir, ServerURL: r.srv.URL, Timeout: 20 * time.Second,
-		PollInterval: 20 * time.Millisecond, Stdout: r.out}
+	r.p = &Portable{Dir: dir, URL: r.srv.URL, Timeout: 20 * time.Second, PollInterval: 20 * time.Millisecond}
 	return r
+}
+
+// fakeInstall makes a portable folder with the test binary as python.exe.
+func fakeInstall(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pyDir := filepath.Join(dir, "python_embeded")
+	os.MkdirAll(pyDir, 0o755)
+	copyFile(t, exe, filepath.Join(pyDir, "python.exe"))
+	os.MkdirAll(filepath.Join(dir, "ComfyUI"), 0o755)
+	os.WriteFile(filepath.Join(dir, "ComfyUI", "main.py"), []byte("x"), 0o644)
+	return dir
 }
 
 func copyFile(t *testing.T, from, to string) {
@@ -115,9 +94,11 @@ func copyFile(t *testing.T, from, to string) {
 	}
 }
 
-// field reads one line of the record of the fake python: "pid", "dir" or "args".
-func (r *rig) field(name string) string {
-	b, err := os.ReadFile(r.record)
+// field reads one line of the record of the fake python: "pid", "dir", "args" or "child".
+func (r *rig) field(name string) string { return recordField(r.record, name) }
+
+func recordField(record, name string) string {
+	b, err := os.ReadFile(record)
 	if err != nil {
 		return ""
 	}
@@ -132,7 +113,7 @@ func (r *rig) field(name string) string {
 func TestStartsThePythonOfThePortableBuildAndWaitsForTheServer(t *testing.T) {
 	r := newRig(t, false, false)
 	port := strings.TrimPrefix(r.srv.URL, "http://127.0.0.1:")
-	if err := Start(context.Background(), r.opts); err != nil {
+	if err := r.p.Start(context.Background(), r.out); err != nil {
 		t.Fatal(err)
 	}
 	wantArgs := "-s " + filepath.Join("ComfyUI", "main.py") + " --windows-standalone-build --listen 127.0.0.1 --port " + port
@@ -147,6 +128,10 @@ func TestStartsThePythonOfThePortableBuildAndWaitsForTheServer(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", w, r.out)
 		}
 	}
+	st, err := readState(filepath.Join(r.dir, stateName))
+	if err != nil || st == nil || st.URL != r.srv.URL || strconv.Itoa(st.PID) != r.field("pid") || st.Tree == "" {
+		t.Errorf("state file = %+v, %v; want the tree of process %s at %s", st, err, r.field("pid"), r.srv.URL)
+	}
 }
 
 func mustEval(t *testing.T, p string) string {
@@ -160,8 +145,11 @@ func mustEval(t *testing.T, p string) string {
 
 func TestWritesTheTwoLogFiles(t *testing.T) {
 	r := newRig(t, false, false)
-	if err := Start(context.Background(), r.opts); err != nil {
+	if err := r.p.Start(context.Background(), r.out); err != nil {
 		t.Fatal(err)
+	}
+	if got, want := r.p.Layout().Logs, []string{filepath.Join(r.dir, "horus-comfyui.out.log"), filepath.Join(r.dir, "horus-comfyui.err.log")}; !equal(got, want) {
+		t.Errorf("Layout().Logs = %v, want %v", got, want)
 	}
 	// The fake python writes the lines before it waits, but the server can answer
 	// as soon as the record exists, so wait a little for the lines.
@@ -170,6 +158,18 @@ func TestWritesTheTwoLogFiles(t *testing.T) {
 		b, _ := os.ReadFile(filepath.Join(r.dir, "horus-comfyui.err.log"))
 		return strings.Contains(string(a), "fake comfyui stdout line") && strings.Contains(string(b), "fake comfyui stderr line")
 	}, "the two log files hold the output of the fake python")
+}
+
+func equal(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func waitFor(t *testing.T, cond func() bool, what string) {
@@ -184,7 +184,7 @@ func waitFor(t *testing.T, cond func() bool, what string) {
 
 func TestAlreadyAnsweringStartsNothing(t *testing.T) {
 	r := newRig(t, true, false)
-	if err := Start(context.Background(), r.opts); err != nil {
+	if err := r.p.Start(context.Background(), r.out); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := r.out.String(), "ComfyUI already answers at "+r.srv.URL+"\n"; got != want {
@@ -193,16 +193,18 @@ func TestAlreadyAnsweringStartsNothing(t *testing.T) {
 	if _, err := os.Stat(r.record); err == nil {
 		t.Error("the fake python was started")
 	}
-	if _, err := os.Stat(filepath.Join(r.dir, "horus-comfyui.out.log")); err == nil {
-		t.Error("a log file was written")
+	for _, name := range []string{"horus-comfyui.out.log", stateName} {
+		if _, err := os.Stat(filepath.Join(r.dir, name)); err == nil {
+			t.Errorf("%s was written", name)
+		}
 	}
 }
 
 func TestFailsAfterTheTimeLimitWhenNothingAnswers(t *testing.T) {
 	r := newRig(t, false, true)
-	r.opts.Timeout = time.Second
+	r.p.Timeout = time.Second
 	start := time.Now()
-	err := Start(context.Background(), r.opts)
+	err := r.p.Start(context.Background(), r.out)
 	if err == nil || !strings.Contains(err.Error(), "ComfyUI did not answer within 1 seconds. Read the logs: ") ||
 		!strings.Contains(err.Error(), "horus-comfyui.out.log and ") {
 		t.Fatalf("error = %v", err)
@@ -218,41 +220,42 @@ func TestFailsAfterTheTimeLimitWhenNothingAnswers(t *testing.T) {
 func TestFailsWhenThePythonStops(t *testing.T) {
 	r := newRig(t, false, true)
 	t.Setenv("HORUS_FAKE_EXIT", "3")
-	err := Start(context.Background(), r.opts)
+	err := r.p.Start(context.Background(), r.out)
 	if err == nil || !strings.Contains(err.Error(), "ComfyUI stopped with exit code 3. Read the log: ") ||
 		!strings.HasSuffix(err.Error(), "horus-comfyui.err.log") {
 		t.Fatalf("error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(r.dir, stateName)); err == nil {
+		t.Error("the state file of an ended ComfyUI stays")
 	}
 }
 
 func TestFailsWhenComfyUIIsNotInstalled(t *testing.T) {
 	r := newRig(t, false, true)
-	r.opts.ComfyUIDir = filepath.Join(r.dir, "empty")
-	err := Start(context.Background(), r.opts)
-	if err == nil || !strings.HasPrefix(err.Error(), "ComfyUI was not found in "+r.opts.ComfyUIDir+".") {
+	r.p.Dir = filepath.Join(r.dir, "empty")
+	err := r.p.Start(context.Background(), r.out)
+	if err == nil || !strings.HasPrefix(err.Error(), "ComfyUI was not found in "+r.p.Dir+".") {
 		t.Fatalf("error = %v", err)
 	}
+	if ni, ok := err.(interface{ NotInstalled() bool }); !ok || !ni.NotInstalled() {
+		t.Errorf("the error %T has no method NotInstalled", err)
+	}
 	if r.field("args") != "" {
-		t.Error("the fake python was started")
+		t.Error("the fake python was not to start")
 	}
 }
 
-func TestNotSupportedOffWindows(t *testing.T) {
-	old := goos
-	defer func() { goos = old }()
-	for _, name := range []string{"linux", "darwin"} {
-		goos = name
-		var out, errOut bytes.Buffer
-		code := Run(nil, &out, &errOut)
-		if code != 2 || !strings.Contains(errOut.String(), "not supported on this OS yet") || out.Len() != 0 {
-			t.Errorf("%s: exit %d, stderr %q", name, code, errOut.String())
-		}
+// TestPortFollowsTheSetting: without a URL, the port of the start is the
+// port of HORUS_COMFYUI_URL, and the folder is HORUS_COMFYUI_DIR.
+func TestPortFollowsTheSetting(t *testing.T) {
+	r := newRig(t, false, false)
+	useSettings(t, map[string]string{"HORUS_COMFYUI_URL": r.srv.URL + "/", "HORUS_COMFYUI_DIR": r.dir})
+	p := &Portable{Timeout: 20 * time.Second, PollInterval: 20 * time.Millisecond}
+	if err := p.Start(context.Background(), r.out); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestBadFlagExits2(t *testing.T) {
-	var out, errOut bytes.Buffer
-	if code := Run([]string{"-nope"}, &out, &errOut); code != 2 {
-		t.Errorf("exit %d, want 2", code)
+	port := strings.TrimPrefix(r.srv.URL, "http://127.0.0.1:")
+	if got := r.field("args"); !strings.HasSuffix(got, "--port "+port) {
+		t.Errorf("fake python args = %q, want the port %s", got, port)
 	}
 }

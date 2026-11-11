@@ -13,17 +13,21 @@
 // A timeout or a cancelled call removes the job from the ComfyUI queue, so a
 // later call does not wait behind an orphan job.
 //
-// The service talks to ComfyUI only through the interface ComfyUI, which it
-// declares here. cmd/horus gives it the adapter internal/comfy. A test gives
-// it a fake.
+// The service talks to ComfyUI only through the interface ComfyUI, and starts
+// it only through the interface Backend. It declares both here. cmd/horus
+// gives it the adapters internal/comfy and internal/backend. A test gives it
+// fakes.
 package generate
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"os"
@@ -47,9 +51,8 @@ type ComfyUI interface {
 	// IsUp reports if the server answers. Only "no answer" is false; another
 	// error passes through.
 	IsUp(ctx context.Context) (bool, error)
-	// EnsureUp starts the server when it does not answer (HORUS_AUTOSTART).
-	// It returns true when this call started it.
-	EnsureUp(ctx context.Context) (started bool, err error)
+	// Address is the address of the server, for the text of an error.
+	Address() string
 	// ObjectInfo is the node information of the live server.
 	ObjectInfo(ctx context.Context) (graph.ObjectInfo, error)
 	// Submit queues the graph and returns the id of the job.
@@ -67,13 +70,25 @@ type ComfyUI interface {
 	Free(ctx context.Context)
 }
 
-// Service makes images with one ComfyUI.
-type Service struct {
-	comfy ComfyUI
+// Backend is what the service needs from the ComfyUI install: a start when
+// the server does not answer. cmd/horus gives the service the backend of
+// internal/backend. A test gives it a fake.
+type Backend interface {
+	// Start starts ComfyUI and waits until its server answers. It writes its
+	// text lines to out. The error of a ComfyUI that is not installed has a
+	// method NotInstalled() bool that returns true.
+	Start(ctx context.Context, out io.Writer) error
 }
 
-// New makes the service. cmd/horus gives it the adapter internal/comfy.
-func New(c ComfyUI) *Service { return &Service{comfy: c} }
+// Service makes images with one ComfyUI.
+type Service struct {
+	comfy   ComfyUI
+	backend Backend
+}
+
+// New makes the service. cmd/horus gives it the adapters internal/comfy and
+// internal/backend.
+func New(c ComfyUI, b Backend) *Service { return &Service{comfy: c, backend: b} }
 
 // Running reports if the image backend answers now. list_workflows shows it
 // as backend_running.
@@ -328,14 +343,7 @@ func (s *Service) Generate(ctx context.Context, r Request, o Options) (*Result, 
 		timeout = time.Duration(secs) * time.Second
 	}
 
-	up, err := c.IsUp(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if !up {
-		report(ctx, 0, 0, "starting the image backend (ComfyUI); the first start takes 1 to 3 minutes")
-	}
-	started, err := c.EnsureUp(ctx)
+	started, err := s.ensureUp(ctx, report)
 	if err != nil {
 		return nil, err
 	}
@@ -471,6 +479,67 @@ func (s *Service) Generate(ctx context.Context, r Request, o Options) (*Result, 
 		Steps:          steps,
 		ComfyOutput:    images[0].Filename,
 	}, nil
+}
+
+// startTailLines is how many of the last lines of a failed start go into
+// the detail start_output_tail.
+const startTailLines = 8
+
+// ensureUp makes sure that ComfyUI answers. When it does not, and
+// HORUS_AUTOSTART is on, it starts ComfyUI through the backend one time. It
+// reports true when this call started ComfyUI. A failed start is
+// BACKEND_NOT_INSTALLED for a ComfyUI that is not installed, else
+// BACKEND_UNAVAILABLE, with the last lines of the start in the details.
+func (s *Service) ensureUp(ctx context.Context, report Report) (bool, error) {
+	c := s.comfy
+	up, err := c.IsUp(ctx)
+	if err != nil || up {
+		return false, err
+	}
+	report(ctx, 0, 0, "starting the image backend (ComfyUI); the first start takes 1 to 3 minutes")
+	if !settings.Autostart() {
+		return false, herr.New("BACKEND_UNAVAILABLE", fmt.Sprintf("ComfyUI does not answer at %s, and HORUS_AUTOSTART is off", c.Address()), nil)
+	}
+	var out bytes.Buffer
+	startErr := s.backend.Start(ctx, &out)
+	if startErr != nil && ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	if startErr == nil {
+		if up, err = c.IsUp(ctx); err != nil {
+			return false, err
+		}
+		if up {
+			return true, nil
+		}
+	}
+	text := out.String()
+	if startErr != nil {
+		text += startErr.Error()
+	}
+	code := "BACKEND_UNAVAILABLE"
+	var ni interface{ NotInstalled() bool }
+	if errors.As(startErr, &ni) && ni.NotInstalled() {
+		code = "BACKEND_NOT_INSTALLED"
+	}
+	return false, herr.New(code, "horus could not start ComfyUI at "+c.Address(), map[string]any{"start_output_tail": tail(text, startTailLines)})
+}
+
+// tail gives the last n lines of text, without line ends and without the
+// empty last line.
+func tail(text string, n int) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return []string{}
+	}
+	lines := strings.Split(text, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], "\r")
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines
 }
 
 func seconds(d time.Duration) string {

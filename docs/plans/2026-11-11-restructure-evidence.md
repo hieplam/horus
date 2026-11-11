@@ -1323,7 +1323,7 @@ The 4 comments that remain are in `internal/herr/herr_test.go`: the test checks 
 
 ## T11
 
-Result: the commands, the docs and the MCP tools do what the owner ratified. A real agent harness listed the workflows, read the rules, got an error that it could act on, and made one image that shows the subject. The design review found 5 defects against the design rules (#86 to #90). They block T11. One docs defect is a follow-up outside the epic (#91).
+Result: the commands, the docs and the MCP tools do what the owner ratified. A real agent harness listed the workflows, read the rules, got an error that it could act on, and made one image that shows the subject. The design review found 5 defects against the design rules (#86 to #90). They blocked T11 until they were fixed and merged (PR #92 to #96); the review of those fixes is in "After the fixes", and the final 8 of 8 on `main` is in "Final proof on defd6ab". One docs defect is a follow-up outside the epic (#91).
 
 Fresh build of `origin/main` = `d9827a2`, in a worktree:
 
@@ -1525,19 +1525,182 @@ Exported surface from `go doc -short ./internal/<pkg>` (functions, types, and th
 
 Checked and not found: an interface with no test double (each of the 19 interfaces of the services and the handlers has a fake in its tests, except `mcpserver.Setup`, whose tests use the real `provision.Service` on fake adapters), a second free-space check (one implementation in `platform`), a second way to find the repo root (only `settings.Root`), a second `.env` parser. `go vet ./...` is clean.
 
+### After the fixes
+
+The coordinator had #86 to #90 fixed (PR #94, #93, #95, #96, #92), and T11 read each merged diff and the code that it left, on `defd6ab`. Each fix removes the cause that the issue named, with no new layer, no text that passes between layers and no second copy of a rule. The Red command of each issue prints nothing on `defd6ab`, `go doc -short ./internal/comfy` prints only `type Client struct{ ... }` and `func New(u string) *Client`, and `go vet ./...` is clean. No new issue was filed.
+
+- `cmd/horus`, `internal/cli`, `internal/doctor` (#86, PR #94): `doctorAt` gives the handler the doctor service and the setup service. `cli.RunDoctor` runs the checks 1 to 7 on the doctor service, then with `-workflow` calls `Check` of the setup service through `cli.Setup` and writes the lines with the printer of `horus workflow`. The glue `workflowCheck` and the interface `doctor.Models` are gone. The calls go one way: handler, then two services. The doctor output of part A did not change.
+- `internal/provision`, `internal/download`, `internal/platform` (#87, PR #93): `download.Error` and `provision.DownloadError` carry `Reasons []string`, which the downloader fills when it writes the lines, and the glue copies them as it copies `Kind`. `whyLine` and `lineTee` are gone; `failDetail` joins the reasons and the error, so the detail text is the same. `platform.PythonLauncher` became the pure `PythonCommand` (name, first arguments and the text for "not found"), and `InstallComfyMCP` finds the program with `programs.LookPath`. `internal/platform/platform.go` has no `exec.LookPath` any more.
+- `internal/mcpserver`, `internal/provision` (#88, PR #95): `provision.InstallState(present, files)` is the one place of the rule. `Row.State()` and `describe_workflow` call it.
+- `internal/generate`, `internal/comfy`, `internal/graph` (#90, PR #92): `QueueState` returns `graph.Queue{Running, Position}` with `Pending()` and `Absent()`. The service and `comfy.Cancel` read fields. The progress texts did not change.
+- Every package (#89, PR #96): `comfy` exports only `New` and `Client`; `Round1` is one function in `graph`; `NoConsole`, `Validate` and the dead `isFile` are gone; the false "ports" comments now say what the code does. The sweep also made one `platform.IsFile` (from 3 copies in `backend`, `doctor`, `provision`) and moved `SplitLines` and `TrimBOM` to `catalog` (from 2 copies in `catalog` and `modelfiles`). A note, not a defect: `modelfiles` now imports `catalog` only for these two text helpers, and `platform` holds `IsFile`, which is the same on every OS. Both are base packages that the importer may use, the decision is recorded (Issue #89 rows), and each removes a copy. T11 does not file it.
+
 ### Findings
 
-Blocks #66 (each is a sub-issue of #52 and blocks #66):
+Blocked #66 (each is a sub-issue of #52; all are closed now):
 
-- #86 `doctor`: the model check runs the handler of `horus workflow` and gives its text lines to the doctor service. Design rule 5, row `direction`.
-- #87 `provision`: the service reads the text lines of the downloader, and finds Python through `exec.LookPath` in `internal/platform`. Design rules 2 and 4, row `direction`.
-- #88 `mcpserver`: `describe_workflow` has its own copy of the `install_state` rule. Design rules 1 and 5.
-- #89 dead code and exports that no other package uses, left by the port (`comfy`, `generate`, `platform`, `modelfiles`, `download`). Design rules 1 and 2.
-- #90 `generate` and `comfy`: `QueueState` is a text code that two packages parse. Design rule 2.
+- #86 (closed by PR #94) `doctor`: the model check runs the handler of `horus workflow` and gives its text lines to the doctor service. Design rule 5, row `direction`.
+- #87 (closed by PR #93) `provision`: the service reads the text lines of the downloader, and finds Python through `exec.LookPath` in `internal/platform`. Design rules 2 and 4, row `direction`.
+- #88 (closed by PR #95) `mcpserver`: `describe_workflow` has its own copy of the `install_state` rule. Design rules 1 and 5.
+- #89 (closed by PR #96) dead code and exports that no other package uses, left by the port (`comfy`, `generate`, `platform`, `modelfiles`, `download`). Design rules 1 and 2.
+- #90 (closed by PR #92) `generate` and `comfy`: `QueueState` is a text code that two packages parse. Design rule 2.
 
 Follow-up outside the epic:
 
 - #91 `docs/setup.md` and the help texts: three sentences that the commands contradict.
 - #82 (filed by T10) `horus doctor -server-url` ignores `HORUS_COMFYUI_URL`.
 
-Ratchet: open defects against the goal rows and the design rules: unknown before T11 -> 5 found and open (#86 to #90). T11 merges when they are 0.
+Ratchet: open defects against the goal rows and the design rules: unknown before T11 -> 5 found (#86 to #90) -> 0 open after PR #92 to #96.
+
+### Final proof on defd6ab
+
+`main` = `defd6ab` (PR #96, the last fix). CI run 43034966688 of that commit: `completed`, `success`. The worktree was detached at `origin/main` with a clean tree (`git status --porcelain` prints nothing), and every command below used that build:
+
+    go build -o bin/ ./cmd/horus
+    go version -m bin/horus.exe
+        build	vcs.revision=defd6abd1ad5aae309ead727f45fc5443b29da06
+        build	vcs.modified=false
+
+**Part A, in short** (`HORUS_ROOT` = the main checkout):
+
+    horus -h exit 0
+    check-setup -h exit 0
+    doctor -h exit 0
+    download-model -h exit 0
+    errors -h exit 0
+    install-comfy-mcp -h exit 0
+    install-comfyui -h exit 0
+    mcp -h exit 0
+    new-workflow -h exit 0
+    register -h exit 0
+    run-illustration -h exit 0
+    setup -h exit 0
+    start-comfyui -h exit 0
+    stop-comfyui -h exit 0
+    sync-workflows -h exit 0
+    workflow -h exit 0
+    == doctor
+    exit 0
+    PASS  ComfyUI folder - <ComfyUI dir>
+    PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+    PASS  comfy-mcp environment - ~\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+    PASS  comfy-cli - ~\.venvs\comfy-mcp\Scripts\comfy.exe
+    PASS  .mcp.json - command points at ~\.venvs\comfy-mcp\Scripts\comfy-mcp.exe, COMFY_BIN at ~\.venvs\comfy-mcp\Scripts\comfy.exe
+    PASS  horus on PATH - ~\go\bin\horus.exe
+    PASS  .mcp.json horus - command points at ~\go\bin\horus.exe
+    All checks passed.
+    == check-setup
+    exit 0
+    diff doctor check-setup: equal
+    FAIL lines: 0
+    == workflow check -quick
+    Checking workflow 'it-illustration': 3 model file(s), size only.
+    OK        diffusion ~\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors (5827874779 bytes)
+    OK        text_encoder ~\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors (4858559240 bytes)
+    OK        vae ~\ComfyUI-models\vae\flux2-vae.safetensors (336211292 bytes)
+    OK        models.json lists all 3 model file(s) that workflow.json loads
+    OK        the server has all 10 node classes of workflow.json
+    OK        the server lists flux3-image-klein-int8-convrot.safetensors
+    OK        the server lists qwen3vl_4b_int8_convrot.safetensors
+    OK        the server lists flux2-vae.safetensors
+    OK: workflow 'it-illustration' is ready.
+    exit 0
+    == setup
+    Setup of workflow 'it-illustration':
+    PRESENT   ComfyUI in <ComfyUI dir>
+    PRESENT   diffusion flux3-image-klein-int8-convrot.safetensors (5.83 GB) ~\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors
+    PRESENT   text_encoder qwen3vl_4b_int8_convrot.safetensors (4.86 GB) ~\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors
+    PRESENT   vae flux2-vae.safetensors (0.34 GB) ~\ComfyUI-models\vae\flux2-vae.safetensors
+    Plan: 0 steps. Nothing is missing.
+    exit 0
+    == errors -json
+    exit 0
+    21 codes
+
+**Run 1: every row, with the CI part, no GPU** (no `HORUS_ROOT`):
+
+    python tools/goal_check.py --phase 2 --server-cmd <worktree>/bin/horus.exe mcp      (exit 1)
+    PASS  layout - 0 packages off target, 0 listed packages missing
+    PASS  same-behaviour - contract: local 30 of 30; CI: 6 jobs green (contract windows-latest, contract macos-latest, workflow-parity windows-latest, workflow-parity macos-latest, go windows/amd64, go darwin/arm64); parity: 17 of 17; go test ./...: ok; 215 Go test functions (baseline 157); 0 changed contract files
+    PASS  os-boundary - 0 allow list files; archtest: ok
+    PASS  direction - 0 allow list files; archtest: ok
+    PASS  process-tree - tree test: ok; 0 taskkill references; CI: 2 jobs green (go windows/amd64, go darwin/arm64)
+    FAIL  backend - Go tests ok; needs --real on the owner's PC for the image through the backend
+    PASS  token - 0 allow list files; archtest: ok
+    FAIL  commands - Go tests ok; needs --real on the owner's PC for horus doctor and horus setup
+    goal: 6 of 8 rows passed
+
+**Run 2: the row commands, for real** (`HORUS_ROOT` = the main checkout):
+
+    python tools/goal_check.py --phase 2 --real --only commands --server-cmd <worktree>/bin/horus.exe mcp      (exit 0)
+    PASS  commands - horus doctor: 0 FAIL lines; horus setup it-illustration: 0 steps, nothing is missing; 5 of 5 named files present and unchanged
+    goal: 1 of 1 rows passed
+
+**Run 3: the row backend, for real**, with the method of T7 and T10: a new `<scratch>\comfy8189` with a junction `python_embeded`, a folder `ComfyUI` with 22 junctions, 4 empty folders of its own and 36 copied small files. Settings: `HORUS_ROOT` = the main checkout, `HORUS_COMFYUI_DIR=<scratch>\comfy8189`, `HORUS_COMFYUI_URL=http://127.0.0.1:8189`, `HORUS_AUTOSTART=1`.
+
+    21:10  nvidia-smi: 0 MiB, 0 %    port 8188 pid 14432    8189 listeners: 0
+    python tools/goal_check.py --phase 2 --real --only backend --real-out <scratch>\real --server-cmd <worktree>/bin/horus.exe mcp      (exit 0, 21:10:58 to 21:15:15)
+    PASS  backend - 1536x1024 <scratch>\real\real-image-seed7-20261111-211114.png (seed 7, 241 s); started through the backend
+    goal: 1 of 1 rows passed
+
+The image: on the left a mint-green server box, on the right a sky-blue server box, and between them a purple conveyor belt with four amber envelopes, in a photo-like look on a light grey background. It shows the subject (`REAL_SUBJECT` of `tools/goal_check.py`, which names no style, so the model picks the look). The belt is a deeper purple than lilac, and the envelopes are amber more than sun-yellow, as in T10. The decoded pixel data of this PNG and of the T10 image on `9699bb8` (`real-image-seed7-20261111-192903.png`) have the same SHA-256 (`74fddb6f0fd91136...`, 4719616 bytes); only the text chunk differs. So the five fixes did not change what the model gets.
+
+After the run (21:15), with the same settings:
+
+    horus stop-comfyui
+    The ComfyUI that horus started at http://127.0.0.1:8189 (process 960) was not running any more.
+    exit 0
+    8189 listeners: 0
+    processes with comfy8189 in the command line: 0
+    8188 pid: 14432
+    nvidia-smi: 0 MiB, 0 %
+
+The ComfyUI of the run had already ended when the tool ended: the Python MCP client ends its Job Object (as in T7 and T10). Part B showed the other case with `claude -p`.
+
+Cleanup: the 23 junctions were deleted one at a time with `(Get-Item <junction>).Delete()`. A recursive listing found 0 links. Then the 43 files and the 8 empty folders were deleted one by one, with no recursive delete. After the cleanup:
+
+    Test-Path <ComfyUI dir>\ComfyUI\main.py              True
+    Test-Path <ComfyUI dir>\python_embeded\python.exe    True
+    entries in <ComfyUI dir>\ComfyUI\models              26
+    8188 pid                                             14432
+    horus workflow check it-illustration -quick          exit 0
+      OK  diffusion ... (5827874779 bytes)
+      OK  text_encoder ... (4858559240 bytes)
+      OK  vae ... (336211292 bytes)
+
+So the final result on `main` = `defd6ab` is **8 of 8 rows**: 6 in run 1, `commands` in run 2 and `backend` in run 3, the same split of runs as T10 (T10 decision).
+
+**The installed program.** `go install ./cmd/horus` from the same clean tree first failed: `open ~\go\bin\horus.exe: The process cannot access the file because it is being used by another process.` Two `horus mcp` processes of Claude Code sessions ran that file (revision `9699bb8`). They were not stopped. Windows lets a running program file be renamed, so the old file became `~\go\bin\horus-9699bb8.exe`, and the install ran again:
+
+    go install ./cmd/horus
+    go version -m ~\go\bin\horus.exe
+        build	vcs.revision=defd6abd1ad5aae309ead727f45fc5443b29da06
+        build	vcs.time=2026-11-11T14:04:26Z
+        build	vcs.modified=false
+
+A new Claude Code session now starts the user-scope `horus` entry on the final code. The renamed file can be deleted when those two sessions end.
+
+**The check of the epic tool on every closed issue:**
+
+    node epic.mjs -R hieplam/horus check <n> --dry-run
+    PASS #55 via PR #68 (https://github.com/hieplam/horus/pull/68)
+    PASS #56 via PR #69 (https://github.com/hieplam/horus/pull/69)
+    PASS #57 via PR #71 (https://github.com/hieplam/horus/pull/71)
+    PASS #58 via PR #70 (https://github.com/hieplam/horus/pull/70)
+    PASS #59 via PR #72 (https://github.com/hieplam/horus/pull/72)
+    PASS #60 via PR #73 (https://github.com/hieplam/horus/pull/73)
+    PASS #61 via PR #74 (https://github.com/hieplam/horus/pull/74)
+    PASS #62 via PR #77 (https://github.com/hieplam/horus/pull/77)
+    PASS #63 via PR #78 (https://github.com/hieplam/horus/pull/78)
+    PASS #64 via PR #79 (https://github.com/hieplam/horus/pull/79)
+    PASS #65 via PR #85 (https://github.com/hieplam/horus/pull/85)
+    PASS #75 via PR #76 (https://github.com/hieplam/horus/pull/76)
+    PASS #80 via PR #83 (https://github.com/hieplam/horus/pull/83)
+    PASS #81 via PR #84 (https://github.com/hieplam/horus/pull/84)
+    PASS #86 via PR #94 (https://github.com/hieplam/horus/pull/94)
+    PASS #87 via PR #93 (https://github.com/hieplam/horus/pull/93)
+    PASS #88 via PR #95 (https://github.com/hieplam/horus/pull/95)
+    PASS #89 via PR #96 (https://github.com/hieplam/horus/pull/96)
+    PASS #90 via PR #92 (https://github.com/hieplam/horus/pull/92)
+
+**Ratchet:** open defects against the goal rows and the design rules: 5 found by T11 (#86 to #90) -> 0 open. Rows passed on `main`: 8 of 8. Go test functions: 207 (T10) -> 215. Follow-ups outside the epic: #82 and #91.

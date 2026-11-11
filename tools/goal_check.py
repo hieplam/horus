@@ -13,6 +13,12 @@ The rows os-boundary, direction and token run the three tests of internal/archte
 three reports "--- PASS", so an empty package, a missing test or a skipped test fails.
 They also need that no allow list file internal/archtest/allow_<rule>.txt exists
 (task T8 removed the allow list mechanism, so a new entry is not possible).
+Unless --no-ci, the CI part reads the jobs of the newest ci.yml run on HEAD. The row contract
+(Phase 1) needs "contract <os>" on windows-latest and macos-latest. The row same-behaviour needs
+those, "workflow-parity <os>" on both, and the jobs "go windows/amd64" and "go darwin/arm64". The row
+process-tree needs the two go jobs (they run the tree test). A job that is missing, still running,
+cancelled or failed fails the row, and the detail names it. The process-tree row also needs
+TestTreeOutlivesItsStarterAndEndsFromAnotherProcess to pass.
 With --real, the row commands runs horus doctor and horus setup it-illustration (no -yes)
 of the --server-cmd program. It fails on a FAIL line of doctor, on a step in the plan,
 or when a file that the plan names changed.
@@ -55,6 +61,12 @@ SETUP_PACKAGES = {"runillustration": "internal/cli", "installcomfyui": "internal
                   "syncworkflows": "internal/devtools", "newworkflow": "internal/devtools"}
 BUILD_TARGETS = [("windows", "amd64"), ("darwin", "arm64"), ("linux", "amd64")]
 CI_OSES = ["windows-latest", "macos-latest"]
+# The CI jobs that the oracle of a row names (docs/specs/2026-11-11-restructure.md). The names are
+# the `name:` of the jobs of .github/workflows/ci.yml with the matrix filled in.
+GO_JOBS = ["go windows/amd64", "go darwin/arm64"]  # they run go test ./..., so also the tree test of internal/platform
+SAME_BEHAVIOUR_JOBS = ([f"contract {o}" for o in CI_OSES] + [f"workflow-parity {o}" for o in CI_OSES] + GO_JOBS)
+PROCESS_TREE_JOBS = GO_JOBS
+TREE_TEST = "TestTreeOutlivesItsStarterAndEndsFromAnotherProcess"  # check 1 and check 2 of the spec
 REAL_SUBJECT = ("On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. "
                 "On the right, a sky-blue server box takes them off the belt.")  # SUBJECT of tests/mcp_contract.py
 REAL_SEED = 7
@@ -100,10 +112,10 @@ def last_line(text: str) -> str:
     return lines[-1][:200] if lines else "no output"
 
 
-def ci_detail(commit: str) -> tuple[bool, str]:
-    """The newest run of ci.yml on this commit must have a successful contract job on each system."""
+def ci_jobs(commit: str) -> tuple[list[dict] | None, str]:
+    """The jobs of the newest run of ci.yml on this commit, or (None, why not)."""
     if not shutil.which("gh"):
-        return False, "CI: gh not found"
+        return None, "CI: gh not found"
     code, out = run(["gh", "run", "list", "--workflow", "ci.yml", "--commit", commit,
                      "--json", "databaseId", "--limit", "1"], timeout=120)
     try:
@@ -111,24 +123,50 @@ def ci_detail(commit: str) -> tuple[bool, str]:
     except ValueError:
         runs = []
     if not runs:
-        return False, f"CI: no ci.yml run on commit {commit[:7]}"
+        return None, f"CI: no ci.yml run on commit {commit[:7]}"
     code, out = run(["gh", "run", "view", str(runs[0]["databaseId"]), "--json", "jobs"], timeout=120)
     try:
-        jobs = json.loads(out).get("jobs", []) if code == 0 else []
+        return json.loads(out).get("jobs", []) if code == 0 else [], ""
     except ValueError:
-        jobs = []
-    missing = []
-    for osname in CI_OSES:
-        ok = any(j.get("name", "").startswith("contract") and osname in j.get("name", "")
-                 and j.get("conclusion") == "success" for j in jobs)
-        if not ok:
-            missing.append(osname)
-    if missing:
-        return False, "CI: no successful contract job on " + ", ".join(missing)
-    return True, "CI contract job green on " + " and ".join(CI_OSES)
+        return [], ""
 
 
-def row_contract(a: argparse.Namespace) -> tuple[bool, str]:
+def judge_jobs(jobs: list[dict], required: list[str]) -> tuple[bool, str]:
+    """Pure judgement of a job list. Each required job name must be in the list with the conclusion
+    "success". A job that is missing, still running, cancelled or failed fails, and the detail names it."""
+    by_name = {j.get("name", ""): j for j in jobs}
+    bad = []
+    for name in required:
+        job = by_name.get(name)
+        if job is None:
+            bad.append(f"{name} (missing)")
+        elif job.get("conclusion") != "success":
+            bad.append(f"{name} ({job.get('conclusion') or job.get('status') or 'unknown'})")
+    if bad:
+        return False, "CI: not green: " + ", ".join(bad)
+    return True, f"CI: {len(required)} jobs green (" + ", ".join(required) + ")"
+
+
+_CI_CACHE: dict[str, tuple[list[dict] | None, str]] = {}
+
+
+def ci_detail(commit: str, required: list[str] | None = None) -> tuple[bool, str]:
+    """The newest run of ci.yml on this commit must have every required job green.
+    Default: a contract job on each system (the Phase 1 row contract)."""
+    if commit not in _CI_CACHE:
+        _CI_CACHE[commit] = ci_jobs(commit)
+    jobs, why = _CI_CACHE[commit]
+    if jobs is None:
+        return False, why
+    return judge_jobs(jobs, required or [f"contract {o}" for o in CI_OSES])
+
+
+def current_ci_detail(required: list[str]) -> tuple[bool, str]:
+    _, sha = run(["git", "rev-parse", "HEAD"], timeout=30)
+    return ci_detail(sha.strip(), required)
+
+
+def row_contract(a: argparse.Namespace, ci_required: list[str] | None = None) -> tuple[bool, str]:
     cmd = a.server_cmd or ["horus", "mcp"]
     if not shutil.which(cmd[0]) and not Path(cmd[0]).is_file():
         return False, f"server command not found: {cmd[0]}"
@@ -142,8 +180,7 @@ def row_contract(a: argparse.Namespace) -> tuple[bool, str]:
         return False, detail + ", needs 30 of 30"
     if a.no_ci:
         return True, detail + "; CI part skipped (--no-ci)"
-    _, sha = run(["git", "rev-parse", "HEAD"], timeout=30)
-    ci_ok, ci = ci_detail(sha.strip())
+    ci_ok, ci = current_ci_detail(ci_required or [f"contract {o}" for o in CI_OSES])
     return ci_ok, f"{detail}; {ci}"
 
 
@@ -410,7 +447,7 @@ def changed_contract_files() -> list[str] | str:
 
 def row2_same(a: argparse.Namespace) -> tuple[bool, str]:
     parts, ok = [], True
-    ok_c, detail_c = row_contract(a)
+    ok_c, detail_c = row_contract(a, SAME_BEHAVIOUR_JOBS)
     ok &= ok_c
     parts.append("contract: " + detail_c)
     code, out = run([sys.executable, "tests/workflow_parity.py"], timeout=900)
@@ -462,10 +499,17 @@ def row2_process_tree(a: argparse.Namespace) -> tuple[bool, str]:
     kills = count_taskkill()
     if not (ROOT / "internal" / "platform").is_dir():
         return False, f"missing: internal/platform (task T2); {kills} taskkill references"
-    ok, detail, out = go_test(["./internal/platform"], ["-v", "-run", "Tree"])
-    if ok and not re.search(r"^--- PASS: Test\w*Tree", out, re.M):
-        return False, f"no passing test with Tree in its name in internal/platform; {kills} taskkill references"
-    return ok and kills == 0, f"tree test: {'ok' if ok else detail}; {kills} taskkill references"
+    ok, detail, out = go_test(["./internal/platform"], ["-count=1", "-v", "-run", "Tree"])
+    # The test with check 1 and check 2 must pass. Another test with Tree in its name is not enough.
+    if ok and not re.search(rf"^--- PASS: {TREE_TEST} ", out, re.M):
+        return False, f"{TREE_TEST} did not pass in internal/platform; {kills} taskkill references"
+    detail = f"tree test: {'ok' if ok else detail}; {kills} taskkill references"
+    if ok and kills == 0 and not a.no_ci:
+        ci_ok, ci = current_ci_detail(PROCESS_TREE_JOBS)
+        return ci_ok, f"{detail}; {ci}"
+    if ok and kills == 0:
+        detail += "; CI part skipped (--no-ci)"
+    return ok and kills == 0, detail
 
 
 def row2_backend(a: argparse.Namespace) -> tuple[bool, str]:
@@ -562,7 +606,7 @@ CHECKS = {"contract": row_contract, "graph": row_graph, "workflow-cli": row_work
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--server-cmd", nargs="+", help="server command of the contract row (default: horus mcp)")
-    ap.add_argument("--no-ci", action="store_true", help="leave out the CI part of the contract row")
+    ap.add_argument("--no-ci", action="store_true", help="leave out the CI part of the rows contract, same-behaviour and process-tree")
     ap.add_argument("--real", action="store_true", help="run the real-image row (GPU machine only)")
     ap.add_argument("--real-out", help="folder for the PNG of the real-image row (default: .scratch/real-image)")
     ap.add_argument("--phase", type=int, choices=[1, 2], default=1,

@@ -1,0 +1,31 @@
+name: pr-title
+
+# The title of a pull request becomes the one commit on main (squash merge).
+# release-please reads those commits to pick the next version and to write the
+# changelog, so the title must follow the Conventional Commits format.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  pr-title:
+    name: pr-title
+    runs-on: ubuntu-latest
+    steps:
+      - name: The title follows Conventional Commits
+        shell: bash
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|refactor|test|chore|ci|build|perf)(\([a-z0-9._/-]+\))?!?: [^ ].*$'
+          if [[ "$TITLE" =~ $pattern ]]; then
+            echo "ok: $TITLE"
+          else
+            echo "The title must look like: <type>(<scope>): <subject>"
+            echo "Types: feat, fix, docs, refactor, test, chore, ci, build, perf. The scope is optional."
+            echo "Got: $TITLE"
+            exit 1
+          fi

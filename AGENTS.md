@@ -87,3 +87,18 @@ exit 0. This repo is public. Also run `gofmt -l .` (it must print nothing) and
 `go test ./...`. A change to `cmd/horus/`, `internal/` or a `manifest.json` also
 needs `tests/mcp_contract.py` to end with all checks passed. The test tools need
 Python 3.12 with `pip install -r tests/requirements.txt` ([how](docs/mcp.md#test-the-server)).
+
+## Pull request titles and merges
+
+The title of a pull request follows the Conventional Commits format:
+`<type>(<scope>): <subject>`, for example `feat(backend): add the Windows
+portable backend (#62)`. The types are `feat`, `fix`, `docs`, `refactor`,
+`test`, `chore`, `ci`, `build` and `perf`. The scope is optional. Put `!` before
+the colon when the change breaks a caller. The CI job `pr-title` checks the
+title.
+
+Merge a pull request with squash (`gh pr merge <n> --squash`). The title then
+becomes the one commit on `main`. The release tool (release-please) reads those
+commits: a `feat` raises the minor version, a `fix` raises the patch version,
+and the other types make no release. Versions stay `0.x`. The commits inside a
+branch can have any subject.

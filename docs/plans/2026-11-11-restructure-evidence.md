@@ -92,6 +92,7 @@ commands.
 | 2026-11-11 | T9: `docs/mcp.md` says that the token is in the memory of `horus mcp` while an install runs, and that only `internal/download` reads it (environment first, then the `.env` file in the repo root). Before, it said that the server never reads `HF_TOKEN`. | After the decision on the process boundary, the download runs in the server process. The old sentence was false. D7 of #4 (only the download code reads the token) stays true. | Agent (T9) |
 | 2026-11-11 | T9: `docs/setup.md` tells that `horus setup <workflow>` stops at the next step on Ctrl+C and that an install ends with `FAIL: context canceled`, that ComfyUI 0.44 locks its database so one install folder cannot run two ComfyUI, and that a PC can keep the model files in a folder that `extra_model_paths.yaml` maps. It tells a reader to use `horus doctor` and `horus setup`, and says that the old names still work. Every `horus check-setup` in the docs outside the plans and specs became `horus doctor`, except the sentences that name the old name. | Plan T9 step 3, and the decisions of T6, T7 and T8 that a reader sees. | Agent (T9) |
 | 2026-11-11 | The rows `os-boundary`, `direction` and `token` need `--- PASS` for `TestRules`, `TestPlanted` and `TestProblems` in `go test -v -run` of `internal/archtest`. The rows `backend` and `commands` need that each of their packages has a test file and a passing test, before they ask for `--real`. | A package with no test file exits 0, so the exit code alone passes an empty implementation (issue #80). The three names are the tests that enforce the rules and prove them with planted bad files. | Agent (#80) |
+| 2026-11-11 | The row `same-behaviour` needs these jobs of the newest `ci.yml` run on HEAD to be `success`: `contract` and `workflow-parity` on `windows-latest` and `macos-latest`, `go windows/amd64` and `go darwin/arm64`. The row `process-tree` needs the two `go` jobs. A job that is missing, running, cancelled or failed fails the row and the detail names it. `go linux/amd64` is not required, because no oracle names it. `--no-ci` skips all of this. The row `process-tree` also needs `TestTreeOutlivesItsStarterAndEndsFromAnotherProcess` (check 1 and check 2) to pass, not any test with `Tree` in its name. | The oracle of each row names these jobs (issue #81). A stub test `TestTree` that does nothing passed the old row. The pinned name is the one test that holds the two checks of the spec. | Agent (#81) |
 
 ## Baseline
 
@@ -731,3 +732,48 @@ Stub check: the stub is the Red. A check that reads only the exit code passes it
 Same question for the other rows. `backend` and `commands` took exit 0 of `go test`, so an empty package passed that step. They now use `go_test_ran`, which fails on `[no test files]` and on a run with no passing test. `layout`, `same-behaviour` and `process-tree` were judged. `same-behaviour` fails on a stub because the contract tests run on the binary. `process-tree` has a weak spot that issue #81 fixes: any test with `Tree` in its name passes.
 
 Ratchet: checks of the three rows that pass on an empty archtest: 3 -> 0.
+
+## Issue 81
+
+Goal: the rows `same-behaviour` and `process-tree` read every CI job that their oracle names.
+
+Red (`ci_detail` of `origin/main`, jobs of `ci.yml` as hand-made lists, no network):
+
+    origin/main ci_detail, workflow-parity macos-latest failure -> (True, 'CI contract job green on windows-latest and macos-latest')
+    origin/main ci_detail, go darwin/arm64 missing -> (True, 'CI contract job green on windows-latest and macos-latest')
+
+Green (`python -m unittest discover -s tools -v`, the same lists through `judge_jobs`):
+
+    test_all_green_passes_same_behaviour_and_process_tree ... ok
+    test_empty_job_list_fails ... ok
+    test_job_names_match_the_workflow_file ... ok
+    test_missing_darwin_job_fails_both_rows_and_names_it ... ok
+    test_process_tree_ignores_a_red_parity_job ... ok
+    test_red_parity_job_fails_same_behaviour_and_names_it ... ok
+    test_running_and_cancelled_jobs_fail ... ok
+    Ran 7 tests in 0.001s
+    OK
+
+The failing tests assert the names, for example `go darwin/arm64 (missing)` and `workflow-parity macos-latest`.
+
+Green (real tree, HEAD `6789c49`, newest CI run `completed`, `success`):
+
+    PASS  same-behaviour - contract: local 30 of 30; CI: 6 jobs green (contract windows-latest, contract macos-latest, workflow-parity windows-latest, workflow-parity macos-latest, go windows/amd64, go darwin/arm64); parity: 17 of 17; go test ./...: ok; 207 Go test functions (baseline 157); 0 changed contract files
+    PASS  process-tree - tree test: ok; 0 taskkill references; CI: 2 jobs green (go windows/amd64, go darwin/arm64)
+    (layout, os-boundary, direction, token: PASS; backend, commands: FAIL, they need --real)
+    goal: 6 of 8 rows passed
+
+A first run on the same commit while its CI run was still going gave, as designed:
+
+    FAIL  same-behaviour - ...; CI: not green: contract macos-latest (in_progress), workflow-parity macos-latest (in_progress); ...
+    PASS  process-tree - tree test: ok; 0 taskkill references; CI: 2 jobs green (go windows/amd64, go darwin/arm64)
+
+Stub check: a `ci_detail` that ignores the job names, or reads only `contract`, returns `True` on the Red lists (the Red output). The unit tests fail it.
+
+Same question for the other rows. `process-tree` passed on any test with `Tree` in its name, so a stub `func TestTree(t *testing.T) {}` passed with 0 `taskkill`. It now needs the named test with check 1 and check 2. `layout` compares `go list` with a committed list, so a stub package still counts as present (that is its goal: where each concern lives, and `same-behaviour` and the archtest rows prove behaviour). `backend` and `commands` were fixed in #80. The rest of `same-behaviour` (contract 30 of 30, parity 17 of 17, `go test ./...`, test count, golden files) fails on a stub, because the contract and parity tests run the built binary.
+
+Ratchet: CI jobs that the oracle names and the tool does not read: 3 -> 0 (`workflow-parity windows-latest`, `workflow-parity macos-latest`, `go darwin/arm64`). Rows with a CI part: 1 -> 2.
+
+Stub check of the pinned tree test: with `TestTreeOutlivesItsStarterAndEndsFromAnotherProcess` renamed to `TestTreeStub` (not committed):
+
+    FAIL  process-tree - TestTreeOutlivesItsStarterAndEndsFromAnotherProcess did not pass in internal/platform; 0 taskkill references

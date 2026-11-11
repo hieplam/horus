@@ -88,6 +88,9 @@ commands.
 | 2026-11-11 | The goal tool row `commands` with `--real` runs `horus setup it-illustration`, reads the paths of its plan (each model file, and `ComfyUI/main.py` and `ComfyUI/extra_model_paths.yaml`), keeps their size and time, runs `horus doctor`, runs `horus setup it-illustration` again, and compares. It fails on a FAIL line or a non-zero exit of doctor, on a plan with a step, on a changed file, or when the two plans differ. The Go tests of `./internal/provision` also run in the row. The Phase 1 row `setup-commands` finds the moved commands in `internal/doctor`, `internal/provision` and `internal/devtools`. | T0 left the row without the file check. Limit: the first run of `setup` is not inside the comparison; `TestSetupWithoutYesChangesNoFile` (cmd/horus) and `TestPlanOfAnEmptyMachine` (provision) prove that a plan without `-yes` writes nothing. | Agent (T8) |
 | 2026-11-11 | `tools/phase2_packages.txt` and the layer table of the spec do not change: `go list ./...` gives the 18 listed packages. | Measured: `PASS  layout - 0 packages off target, 0 listed packages missing`. | Agent (T8) |
 | 2026-11-11 | The tests moved. `checksetup`: 7 tests went to `internal/doctor` on fakes (`TestModelsLinesAreIndentedAndFailureCounts` became `TestModelsLinesAndFailureCount`; the indent is in `TestDoctorLinesAndExitCode` of `internal/cli`), `TestRunRejectsAnUnknownFlag` and `TestRunModelCheckIsFullByDefault` went to `internal/cli` (`TestDoctorRejectsAnUnknownFlag`, `TestDoctorModelCheckIsFullByDefault`), and the 2 `TestExecModels...` tests became `TestDoctorThroughTheWiring` and `TestWorkflowCheckGivesTheLinesAndTheExitCode` (`cmd/horus`, on the sandbox of `workflow_test.go`). `installcomfymcp`: 5 tests to `internal/provision`, `TestBadFlagExits2` to `internal/cli` (`TestInstallComfyMCPBadFlagExits2`). `register`: 4 tests to `internal/provision`, the 4 `TestRun...` tests to `internal/cli` (`TestRegisterFindsClaudeAndPassesTheFlags`, `TestRegisterWithoutClaude`, `TestRegisterWithoutARepoFails`, `TestRegisterTakesRootFromTheSettings`) on a fake `Programs`, and `TestRegisterFindsClaudeOnThePath` (provision) runs the real PATH. `newworkflow` and `syncworkflows`: 7 tests to `internal/devtools`, `TestRun` and `TestRunExitCodes` to `internal/cli`. New: `TestCheckChangesNoFile`, `TestVersion`, `TestRunGivesTheExitCodeAndTheOutput`, 6 plan tests of `internal/provision`, 5 tests of `horus setup` in `internal/cli`, `TestSetupWithoutYesChangesNoFile`, `TestInstallComfyMCPReportsAFailure`. | A test follows the rules of its package: the tests of `doctor` use fakes instead of `httptest`, and the tests of `provision` and `devtools` use the base package `platform` or fakes. Go test functions 189 -> 207. | Agent (T8) |
+| 2026-11-11 | T9: the Red of the plan (`git grep -n -E "internal/(scripts|server|models)" -- '*.md' ':!docs/plans' ':!docs/specs'`) already printed nothing on `origin/main`. The Red of T9 is the same search with the stale texts that the docs still held: `horus workflow \(child\)`, `scripts/<command>`, `horus start-comfyui" does` and `start "horus workflow`. It printed 7 lines on `origin/main`. The Green runs both commands and both print nothing. | The earlier tasks had already removed the old package paths from the text, but the layout list of `AGENTS.md` and the three diagrams of `docs/mcp.md` still described the Phase 1 design. A Red that prints nothing proves nothing (the empty-implementation test). Standing rule: use the equivalent command that proves the same goal. | Agent (T9) |
+| 2026-11-11 | T9: `docs/mcp.md` says that the token is in the memory of `horus mcp` while an install runs, and that only `internal/download` reads it (environment first, then the `.env` file in the repo root). Before, it said that the server never reads `HF_TOKEN`. | After the decision on the process boundary, the download runs in the server process. The old sentence was false. D7 of #4 (only the download code reads the token) stays true. | Agent (T9) |
+| 2026-11-11 | T9: `docs/setup.md` tells that `horus setup <workflow>` stops at the next step on Ctrl+C and that an install ends with `FAIL: context canceled`, that ComfyUI 0.44 locks its database so one install folder cannot run two ComfyUI, and that a PC can keep the model files in a folder that `extra_model_paths.yaml` maps. It tells a reader to use `horus doctor` and `horus setup`, and says that the old names still work. Every `horus check-setup` in the docs outside the plans and specs became `horus doctor`, except the sentences that name the old name. | Plan T9 step 3, and the decisions of T6, T7 and T8 that a reader sees. | Agent (T9) |
 
 ## Baseline
 
@@ -648,3 +651,50 @@ Stub checks:
 - A doctor that prints nothing fails `TestDoctorLinesAndExitCode`.
 
 Ratchet: packages off target 5 -> 0, listed packages missing 2 -> 0. Allow list entries: os-boundary 1 -> 0, direction 4 -> 0, token 0 -> 0. Allow list files 3 -> 0. Commands 0 -> 2 (`doctor`, `setup`). Go test functions 189 -> 207. Contract `30 of 30 passed`, parity `17 of 17 cases equal`. Rows passed without `--real`: 3 -> 6 of 8.
+
+## T9
+
+Red, before the change (`origin/main`, `999a4c3`):
+
+    git grep -n -E "internal/(scripts|server|models)" -- '*.md' ':!docs/plans' ':!docs/specs'
+    (prints nothing: the plan Red is empty, see the Decisions table)
+
+    git grep -n -E 'horus workflow \(child\)|scripts/<command>|horus start-comfyui" does|start "horus workflow' origin/main -- '*.md' ':!docs/plans' ':!docs/specs'
+    origin/main:AGENTS.md:76:  ... (server, herr, catalog, comfy, generate, models, settings, scripts/<command>)
+    origin/main:docs/mcp.md:28:  participant W as horus workflow (child)
+    origin/main:docs/mcp.md:31:  S->>W: start "horus workflow list -json"
+    origin/main:docs/mcp.md:35:  S->>W: start "horus workflow check -quick -json"
+    origin/main:docs/mcp.md:46:  participant W as horus workflow (child)
+    origin/main:docs/mcp.md:50:  S->>W: start "horus workflow install -json"
+    origin/main:docs/mcp.md:73:  S->>C: start it through the backend, as "horus start-comfyui" does (Windows only)
+    (7 lines)
+
+    git grep -n "horus doctor" -- docs/setup.md README.md AGENTS.md | wc -l
+    0 lines before (the command did not exist in the docs)
+
+Green, after the change:
+
+    git grep -n -E "internal/(scripts|server|models)" -- '*.md' ':!docs/plans' ':!docs/specs'
+    (prints nothing)
+
+    git grep -n -E 'horus workflow \(child\)|scripts/<command>|horus start-comfyui" does|start "horus workflow' -- '*.md' ':!docs/plans' ':!docs/specs'
+    (prints nothing)
+
+    git grep -n "horus doctor" -- docs/setup.md README.md AGENTS.md | wc -l
+    13
+
+    python scripts/lint-public.py
+    lint-public: 0 finding(s)
+
+    tests/mcp_contract.py --server-cmd bin/horus.exe mcp
+    PASS  docs/mcp.md lists every error code
+    contract: 30 of 30 passed
+
+    python tools/goal_check.py --phase 2 --no-ci --server-cmd bin/horus.exe mcp
+    goal: 6 of 8 rows passed   (backend and commands need --real, which T9 does not run)
+
+The command names, flags and package paths in the docs were copied from `horus -h`, `horus <command> -h` and `ls internal` of the built binary of this commit.
+
+Stub check: without the edits, the second Red search still prints 7 lines, and `horus doctor` has 0 lines in the three files. An edit that only removed the old words and kept the old diagrams would leave the diagrams without the `provision service` and `generate service` participants. The diagram labels equal the names in the text.
+
+Ratchet: stale package and process names in the docs 7 -> 0. Lines with `horus doctor` in the three files 0 -> 13.

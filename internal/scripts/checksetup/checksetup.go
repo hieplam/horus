@@ -46,7 +46,7 @@ import (
 
 // ModelChecker checks the model files of one workflow. The real one starts
 // the subcommand "horus workflow check" of the same binary, so this package
-// holds no copy of the model-file rules (they live in internal/scripts/workflow).
+// holds no copy of the model-file rules (they live in internal/provision).
 type ModelChecker interface {
 	// Check returns the text lines of the check and ok when the check passed.
 	Check(ctx context.Context, workflow string) (lines []string, ok bool, err error)

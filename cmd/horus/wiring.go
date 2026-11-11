@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/hieplam/horus/internal/cli"
 	"github.com/hieplam/horus/internal/comfy"
@@ -20,13 +21,19 @@ func newImages(url string) *generate.Service {
 	return generate.New(comfy.New(url))
 }
 
+// seams are the test seams of the setup service. The zero value is the real
+// behaviour.
+type seams struct {
+	download download.Options // the base options of each download
+	now      func() time.Time // the time in the name of a backup of extra_model_paths.yaml
+}
+
 // newSetup makes the setup service on the model files, the downloader and
 // the ComfyUI of place. An empty field of place means the setting, read at
-// each call. base holds the test seams of the downloader; the zero value is
-// the real behaviour.
-func newSetup(place cli.SetupPlace, base download.Options) *provision.Service {
-	files := &modelfiles.Store{ComfyUIDir: place.ComfyUIDir, ModelsDir: place.ModelsDir, TextEncoderDir: place.TextEncoderDir}
-	return provision.New(files, downloader{base}, comfy.New(place.ServerURL), place.ServerURL)
+// each call.
+func newSetup(place cli.SetupPlace, s seams) *provision.Service {
+	files := &modelfiles.Store{ComfyUIDir: place.ComfyUIDir, ModelsDir: place.ModelsDir, TextEncoderDir: place.TextEncoderDir, Now: s.now}
+	return provision.New(files, downloader{s.download}, comfy.New(place.ServerURL), place.ServerURL)
 }
 
 // downloader gives internal/provision the downloader of internal/download.

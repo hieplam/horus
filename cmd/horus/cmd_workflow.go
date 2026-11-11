@@ -9,7 +9,6 @@ import (
 	"os/signal"
 
 	"github.com/hieplam/horus/internal/cli"
-	"github.com/hieplam/horus/internal/download"
 )
 
 func init() {
@@ -21,4 +20,4 @@ func init() {
 }
 
 // setupAt is the setup service for the flags of horus workflow.
-func setupAt(place cli.SetupPlace) cli.Setup { return newSetup(place, download.Options{}) }
+func setupAt(place cli.SetupPlace) cli.Setup { return newSetup(place, seams{}) }

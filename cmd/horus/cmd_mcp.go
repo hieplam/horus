@@ -10,7 +10,6 @@ import (
 	"os/signal"
 
 	"github.com/hieplam/horus/internal/cli"
-	"github.com/hieplam/horus/internal/download"
 	"github.com/hieplam/horus/internal/mcpserver"
 )
 
@@ -30,7 +29,7 @@ func runMCP(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := mcpserver.Run(ctx, newImages(""), newSetup(cli.SetupPlace{}, download.Options{})); err != nil && ctx.Err() == nil {
+	if err := mcpserver.Run(ctx, newImages(""), newSetup(cli.SetupPlace{}, seams{})); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "horus mcp: %v\n", err)
 		return 1
 	}

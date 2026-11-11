@@ -4,7 +4,8 @@
 //   - os-boundary: code for one operating system is only in internal/platform
 //     and internal/backend.
 //   - direction: a package imports only the layers that the import rules allow.
-//   - token: only internal/download names the variable HF_TOKEN.
+//   - token: only internal/download names the variable HF_TOKEN, and no
+//     other package uses a name of internal/download that has "token" in it.
 //
 // The rules read file names and file text only. They do not use the build
 // constraints of the current system, so they give the same result on every
@@ -65,7 +66,7 @@ func Scan(module string, files []File) ([]Violation, error) {
 		}
 		out = append(out, osBoundary(f, af)...)
 		out = append(out, direction(module, f, af)...)
-		out = append(out, tokenRule(f, af)...)
+		out = append(out, tokenRule(module, f, af)...)
 	}
 	return out, nil
 }
@@ -252,21 +253,38 @@ func direction(module string, f File, af *ast.File) []Violation {
 // the name alone, or the name and "=" as in a line of a .env file.
 var tokenText = regexp.MustCompile(`^\s*HF_TOKEN\s*(=|$)`)
 
-func tokenRule(f File, af *ast.File) []Violation {
+func tokenRule(module string, f File, af *ast.File) []Violation {
 	if inside(f.Path, tokenExempt) {
 		return nil
 	}
-	found := false
-	ast.Inspect(af, func(n ast.Node) bool {
-		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-			if s, err := strconv.Unquote(lit.Value); err == nil && tokenText.MatchString(s) {
-				found = true
+	// The local name of the import of the download package, if any.
+	dl := ""
+	for _, imp := range af.Imports {
+		if p, _ := strconv.Unquote(imp.Path.Value); p == module+"/internal/download" {
+			dl = "download"
+			if imp.Name != nil {
+				dl = imp.Name.Name
 			}
 		}
-		return !found
+	}
+	why := ""
+	ast.Inspect(af, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.BasicLit:
+			if s, err := strconv.Unquote(x.Value); err == nil && x.Kind == token.STRING && tokenText.MatchString(s) {
+				why = "a string names HF_TOKEN outside internal/download"
+			}
+		case *ast.SelectorExpr:
+			// A name of the download package that names the token, for
+			// example a constant that holds the name of the variable.
+			if id, ok := x.X.(*ast.Ident); ok && dl != "" && id.Name == dl && strings.Contains(strings.ToLower(x.Sel.Name), "token") {
+				why = "it uses " + dl + "." + x.Sel.Name + " of internal/download"
+			}
+		}
+		return why == ""
 	})
-	if !found {
+	if why == "" {
 		return nil
 	}
-	return []Violation{{Rule: RuleToken, File: f.Path, Key: f.Path, Why: "a string names HF_TOKEN outside internal/download"}}
+	return []Violation{{Rule: RuleToken, File: f.Path, Key: f.Path, Why: why}}
 }

@@ -90,14 +90,15 @@ commands.
 | 2026-11-11 | The tests moved. `checksetup`: 7 tests went to `internal/doctor` on fakes (`TestModelsLinesAreIndentedAndFailureCounts` became `TestModelsLinesAndFailureCount`; the indent is in `TestDoctorLinesAndExitCode` of `internal/cli`), `TestRunRejectsAnUnknownFlag` and `TestRunModelCheckIsFullByDefault` went to `internal/cli` (`TestDoctorRejectsAnUnknownFlag`, `TestDoctorModelCheckIsFullByDefault`), and the 2 `TestExecModels...` tests became `TestDoctorThroughTheWiring` and `TestWorkflowCheckGivesTheLinesAndTheExitCode` (`cmd/horus`, on the sandbox of `workflow_test.go`). `installcomfymcp`: 5 tests to `internal/provision`, `TestBadFlagExits2` to `internal/cli` (`TestInstallComfyMCPBadFlagExits2`). `register`: 4 tests to `internal/provision`, the 4 `TestRun...` tests to `internal/cli` (`TestRegisterFindsClaudeAndPassesTheFlags`, `TestRegisterWithoutClaude`, `TestRegisterWithoutARepoFails`, `TestRegisterTakesRootFromTheSettings`) on a fake `Programs`, and `TestRegisterFindsClaudeOnThePath` (provision) runs the real PATH. `newworkflow` and `syncworkflows`: 7 tests to `internal/devtools`, `TestRun` and `TestRunExitCodes` to `internal/cli`. New: `TestCheckChangesNoFile`, `TestVersion`, `TestRunGivesTheExitCodeAndTheOutput`, 6 plan tests of `internal/provision`, 5 tests of `horus setup` in `internal/cli`, `TestSetupWithoutYesChangesNoFile`, `TestInstallComfyMCPReportsAFailure`. | A test follows the rules of its package: the tests of `doctor` use fakes instead of `httptest`, and the tests of `provision` and `devtools` use the base package `platform` or fakes. Go test functions 189 -> 207. | Agent (T8) |
 | 2026-11-11 | T9: the Red of the plan (`git grep -n -E "internal/(scripts|server|models)" -- '*.md' ':!docs/plans' ':!docs/specs'`) already printed nothing on `origin/main`. The Red of T9 is the same search with the stale texts that the docs still held: `horus workflow \(child\)`, `scripts/<command>`, `horus start-comfyui" does` and `start "horus workflow`. It printed 7 lines on `origin/main`. The Green runs both commands and both print nothing. | The earlier tasks had already removed the old package paths from the text, but the layout list of `AGENTS.md` and the three diagrams of `docs/mcp.md` still described the Phase 1 design. A Red that prints nothing proves nothing (the empty-implementation test). Standing rule: use the equivalent command that proves the same goal. | Agent (T9) |
 | 2026-11-11 | T9: `docs/mcp.md` says that the token is in the memory of `horus mcp` while an install runs, and that only `internal/download` reads it (environment first, then the `.env` file in the repo root). Before, it said that the server never reads `HF_TOKEN`. | After the decision on the process boundary, the download runs in the server process. The old sentence was false. D7 of #4 (only the download code reads the token) stays true. | Agent (T9) |
-| 2026-11-11 | T10: the plan Green (one command `python tools/goal_check.py --phase 2 --real`) is replaced by three runs on the same commit `3bad82f` with the same binary: all rows with the CI part (6 PASS), `--real --only commands` with the settings of the owner (PASS), and `--real --only backend` with the settings of the port 8189 method (PASS). | The owner's ComfyUI ran on port 8188, so the row `backend` needs `HORUS_COMFYUI_DIR` = a folder that links to the owner's install and `HORUS_COMFYUI_URL` on port 8189 (T7 decision). One command gives the same environment to every row, so `go test ./...`, the contract test and the parity test of `same-behaviour` also run with these settings and with `HORUS_ROOT` = the main checkout. The standing rule "never touch the model files of the owner's PC" weighs more than one command line. The three runs prove the same rows (standing rule: the equivalent command). | Agent (T10) |
-| 2026-11-11 | T10: the checks of `os-boundary`, `direction` and `token` pass on an empty `internal/archtest` (measured: `goal: 3 of 3 rows passed` with one file `package archtest`). Filed as #80, which blocks T10. | The spec oracle is "with planted bad files". The tool reads only the exit code of `go test`, and a package with no test exits 0. | Agent (T10) |
-| 2026-11-11 | T10: the CI part of the goal tool reads only the jobs `contract <os>`. It does not read `workflow-parity <os>` or `go darwin/arm64`, so a red parity or tree test on macOS still gives PASS for `same-behaviour` and `process-tree`. Filed as #81, which blocks T10. The 7 CI jobs of `3bad82f` are green today (literal list in `## T10`). | The spec oracle of both rows names CI on `windows-latest` and `macos-latest`. | Agent (T10) |
-| 2026-11-11 | T10: three limits of the checks are accepted, not filed. `layout` passes on an empty package with the right name: the ratified oracle is `go list` against the list, and the rows `direction` and `same-behaviour` prove where the code is. `backend` does not judge the content of the PNG: the agent opens the PNG and judges it, as in T7. `commands` runs the Go tests of `internal/cli`, `internal/doctor` and `internal/provision`, not of `cmd/horus` (`TestSetupWithoutYesChangesNoFile`, the old command names): `go test ./...` of `same-behaviour` runs them, and `8 of 8` needs both rows. | Each limit is covered by another part of the same tool or by the visual check of the ratified oracle. | Agent (T10) |
-| 2026-11-11 | T10: `horus doctor` checks `http://127.0.0.1:8188` also when `HORUS_COMFYUI_URL` names another port. The old `check-setup` did the same. Filed as #82, a follow-up outside the epic. | It threatens no goal row: the behaviour did not change in Phase 2. | Agent (T10) |
 | 2026-11-11 | T9: `docs/setup.md` tells that `horus setup <workflow>` stops at the next step on Ctrl+C and that an install ends with `FAIL: context canceled`, that ComfyUI 0.44 locks its database so one install folder cannot run two ComfyUI, and that a PC can keep the model files in a folder that `extra_model_paths.yaml` maps. It tells a reader to use `horus doctor` and `horus setup`, and says that the old names still work. Every `horus check-setup` in the docs outside the plans and specs became `horus doctor`, except the sentences that name the old name. | Plan T9 step 3, and the decisions of T6, T7 and T8 that a reader sees. | Agent (T9) |
 | 2026-11-11 | The rows `os-boundary`, `direction` and `token` need `--- PASS` for `TestRules`, `TestPlanted` and `TestProblems` in `go test -v -run` of `internal/archtest`. The rows `backend` and `commands` need that each of their packages has a test file and a passing test, before they ask for `--real`. | A package with no test file exits 0, so the exit code alone passes an empty implementation (issue #80). The three names are the tests that enforce the rules and prove them with planted bad files. | Agent (#80) |
 | 2026-11-11 | The row `same-behaviour` needs these jobs of the newest `ci.yml` run on HEAD to be `success`: `contract` and `workflow-parity` on `windows-latest` and `macos-latest`, `go windows/amd64` and `go darwin/arm64`. The row `process-tree` needs the two `go` jobs. A job that is missing, running, cancelled or failed fails the row and the detail names it. `go linux/amd64` is not required, because no oracle names it. `--no-ci` skips all of this. The row `process-tree` also needs `TestTreeOutlivesItsStarterAndEndsFromAnotherProcess` (check 1 and check 2) to pass, not any test with `Tree` in its name. | The oracle of each row names these jobs (issue #81). A stub test `TestTree` that does nothing passed the old row. The pinned name is the one test that holds the two checks of the spec. | Agent (#81) |
+| 2026-11-11 | T10: the plan Green (one command `python tools/goal_check.py --phase 2 --real`) is replaced by three runs on the same commit `9699bb8` with the same binary: all rows with the CI part (6 PASS), `--real --only commands` with the settings of the owner (PASS), and `--real --only backend` with the settings of the port 8189 method (PASS). | The owner's ComfyUI ran on port 8188, so the row `backend` needs `HORUS_COMFYUI_DIR` = a folder that links to the owner's install and `HORUS_COMFYUI_URL` on port 8189 (T7 decision). One command gives the same environment to every row, so `go test ./...`, the contract test and the parity test of `same-behaviour` also run with these settings and with `HORUS_ROOT` = the main checkout. The standing rule "never touch the model files of the owner's PC" weighs more than one command line. The three runs prove the same rows (standing rule: the equivalent command). | Agent (T10) |
+| 2026-11-11 | T10: the checks of `os-boundary`, `direction` and `token` pass on an empty `internal/archtest` (measured: `goal: 3 of 3 rows passed` with one file `package archtest`). Filed as #80, which blocked T10. PR #83 fixed it; on `9699bb8` the same stub gives `goal: 0 of 3 rows passed` (`## T10`). | The spec oracle is "with planted bad files". The tool read only the exit code of `go test`, and a package with no test exits 0. | Agent (T10) |
+| 2026-11-11 | T10: the CI part of the goal tool reads only the jobs `contract <os>`. It does not read `workflow-parity <os>` or `go darwin/arm64`, so a red parity or tree test on macOS still gives PASS for `same-behaviour` and `process-tree`. Filed as #81, which blocked T10. PR #84 fixed it; on `9699bb8` a red parity job and a missing `go darwin/arm64` job fail the rows (`## T10`). | The spec oracle of both rows names CI on `windows-latest` and `macos-latest`. | Agent (T10) |
+| 2026-11-11 | T10: three limits of the checks are accepted, not filed. `layout` passes on an empty package with the right name: the ratified oracle is `go list` against the list, and the rows `direction` and `same-behaviour` prove where the code is. `backend` does not judge the content of the PNG: the agent opens the PNG and judges it, as in T7. `commands` runs the Go tests of `internal/cli`, `internal/doctor` and `internal/provision`, not of `cmd/horus` (`TestSetupWithoutYesChangesNoFile`, the old command names): `go test ./...` of `same-behaviour` runs them, and `8 of 8` needs both rows. | Each limit is covered by another part of the same tool or by the visual check of the ratified oracle. | Agent (T10) |
+| 2026-11-11 | T10: `horus doctor` checks `http://127.0.0.1:8188` also when `HORUS_COMFYUI_URL` names another port. The old `check-setup` did the same. Filed as #82, a follow-up outside the epic. | It threatens no goal row: the behaviour did not change in Phase 2. | Agent (T10) |
+| 2026-11-11 | T10: the real run of the row `backend` on `9699bb8` started after 6 GPU readings (18:37 to 19:28) that were not quiet: 472 to 910 MiB, 37 to 57 %. At 19:28 the game process had ended (the GPU apps list had only its client window), and the reading was 483 MiB, 28 %. The run passed at once, so there is no second run to record. | Standing rule: wait for a free GPU, at most 6 readings of 10 minutes (task brief). The memory was below 1.5 GB in every reading. The process that used the GPU had ended. A failed run gets one more run, and none was needed. | Agent (T10) |
 
 ## Baseline
 
@@ -782,3 +783,207 @@ Ratchet: CI jobs that the oracle names and the tool does not read: 3 -> 0 (`work
 Stub check of the pinned tree test: with `TestTreeOutlivesItsStarterAndEndsFromAnotherProcess` renamed to `TestTreeStub` (not committed):
 
     FAIL  process-tree - TestTreeOutlivesItsStarterAndEndsFromAnotherProcess did not pass in internal/platform; 0 taskkill references
+
+## T10
+
+Result: 8 of 8 rows pass on `main` = `9699bb8`, in three runs (see the T10 decisions). The stub probes of the fixed tool all fail as they must.
+
+The first run, on `3bad82f`, also gave 8 of 8, but it found that two checks of the tool were too weak to prove their rows alone. These became #80 (the archtest rows passed on an empty `internal/archtest`) and #81 (the CI part read only the `contract` jobs). Both are fixed (PR #83, PR #84), and every output below is from `9699bb8`. Follow-up outside the epic: #82.
+
+### Build and install
+
+A clean worktree, detached at `origin/main`:
+
+    git rev-parse HEAD
+    9699bb8d4a8fe4fb4df21e8b9d8f7fe0355a03f8
+    git status --porcelain
+    (prints nothing)
+
+    go build -o bin/ ./cmd/horus
+    go install ./cmd/horus
+    go version -m ~\go\bin\horus.exe
+        build	vcs=git
+        build	vcs.revision=9699bb8d4a8fe4fb4df21e8b9d8f7fe0355a03f8
+        build	vcs.time=2026-11-11T11:33:20Z
+        build	vcs.modified=false
+
+So the user-scope MCP entry `horus` (`~\go\bin\horus.exe`) runs the code of `9699bb8`.
+
+CI of the commit (`gh run view 43012909485 --json headSha,status,conclusion,jobs`):
+
+    9699bb8d4a8fe4fb4df21e8b9d8f7fe0355a03f8
+    completed
+    success
+    workflow-parity macos-latest	success
+    go darwin/arm64	success
+    go windows/amd64	success
+    contract macos-latest	success
+    go linux/amd64	success
+    workflow-parity windows-latest	success
+    contract windows-latest	success
+
+### Run 1: every row, with the CI part, no GPU
+
+    python tools/goal_check.py --phase 2 --server-cmd <worktree>/bin/horus.exe mcp      (exit 1)
+    PASS  layout - 0 packages off target, 0 listed packages missing
+    PASS  same-behaviour - contract: local 30 of 30; CI: 6 jobs green (contract windows-latest, contract macos-latest, workflow-parity windows-latest, workflow-parity macos-latest, go windows/amd64, go darwin/arm64); parity: 17 of 17; go test ./...: ok; 207 Go test functions (baseline 157); 0 changed contract files
+    PASS  os-boundary - 0 allow list files; archtest: ok
+    PASS  direction - 0 allow list files; archtest: ok
+    PASS  process-tree - tree test: ok; 0 taskkill references; CI: 2 jobs green (go windows/amd64, go darwin/arm64)
+    FAIL  backend - Go tests ok; needs --real on the owner's PC for the image through the backend
+    PASS  token - 0 allow list files; archtest: ok
+    FAIL  commands - Go tests ok; needs --real on the owner's PC for horus doctor and horus setup
+    goal: 6 of 8 rows passed
+
+### Run 2: the row commands, for real
+
+`HORUS_ROOT` = the main checkout (read only). The owner's ComfyUI on port 8188 (pid 14432) got only GET requests.
+
+    python tools/goal_check.py --phase 2 --real --only commands --server-cmd <worktree>/bin/horus.exe mcp      (exit 0)
+    PASS  commands - horus doctor: 0 FAIL lines; horus setup it-illustration: 0 steps, nothing is missing; 5 of 5 named files present and unchanged
+    goal: 1 of 1 rows passed
+
+### Run 3: the row backend, for real
+
+The owner's ComfyUI answered on port 8188 (ComfyUI 0.44.0, pid 14432). It was not stopped and got no job. The run used the method of T7: a second install folder `<scratch>\comfy8189` with a junction `python_embeded` to the owner's install, a folder `ComfyUI` with 22 junctions (each folder of the owner's `ComfyUI` except `user`, `input`, `output`, `temp`), 4 empty folders of its own and 36 copied small files. Settings: `HORUS_COMFYUI_DIR=<scratch>\comfy8189`, `HORUS_COMFYUI_URL=http://127.0.0.1:8189`, `HORUS_AUTOSTART=1`, `HORUS_ROOT` = the main checkout.
+
+GPU before the run (`nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader`). A game ran on the PC (see the T10 decision):
+
+    18:37  746 MiB, 42 %
+    18:48  884 MiB, 57 %
+    18:58  896 MiB, 46 %
+    19:08  898 MiB, 52 %
+    19:18  910 MiB, 47 %
+    19:28  472 MiB, 37 %   (the game process had ended)
+    19:28  483 MiB, 28 %   port 8188 pid 14432, port 8189 closed
+
+The run (19:28:47 to 19:33:02):
+
+    python tools/goal_check.py --phase 2 --real --only backend --real-out <scratch>\real --server-cmd <worktree>/bin/horus.exe mcp      (exit 0)
+    PASS  backend - 1536x1024 <scratch>\real\real-image-seed7-20261111-192903.png (seed 7, 239 s); started through the backend
+    goal: 1 of 1 rows passed
+
+The image: on the left a mint-green server box, on the right a sky-blue server box, and between them a purple conveyor belt with five yellow-orange envelopes. It shows the subject (`REAL_SUBJECT` of `tools/goal_check.py`). The envelopes are more amber than sun-yellow, and the belt is a deeper purple than lilac. It is the same picture as the run on `3bad82f` (same seed).
+
+After the run (19:33):
+
+    horus stop-comfyui      (same settings)
+    The ComfyUI that horus started at http://127.0.0.1:8189 (process 6524) was not running any more.
+    exit 0
+    8189 listeners: 0
+    processes with comfy8189 in the command line: 0
+    port 8188 pid: 14432
+    nvidia-smi: 7 MiB, 0 %
+
+The ComfyUI of the run had already ended when the tool ended: the Python MCP client ends its Job Object (decision G9 of `2026-11-10-go-port-evidence.md`, and the T7 run). The start and the stop of a live ComfyUI through the backend are proven in `## T7`.
+
+Cleanup: the 23 junctions (1 + 22) were deleted one at a time with `(Get-Item <junction>).Delete()`, which removes only the link. Then a recursive listing found 0 links in the folder, and the 43 files and the real folders that this task made were deleted one by one (each folder after it was empty). No recursive delete ran. After the cleanup:
+
+    Test-Path <ComfyUI dir>\ComfyUI\main.py              True
+    Test-Path <ComfyUI dir>\python_embeded\python.exe    True
+    entries in <ComfyUI dir>\ComfyUI\models              26
+
+    horus workflow check it-illustration -quick      (HORUS_ROOT = the main checkout, exit 0)
+    Checking workflow 'it-illustration': 3 model file(s), size only.
+    OK        diffusion ~\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors (5827874779 bytes)
+    OK        text_encoder ~\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors (4858559240 bytes)
+    OK        vae ~\ComfyUI-models\vae\flux2-vae.safetensors (336211292 bytes)
+    OK        models.json lists all 3 model file(s) that workflow.json loads
+    OK        the server has all 10 node classes of workflow.json
+    OK        the server lists flux3-image-klein-int8-convrot.safetensors
+    OK        the server lists qwen3vl_4b_int8_convrot.safetensors
+    OK        the server lists flux2-vae.safetensors
+    OK: workflow 'it-illustration' is ready.
+
+The byte sizes are equal to `workflows/it-illustration/models.json`.
+
+### Stub probes of the fixed tool
+
+Each probe was not committed and was restored with `git checkout`. The tree was clean after each one (`git status --porcelain` prints nothing).
+
+Probe 1: `internal/archtest` with one file `package archtest` (no rules, no tests):
+
+    python tools/goal_check.py --phase 2 --only os-boundary direction token      (exit 1)
+    FAIL  os-boundary - 0 allow list files; archtest: no passing test: TestRules, TestPlanted, TestProblems
+    FAIL  direction - 0 allow list files; archtest: no passing test: TestRules, TestPlanted, TestProblems
+    FAIL  token - 0 allow list files; archtest: no passing test: TestRules, TestPlanted, TestProblems
+    goal: 0 of 3 rows passed
+
+Probe 2: `archtest.Scan` returns `nil, nil` at once (the real tests stay):
+
+    python tools/goal_check.py --phase 2 --only os-boundary direction token      (exit 1)
+    FAIL  os-boundary - 0 allow list files; archtest: FAIL
+    FAIL  direction - 0 allow list files; archtest: FAIL
+    FAIL  token - 0 allow list files; archtest: FAIL
+    goal: 0 of 3 rows passed
+
+Probe 3: the CI judgement of the tool (`judge_jobs` with `SAME_BEHAVIOUR_JOBS` and `PROCESS_TREE_JOBS`) on job lists made by hand, no network:
+
+    red parity macOS
+      same-behaviour: (False, 'CI: not green: workflow-parity macos-latest (failure)')
+      process-tree:   (True, 'CI: 2 jobs green (go windows/amd64, go darwin/arm64)')
+    no go darwin/arm64
+      same-behaviour: (False, 'CI: not green: go darwin/arm64 (missing)')
+      process-tree:   (False, 'CI: not green: go darwin/arm64 (missing)')
+    contract jobs only
+      same-behaviour: (False, 'CI: not green: workflow-parity windows-latest (missing), workflow-parity macos-latest (missing), go windows/amd64 (missing), go darwin/arm64 (missing)')
+      process-tree:   (False, 'CI: not green: go windows/amd64 (missing), go darwin/arm64 (missing)')
+
+`process-tree` passes on a red parity job, and that is correct: its oracle names only the tree test, which the `go` jobs run.
+
+Probe 4: `TestTreeOutlivesItsStarterAndEndsFromAnotherProcess` renamed to `TestTreeStub`:
+
+    python tools/goal_check.py --phase 2 --no-ci --only process-tree      (exit 1)
+    FAIL  process-tree - TestTreeOutlivesItsStarterAndEndsFromAnotherProcess did not pass in internal/platform; 0 taskkill references
+    goal: 0 of 1 rows passed
+
+No check passes on a stub of the implementation, so no new issue was filed. A test with the pinned name and an empty body still passes, but that is a weakened test, which a standing rule forbids. The limits that were accepted are in the T10 decisions.
+
+### The check of the epic tool on every closed task
+
+    node epic.mjs -R hieplam/horus check <n> --dry-run
+    PASS #55 via PR #68 (https://github.com/hieplam/horus/pull/68)
+    PASS #56 via PR #69 (https://github.com/hieplam/horus/pull/69)
+    PASS #57 via PR #71 (https://github.com/hieplam/horus/pull/71)
+    PASS #58 via PR #70 (https://github.com/hieplam/horus/pull/70)
+    PASS #59 via PR #72 (https://github.com/hieplam/horus/pull/72)
+    PASS #60 via PR #73 (https://github.com/hieplam/horus/pull/73)
+    PASS #61 via PR #74 (https://github.com/hieplam/horus/pull/74)
+    PASS #62 via PR #77 (https://github.com/hieplam/horus/pull/77)
+    PASS #63 via PR #78 (https://github.com/hieplam/horus/pull/78)
+    PASS #64 via PR #79 (https://github.com/hieplam/horus/pull/79)
+    PASS #75 via PR #76 (https://github.com/hieplam/horus/pull/76)
+    PASS #80 via PR #83 (https://github.com/hieplam/horus/pull/83)
+    PASS #81 via PR #84 (https://github.com/hieplam/horus/pull/84)
+
+All 13 issues are closed.
+
+### The contract files did not change
+
+    git diff --stat 3e27da4 -- tests/mcp_contract.py tests/workflow_parity.py tests/fixtures '*golden*'
+     internal/{server => mcpserver}/testdata/tools.golden.json | 0
+     1 file changed, 0 insertions(+), 0 deletions(-)
+
+    git diff --name-status -M 3e27da4 -- tests/mcp_contract.py tests/workflow_parity.py tests/fixtures '*golden*'
+    R100	internal/server/testdata/tools.golden.json	internal/mcpserver/testdata/tools.golden.json
+
+The only entry is the golden file that moved with its package, with 100 percent equal content (decision of T0). No content changed.
+
+### Ratchets
+
+| Ratchet | Baseline | Today (`9699bb8`) | Source today |
+|---|---|---|---|
+| Packages off target | 12 | 0 | Run 1, `layout` |
+| Files that break `os-boundary` | 19 | 0 | Run 1, `os-boundary` (no allow list file, the 3 archtest tests pass) |
+| Imports that break `direction` | 10 | 0 | Run 1, `direction` |
+| Files that break `token` | 4 | 0 | Run 1, `token` |
+| `taskkill` references | 8 | 0 | Run 1, `process-tree` |
+| Go test functions | 157 | 207 | Run 1, `same-behaviour` |
+| Contract | 30 of 30 | 30 of 30 | Run 1, and CI `contract` on both systems |
+| Parity | 17 of 17 | 17 of 17 | Run 1, and CI `workflow-parity` on both systems |
+| Images after a start through the backend | 0 | 1 | Run 3 |
+| Commands (`doctor`, `setup`) | 0 | 2 | Run 2 |
+| Rows passed | 1 of 8 (T0) | 8 of 8 (runs 1 to 3) | |
+| Checks that pass on a stub (found by T10) | 2 issues (#80, #81) | 0 | Stub probes 1 to 4 |
+
+Stub check of the whole result: the tool gave `goal: 1 of 8 rows passed` at T0 on the tree before the work, so the 8 passes come from the work.

@@ -174,13 +174,18 @@ func Workflow(ctx context.Context, args []string, out, errOut io.Writer, setupAt
 	return 0
 }
 
-// printer writes the lines of horus workflow.
+// printer writes the lines of horus workflow. horus doctor writes the lines
+// of a check with an indent.
 type printer struct {
-	out  io.Writer
-	json bool
+	out    io.Writer
+	json   bool
+	indent string
 }
 
-func (p *printer) say(format string, a ...any) { fmt.Fprintf(p.out, format+"\n", a...) }
+func (p *printer) say(format string, a ...any) {
+	io.WriteString(p.out, p.indent)
+	fmt.Fprintf(p.out, format+"\n", a...)
+}
 
 // result writes the HORUS_JSON line.
 func (p *printer) result(res *provision.Result) {

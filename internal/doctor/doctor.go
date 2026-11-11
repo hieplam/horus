@@ -12,8 +12,9 @@
 //     command, and COMFY_BIN when the entry sets it.
 //  6. horus is on the PATH.
 //  7. The horus entry of .mcp.json points at a program that exists.
-//  8. With a workflow: the model files of that workflow are present, and by
-//     default their SHA-256 hashes are checked. Quick checks the sizes only.
+//
+// The model check of horus doctor -workflow is not here: it is the check of
+// the setup service, and the handler runs it after these checks.
 //
 // The service changes nothing. It does its input and output through the
 // interfaces below, and it reads files (.mcp.json, the venv) itself. It
@@ -53,14 +54,6 @@ type Programs interface {
 	LookPath(name string) (string, error)
 }
 
-// Models checks the model files of one workflow. cmd/horus gives the service
-// the check of horus workflow.
-type Models interface {
-	// Check returns the text lines of the check and ok when the check
-	// passed. quick: the size of each file only, no SHA-256.
-	Check(ctx context.Context, workflow string, quick bool) (lines []string, ok bool, err error)
-}
-
 // Options are the facts of one run that are not an interface.
 type Options struct {
 	// ServerURL is the address of the server, for the text of the check.
@@ -72,10 +65,6 @@ type Options struct {
 	// Home replaces ${USERPROFILE} and ${HOME} in .mcp.json when they are
 	// not set.
 	Home string
-	// Workflow is the workflow whose model files are checked. Empty: no check.
-	Workflow string
-	// Quick: the model check compares the sizes only.
-	Quick bool
 	// Getenv reads the variables of ${VAR} and ${VAR:-default} in .mcp.json.
 	// nil means os.Getenv.
 	Getenv func(string) string
@@ -86,9 +75,6 @@ type Result struct {
 	Name   string
 	OK     bool
 	Detail string
-	// Lines are the lines of the check that come before its result line
-	// (the model check).
-	Lines []string
 }
 
 // Service runs the checks.
@@ -96,12 +82,11 @@ type Service struct {
 	server   Server
 	install  Install
 	programs Programs
-	models   Models
 }
 
-// New makes the service. models can be nil when no run names a workflow.
-func New(server Server, install Install, programs Programs, models Models) *Service {
-	return &Service{server: server, install: install, programs: programs, models: models}
+// New makes the service.
+func New(server Server, install Install, programs Programs) *Service {
+	return &Service{server: server, install: install, programs: programs}
 }
 
 // Failed counts the results that did not pass.
@@ -216,28 +201,6 @@ func (s *Service) Check(ctx context.Context, o Options) []Result {
 		add(false, ".mcp.json horus", fmt.Sprintf("command is '%s' and does not exist. Fix: put horus on the PATH, or edit .mcp.json.", e.Command))
 	}
 
-	// 8. Models of one workflow.
-	if o.Workflow != "" {
-		r := Result{Name: fmt.Sprintf("models for '%s'", o.Workflow)}
-		var ok bool
-		var err error
-		if s.models == nil {
-			err = fmt.Errorf("no model check")
-		} else {
-			r.Lines, ok, err = s.models.Check(ctx, o.Workflow, o.Quick)
-		}
-		switch {
-		case err != nil:
-			r.Detail = "cannot run the model check: " + err.Error()
-		case ok && o.Quick:
-			r.OK, r.Detail = true, "all files present, size checked (the SHA-256 is not checked; drop -quick)"
-		case ok:
-			r.OK, r.Detail = true, "all files present and verified (SHA-256 checked)"
-		default:
-			r.Detail = "see lines above. Fix: horus workflow install " + o.Workflow
-		}
-		rs = append(rs, r)
-	}
 	return rs
 }
 

@@ -100,6 +100,9 @@ commands.
 | 2026-11-11 | T10: `horus doctor` checks `http://127.0.0.1:8188` also when `HORUS_COMFYUI_URL` names another port. The old `check-setup` did the same. Filed as #82, a follow-up outside the epic. | It threatens no goal row: the behaviour did not change in Phase 2. | Agent (T10) |
 | 2026-11-11 | T10: the real run of the row `backend` on `9699bb8` started after 6 GPU readings (18:37 to 19:28) that were not quiet: 472 to 910 MiB, 37 to 57 %. At 19:28 the game process had ended (the GPU apps list had only its client window), and the reading was 483 MiB, 28 %. The run passed at once, so there is no second run to record. | Standing rule: wait for a free GPU, at most 6 readings of 10 minutes (task brief). The memory was below 1.5 GB in every reading. The process that used the GPU had ended. A failed run gets one more run, and none was needed. | Agent (T10) |
 | 2026-11-11 | Issue #90: `QueueState` returns `graph.Queue{Running bool; Position int}` with the methods `Pending()` and `Absent()`, declared in the base package `internal/graph` next to `graph.Job`. The `ComfyUI` interface of `internal/generate` keeps its 9 methods. | The type is a pure value that both sides may import (the import rules allow `graph` for both). No wiring change is needed in `cmd/horus`. All 9 methods are still called by the service, so none is removed. The progress texts are built from the same words, so the output is the same. | Agent (#90) |
+| 2026-11-11 | #86: the handler `cli.RunDoctor` runs the model check. It calls the doctor service for the checks 1 to 7, then (with `-workflow`) `Check` of the setup service through `cli.Setup`, and writes the lines with `printer.check` of `horus workflow` and an indent of 6 spaces. `internal/doctor` lost `Models`, `Options.Workflow`, `Options.Quick` and `Result.Lines`. `doctorAt` gives the two services, and the glue `workflowCheck` is gone. This replaces the T8 decision on the glue. | The fix of the issue, and its Verify block names a test of `RunDoctor` on a fake `Setup`. The handler sees both services, so no service gets text and the wiring holds no logic (design rule 5). A doctor interface for a typed model check would only move the same composition into a service and hide nothing (design rule 1). One printer writes the check lines of both commands, so the lines stay equal. | Agent (#86) |
+| 2026-11-11 | #86: the detail `cannot run the model check: <error>` is gone, with its case in the test. A failed `Check` of the setup service gives `FAIL: <error>` (indented) and `FAIL  models for '<name>' - see lines above. Fix: horus workflow install <name>`, as before. | The old glue always returned a nil error, so the program never printed that detail. The output of the binary does not change (`diff` of 6 cases prints nothing, `## Issue 86`). | Agent (#86) |
+| 2026-11-11 | #86: the tests moved. `TestModelsLinesAndFailureCount` and `TestNoWorkflowFlagMeansNoModelCheck` (`internal/doctor`) became `TestDoctorModelCheckLinesAndExitCode` and `TestDoctorWithoutWorkflowRunsNoModelCheck` (`internal/cli`, on a fake `Setup`). `TestWorkflowCheckGivesTheLinesAndTheExitCode` (`cmd/horus`, the glue) became `TestDoctorModelCheckOfAnUnknownWorkflow`. `TestDoctorThroughTheWiring` runs `RunDoctor` on `doctorAt`. | A test follows its code. Go test functions 207 -> 207. | Agent (#86) |
 
 ## Baseline
 
@@ -1018,3 +1021,57 @@ Stub check: a `QueueState` of the fake that returns `graph.Queue{}` for a runnin
 Interface question: the service calls all 9 methods of `ComfyUI`, so no method is removed.
 
 Ratchet: text codes that a service parses from an adapter: 1 -> 0.
+
+## Issue 86
+
+Goal: no service gets the text of a handler, and the wiring holds no logic (row `direction`, design rule 5). The output of `horus doctor -workflow it-illustration -quick` does not change.
+
+Red (before the change, on `d9827a2`):
+
+    git grep -n "cli.Workflow(\|lines \[\]string, ok bool" -- cmd/horus/wiring.go internal/doctor/doctor.go
+    cmd/horus/wiring.go:120:	code := cli.Workflow(ctx, args, &buf, &buf, func(cli.SetupPlace) cli.Setup { return w.setupAt(w.place) })
+    internal/doctor/doctor.go:61:	Check(ctx context.Context, workflow string, quick bool) (lines []string, ok bool, err error)
+
+Green (after the change):
+
+    git grep -n "cli.Workflow(\|lines \[\]string, ok bool" -- cmd/horus/wiring.go internal/doctor/doctor.go
+    (no output, exit 1)
+
+The output of the binary of `d9827a2` and of the new binary, with `HORUS_ROOT` = the main checkout, for 6 read-only cases: `doctor`, `check-setup`, `doctor -workflow it-illustration -quick`, `check-setup -workflow it-illustration -quick`, `doctor -workflow nosuch -quick` (exit 1 in both) and `check-setup -workflow it-illustration -quick -models-dir <empty folder>`:
+
+    diff -r before after
+    (no output, exit 0)
+
+The other checks:
+
+    go test ./...                                   ok for every package
+    go test -count=1 ./internal/archtest            ok
+    tests/mcp_contract.py                           contract: 30 of 30 passed
+    tests/workflow_parity.py                        parity: 17 of 17 cases equal
+    tools/goal_check.py --phase 2 --no-ci           goal: 6 of 8 rows passed (backend and commands need --real)
+    scripts/lint-public.py                          lint-public: 0 finding(s)
+    gofmt -l .                                      (no output)
+    GOOS=darwin GOARCH=arm64 go vet ./...           ok
+    GOOS=linux GOARCH=amd64 go vet ./...            ok
+
+The new test `TestDoctorModelCheckLinesAndExitCode` (`internal/cli`, on a fake `Setup`) compares the full output: the model lines, their indent of 6 spaces, the PASS or FAIL line, and exit code 1 for a failed check.
+
+Stub check: `RunDoctor` with the model check switched off (`if false && workflow != ""`, not committed):
+
+    go test ./internal/cli/ ./cmd/horus/
+    --- FAIL: TestDoctorModelCheckLinesAndExitCode (0.00s)
+    --- FAIL: TestDoctorModelCheckIsFullByDefault (0.00s)
+    FAIL	github.com/hieplam/horus/internal/cli	0.732s
+    --- FAIL: TestDoctorThroughTheWiring (0.05s)
+    --- FAIL: TestDoctorModelCheckOfAnUnknownWorkflow (0.03s)
+    FAIL	github.com/hieplam/horus/cmd/horus	1.183s
+
+    diff before/doctor_-workflow_it-illustration_-quick.txt stub/out.txt
+    8,18d7
+    <       Checking workflow 'it-illustration': 3 model file(s), size only.
+    <       OK        diffusion ~/ComfyUI-models/diffusion_models/flux3-image-klein-int8-convrot.safetensors (5827874779 bytes)
+    (8 more model lines)
+    <       OK: workflow 'it-illustration' is ready.
+    < PASS  models for 'it-illustration' - all files present, size checked (the SHA-256 is not checked; drop -quick)
+
+Ratchet: calls from the wiring into a handler to feed a service: 1 -> 0. Go test functions: 207 -> 207.

@@ -1,6 +1,5 @@
 // The Windows portable backend: the official ComfyUI Windows portable build
-// (NVIDIA, CUDA 12.6). It ports scripts/install-comfyui.ps1 and
-// scripts/start-comfyui.ps1.
+// (NVIDIA, CUDA 12.6). It installs the build and starts and stops its server.
 //
 // Install: skip when ComfyUI is already in the install folder, check 7-Zip and
 // the free disk space, download the archive (with resume), check its size and
@@ -45,22 +44,22 @@ import (
 
 // The official release asset. The size and the hash come from the GitHub release page.
 const (
-	Version        = "v0.44.0"
-	AssetName      = "ComfyUI_windows_portable_nvidia_cu126.7z"
-	ExpectedBytes  = int64(1945636677)
-	ExpectedSHA256 = "a26cf84f043b3d9fbf0d53296f57d7190482c339caf1b3b5cfda5149d454be9f"
-	ExpandedBytes  = int64(5681590674)
-	SpareBytes     = int64(1 << 30)
+	version        = "v0.44.0"
+	assetName      = "ComfyUI_windows_portable_nvidia_cu126.7z"
+	expectedBytes  = int64(1945636677)
+	expectedSHA256 = "a26cf84f043b3d9fbf0d53296f57d7190482c339caf1b3b5cfda5149d454be9f"
+	expandedBytes  = int64(5681590674)
+	spareBytes     = int64(1 << 30)
 	gib            = float64(1 << 30)
 )
 
-// URL is the download address of the pinned archive.
-const URL = "https://github.com/Comfy-Org/ComfyUI/releases/download/" + Version + "/" + AssetName
+// pinnedURL is the download address of the pinned archive.
+const pinnedURL = "https://github.com/Comfy-Org/ComfyUI/releases/download/" + version + "/" + assetName
 
 // The defaults of Start and Stop.
 const (
-	StartTimeout = 300 * time.Second // the wait for the server; the first start can take a few minutes
-	StopTimeout  = 15 * time.Second  // the wait until the server no longer answers after the end of its tree
+	startTimeout = 300 * time.Second // the wait for the server; the first start can take a few minutes
+	stopTimeout  = 15 * time.Second  // the wait until the server no longer answers after the end of its tree
 	pollInterval = 2 * time.Second   // the time between two checks of the server (2 s in the script)
 )
 
@@ -84,8 +83,8 @@ type Portable struct {
 	KeepArchive bool   // do not delete the archive after a successful install
 
 	// Start and Stop.
-	Timeout      time.Duration // the wait of Start (default: StartTimeout)
-	StopTimeout  time.Duration // the wait of Stop (default: StopTimeout)
+	Timeout      time.Duration // the wait of Start (default: startTimeout)
+	StopTimeout  time.Duration // the wait of Stop (default: stopTimeout)
 	PollInterval time.Duration // the time between two checks of the server (default: 2 s)
 
 	// Test seams of Install. The zero value is the pinned archive, the real
@@ -136,7 +135,7 @@ func (p *Portable) Layout() Layout {
 // there: its ComfyUI/main.py is a file.
 func (p *Portable) Installed() (string, bool) {
 	l := p.Layout()
-	return l.Dir, isFile(filepath.Join(l.ComfyUI, "main.py"))
+	return l.Dir, platform.IsFile(filepath.Join(l.ComfyUI, "main.py"))
 }
 
 // -- install ------------------------------------------------------------------
@@ -152,7 +151,7 @@ func (p *Portable) Install(ctx context.Context, out io.Writer) error {
 	parentDir := filepath.Dir(installDir)
 	archivePath := o.ArchivePath
 	if archivePath == "" {
-		archivePath = filepath.Join(parentDir, AssetName)
+		archivePath = filepath.Join(parentDir, assetName)
 	}
 	if archivePath, err = filepath.Abs(archivePath); err != nil {
 		return err
@@ -160,7 +159,7 @@ func (p *Portable) Install(ctx context.Context, out io.Writer) error {
 	partPath := archivePath + ".part"
 
 	// 1. Already installed?
-	if isFile(filepath.Join(installDir, "ComfyUI", "main.py")) {
+	if platform.IsFile(filepath.Join(installDir, "ComfyUI", "main.py")) {
 		fmt.Fprintf(out, "SKIP: ComfyUI is already installed in %s\n", installDir)
 		return nil
 	}
@@ -173,7 +172,7 @@ func (p *Portable) Install(ctx context.Context, out io.Writer) error {
 	if sevenZip == "" {
 		sevenZip = findSevenZip()
 	}
-	if sevenZip == "" || !isFile(sevenZip) {
+	if sevenZip == "" || !platform.IsFile(sevenZip) {
 		return errors.New("7-Zip was not found. Install it (winget install 7zip.7zip) or pass -seven-zip with the full path to 7z.exe.")
 	}
 	if err := os.MkdirAll(parentDir, 0o755); err != nil {
@@ -191,7 +190,7 @@ func (p *Portable) Install(ctx context.Context, out io.Writer) error {
 
 	// 3. Download (resumes a .part file after an interruption).
 	archiveReady := false
-	if isFile(archivePath) {
+	if platform.IsFile(archivePath) {
 		if fileSize(archivePath) == o.ExpectedBytes && sha256File(archivePath) == o.ExpectedSHA256 {
 			fmt.Fprintf(out, "Using the verified archive that is already at %s\n", archivePath)
 			archiveReady = true
@@ -200,7 +199,7 @@ func (p *Portable) Install(ctx context.Context, out io.Writer) error {
 		}
 	}
 	if !archiveReady {
-		fmt.Fprintf(out, "Downloading ComfyUI %s portable (%.2f GiB) from GitHub ...\n", Version, float64(o.ExpectedBytes)/gib)
+		fmt.Fprintf(out, "Downloading ComfyUI %s portable (%.2f GiB) from GitHub ...\n", version, float64(o.ExpectedBytes)/gib)
 		if err := o.download(ctx, partPath, out); err != nil {
 			return err
 		}
@@ -233,7 +232,7 @@ func (p *Portable) Install(ctx context.Context, out io.Writer) error {
 		return fmt.Errorf("7-Zip failed with exit code %d. The archive is kept at %s", code, archivePath)
 	}
 	top := filepath.Join(staging, "ComfyUI_windows_portable")
-	if !isFile(filepath.Join(top, "ComfyUI", "main.py")) {
+	if !platform.IsFile(filepath.Join(top, "ComfyUI", "main.py")) {
 		return errors.New(`The archive does not have the expected ComfyUI_windows_portable\ComfyUI\main.py layout.`)
 	}
 	if _, err := os.Stat(installDir); err == nil {
@@ -247,7 +246,7 @@ func (p *Portable) Install(ctx context.Context, out io.Writer) error {
 		os.Remove(archivePath)
 		fmt.Fprintln(out, "Deleted the archive. Use -keep-archive to keep it next time.")
 	}
-	fmt.Fprintf(out, "OK: ComfyUI %s is installed in %s\n", Version, installDir)
+	fmt.Fprintf(out, "OK: ComfyUI %s is installed in %s\n", version, installDir)
 	fmt.Fprintf(out, "Next: horus start-comfyui -comfyui-dir '%s'\n", installDir)
 	return nil
 }
@@ -257,19 +256,19 @@ func (p *Portable) Install(ctx context.Context, out io.Writer) error {
 func (p *Portable) withInstallDefaults() Portable {
 	o := *p
 	if o.ArchiveURL == "" {
-		o.ArchiveURL = URL
+		o.ArchiveURL = pinnedURL
 	}
 	if o.ExpectedBytes == 0 {
-		o.ExpectedBytes = ExpectedBytes
+		o.ExpectedBytes = expectedBytes
 	}
 	if o.ExpectedSHA256 == "" {
-		o.ExpectedSHA256 = ExpectedSHA256
+		o.ExpectedSHA256 = expectedSHA256
 	}
 	if o.ExpandedBytes == 0 {
-		o.ExpandedBytes = ExpandedBytes
+		o.ExpandedBytes = expandedBytes
 	}
 	if o.SpareBytes == 0 {
-		o.SpareBytes = SpareBytes
+		o.SpareBytes = spareBytes
 	}
 	if o.FreeSpace == nil {
 		o.FreeSpace = freeSpace
@@ -375,8 +374,8 @@ func (p *Portable) statePath() string { return filepath.Join(p.dir(), stateName)
 func (p *Portable) Start(ctx context.Context, out io.Writer) error {
 	l := p.Layout()
 	serverURL := p.serverURL()
-	if !isFile(l.Python) || !isFile(filepath.Join(l.ComfyUI, "main.py")) {
-		return &NotInstalledError{fmt.Sprintf("ComfyUI was not found in %s. Run horus install-comfyui first, or pass -comfyui-dir.", l.Dir)}
+	if !platform.IsFile(l.Python) || !platform.IsFile(filepath.Join(l.ComfyUI, "main.py")) {
+		return &notInstalledError{fmt.Sprintf("ComfyUI was not found in %s. Run horus install-comfyui first, or pass -comfyui-dir.", l.Dir)}
 	}
 	if answers(ctx, serverURL) {
 		fmt.Fprintf(out, "ComfyUI already answers at %s\n", serverURL)
@@ -418,7 +417,7 @@ func (p *Portable) Start(ctx context.Context, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "Started ComfyUI (process %d). Waiting for %s ...\n", cmd.Process.Pid, serverURL)
 
-	timeout := orDuration(p.Timeout, StartTimeout)
+	timeout := orDuration(p.Timeout, startTimeout)
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 	tick := time.NewTicker(orDuration(p.PollInterval, pollInterval))
@@ -512,7 +511,7 @@ func (p *Portable) Stop(ctx context.Context, out io.Writer) error {
 // waitDown waits until the server no longer answers. It reports false when
 // it still answers after the wait of Stop.
 func (p *Portable) waitDown(ctx context.Context, serverURL string) bool {
-	deadline := time.Now().Add(orDuration(p.StopTimeout, StopTimeout))
+	deadline := time.Now().Add(orDuration(p.StopTimeout, stopTimeout))
 	every := orDuration(p.PollInterval, pollInterval)
 	if every > 500*time.Millisecond {
 		every = 500 * time.Millisecond
@@ -582,11 +581,6 @@ func answers(ctx context.Context, serverURL string) bool {
 
 // -- files --------------------------------------------------------------------
 
-func isFile(p string) bool {
-	fi, err := os.Stat(p)
-	return err == nil && fi.Mode().IsRegular()
-}
-
 func fileSize(p string) int64 {
 	fi, err := os.Stat(p)
 	if err != nil {
@@ -625,7 +619,7 @@ func findSevenZip() string {
 	}
 	for _, env := range []string{"ProgramFiles", "ProgramFiles(x86)"} {
 		if base := os.Getenv(env); base != "" {
-			if c := filepath.Join(base, "7-Zip", "7z.exe"); isFile(c) {
+			if c := filepath.Join(base, "7-Zip", "7z.exe"); platform.IsFile(c) {
 				return c
 			}
 		}

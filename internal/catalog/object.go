@@ -1,5 +1,4 @@
-// Object: a JSON object that keeps the order of its keys, as a Python dict
-// does. Part of the port of horus/catalog.py.
+// Object: a JSON object that keeps the order of its keys.
 package catalog
 
 import (

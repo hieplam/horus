@@ -152,9 +152,9 @@ func TestInstallReportsProgressAndACancelStopsTheDownload(t *testing.T) {
 	log := &lockedBuffer{}
 	logTo(log)
 	t.Cleanup(func() { logTo(os.Stderr) })
-	oldTick := ProgressInterval
-	ProgressInterval = 20 * time.Millisecond
-	t.Cleanup(func() { ProgressInterval = oldTick })
+	oldTick := progressInterval
+	progressInterval = 20 * time.Millisecond
+	t.Cleanup(func() { progressInterval = oldTick })
 
 	dl := &slowDownloader{part: 2_500_000, ready: make(chan string, 1)}
 	setup := provision.New(diskFiles{models}, dl, downComfy{}, diskFiles{models}, "")

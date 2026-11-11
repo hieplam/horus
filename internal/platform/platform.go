@@ -4,9 +4,9 @@
 //
 //   - StartTree starts a process tree that keeps running after its starter
 //     ends. EndTree ends that tree, also from another process.
-//   - NoConsole starts a child without a console window.
 //   - Programs finds a program on the PATH and runs it to its end.
 //   - FreeSpace gives the free bytes of a folder.
+//   - IsFile tells if a path is a regular file.
 //   - IsRooted, VenvBin, ExeName and PythonCommand give the paths and the
 //     program names of this OS. They are pure functions.
 //   - BlockDelete makes the delete of a file fail, for a test.
@@ -18,6 +18,7 @@ package platform
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -42,11 +43,11 @@ func StartTree(cmd *exec.Cmd) (string, error) { return startTree(cmd) }
 // that has no process left is not an error.
 //
 // Windows: it opens the Job Object by its name and ends it. Unix: it sends
-// SIGTERM to the process group, waits up to EndWait, then sends SIGKILL.
+// SIGTERM to the process group, waits up to endWait, then sends SIGKILL.
 func EndTree(id string) error { return endTree(id) }
 
-// EndWait is the time that EndTree waits on Unix between SIGTERM and SIGKILL.
-var EndWait = 3 * time.Second
+// endWait is the time that EndTree waits on Unix between SIGTERM and SIGKILL.
+var endWait = 3 * time.Second
 
 // ErrBadTree is the error of EndTree for an id that StartTree cannot make.
 var ErrBadTree = errors.New("not the id of a process tree")
@@ -54,10 +55,6 @@ var ErrBadTree = errors.New("not the id of a process tree")
 // ErrNotSupported is the error of a step that horus cannot do on this OS
 // yet, for example the ComfyUI backend on macOS (Phase 3).
 var ErrNotSupported = errors.New("not supported on this OS yet")
-
-// NoConsole makes cmd start without a console window. It does nothing on
-// macOS and Linux, because they open no window for a child.
-func NoConsole(cmd *exec.Cmd) { noConsole(cmd) }
 
 // FreeSpace returns the bytes that the current user can write in the folder
 // dir. The folder must exist.
@@ -112,4 +109,11 @@ func PythonCommand(version string) (cmd []string, notFound string) {
 			fmt.Sprintf("The Python Launcher (py.exe) was not found. Install Python %s from python.org.", version)
 	}
 	return []string{"python" + version}, fmt.Sprintf("python%s was not found. Install Python %s.", version, version)
+}
+
+// IsFile reports whether p is a regular file. A folder, and a path that does
+// not exist, give false.
+func IsFile(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
 }

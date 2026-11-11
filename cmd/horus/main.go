@@ -1,5 +1,4 @@
 // Command horus: one program for the horus MCP server and the setup commands.
-// It replaces the Python package horus/ and the scripts in scripts/.
 //
 //	horus <command> [flags]
 //

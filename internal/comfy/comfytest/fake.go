@@ -119,8 +119,8 @@ func (f *Fake) Frees() int {
 	return f.frees
 }
 
-// TinyPNG is a 1x1 PNG, the same as tiny_png of the contract test.
-func TinyPNG() []byte {
+// tinyPNG is a 1x1 PNG, the same as tiny_png of the contract test.
+func tinyPNG() []byte {
 	chunk := func(kind string, data []byte) []byte {
 		var b bytes.Buffer
 		_ = binary.Write(&b, binary.BigEndian, uint32(len(data)))
@@ -180,7 +180,7 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 			send(w, 200, map[string]any{"queue_running": running, "queue_pending": pending})
 		case p == "/view":
 			w.Header().Set("Content-Type", "image/png")
-			_, _ = w.Write(TinyPNG())
+			_, _ = w.Write(tinyPNG())
 		default:
 			send(w, 404, map[string]any{"error": "not found"})
 		}

@@ -1,5 +1,5 @@
 // Package download downloads one file and keeps it only if its size and
-// SHA-256 hash are correct. It ports scripts/download-model.ps1. Go's net/http
+// SHA-256 hash are correct. Go's net/http
 // replaces curl.exe.
 //
 //   - It writes to "<dest>.part" first. The final name appears only after the
@@ -41,14 +41,14 @@ import (
 	"github.com/hieplam/horus/internal/settings"
 )
 
-// SpareBytes is the free space that must stay on the drive after the download.
-const SpareBytes = 1 << 30
+// spareBytes is the free space that must stay on the drive after the download.
+const spareBytes = 1 << 30
 
 const gib = float64(1 << 30)
 
-// Kind is the outcome of a failed download. horus/models.py reads four of them
-// from the text output (HTTP 401, HTTP 403, not enough free space, refusal to
-// overwrite). The Go API gives them as a value.
+// Kind is the outcome of a failed download. A caller tells four of them apart:
+// HTTP 401, HTTP 403, not enough free space, and refusal to
+// overwrite. The Go API gives them as a value.
 type Kind int
 
 const (
@@ -104,7 +104,7 @@ type Options struct {
 	// package set it.
 	tokenVar string
 
-	// Out gets the text lines of download-model.ps1. Default: io.Discard.
+	// Out gets the progress lines. Default: io.Discard.
 	Out io.Writer
 	// Root is the folder of the .env file. Default: settings.Root().
 	Root string
@@ -126,7 +126,7 @@ type Result struct {
 
 var hexSHA = regexp.MustCompile(`^[A-Fa-f0-9]{64}$`)
 
-// Download downloads one file as download-model.ps1 does. On failure the error
+// Download downloads one file. On failure the error
 // is an *Error.
 func Download(ctx context.Context, o Options) (res Result, err error) {
 	var reasons []string
@@ -207,7 +207,7 @@ func Download(ctx context.Context, o Options) (res Result, err error) {
 
 	// 2. Free space: the rest of the file plus 1 GiB.
 	already := size(part)
-	need := uint64(max(0, o.ExpectedBytes-already)) + SpareBytes
+	need := uint64(max(0, o.ExpectedBytes-already)) + spareBytes
 	dir := filepath.Dir(dest)
 	if free, err := o.FreeSpace(existingAncestor(dir)); err != nil {
 		say("Warning: cannot read free space for this path (network path?). Continuing.")
@@ -222,7 +222,7 @@ func Download(ctx context.Context, o Options) (res Result, err error) {
 
 	// 3. Token, only for Hugging Face hosts.
 	token := readToken(o.tokenVar, o.Root)
-	if token != "" && !TokenAllowed(u) {
+	if token != "" && !tokenAllowed(u) {
 		say("Warning: the host %s is not huggingface.co. The token is not sent.", u.Hostname())
 	}
 	client := newClient(o.Transport)
@@ -302,7 +302,7 @@ type statusError struct{ code int }
 func (e statusError) Error() string { return fmt.Sprintf("the server returned error: %d", e.code) }
 
 // why is the reason in an "Attempt ... did not finish" line. For an HTTP error
-// it holds "error: <code>", the text that horus/models.py reads.
+// it holds "error: <code>".
 func why(err error, status int) string {
 	var se statusError
 	switch {
@@ -325,7 +325,7 @@ func fetch(ctx context.Context, client *http.Client, u *url.URL, token, part str
 	if err != nil {
 		return 0, err
 	}
-	if token != "" && TokenAllowed(u) {
+	if token != "" && tokenAllowed(u) {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	if have > 0 {
@@ -379,10 +379,10 @@ func rangeStart(cr string) (int64, bool) {
 	return n, err == nil
 }
 
-// TokenAllowed reports if a request to u may carry the token: https, and the
+// tokenAllowed reports if a request to u may carry the token: https, and the
 // host is huggingface.co or ends with .huggingface.co. It reads the parsed
 // host, so evil-huggingface.co and huggingface.co.evil.example are refused.
-func TokenAllowed(u *url.URL) bool {
+func tokenAllowed(u *url.URL) bool {
 	if u.Scheme != "https" {
 		return false
 	}
@@ -399,7 +399,7 @@ func newClient(rt http.RoundTripper) *http.Client {
 			if len(via) >= 10 {
 				return errors.New("stopped after 10 redirects")
 			}
-			if !TokenAllowed(req.URL) {
+			if !tokenAllowed(req.URL) {
 				req.Header.Del("Authorization")
 			}
 			return nil

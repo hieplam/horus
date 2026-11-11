@@ -1,6 +1,5 @@
 // Package doctor is the service of horus doctor (also horus check-setup):
-// one health check for the whole horus setup. It ports
-// scripts/check-setup.ps1.
+// one health check for the whole horus setup.
 //
 // Checks, in this order:
 //  1. ComfyUI is installed (the backend says so).
@@ -100,11 +99,6 @@ func Failed(rs []Result) int {
 	return n
 }
 
-func isFile(p string) bool {
-	fi, err := os.Stat(p)
-	return err == nil && fi.Mode().IsRegular()
-}
-
 // Check runs the checks and returns one result for each, in order.
 func (s *Service) Check(ctx context.Context, o Options) []Result {
 	var rs []Result
@@ -132,7 +126,7 @@ func (s *Service) Check(ctx context.Context, o Options) []Result {
 	// 3. comfy-mcp found.
 	mcpProg := ""
 	venvMCP := platform.VenvBin(o.VenvPath, "comfy-mcp")
-	fromVenv := isFile(venvMCP)
+	fromVenv := platform.IsFile(venvMCP)
 	if fromVenv {
 		mcpProg = venvMCP
 		add(true, "comfy-mcp environment", venvMCP)
@@ -163,7 +157,7 @@ func (s *Service) Check(ctx context.Context, o Options) []Result {
 		add(false, "comfy-cli", "comfy-mcp is missing, so comfy-cli cannot be found. Fix: horus install-comfy-mcp")
 	default:
 		next := filepath.Join(filepath.Dir(mcpProg), comfyName)
-		if isFile(next) {
+		if platform.IsFile(next) {
 			add(true, "comfy-cli", next)
 		} else if p, err := look("comfy"); err == nil && !fromVenv {
 			add(true, "comfy-cli", p)
@@ -282,7 +276,7 @@ func resolve(cmd string, look func(string) (string, error)) (string, bool) {
 		return "", false
 	}
 	if strings.ContainsAny(cmd, `/\`) {
-		return cmd, isFile(cmd)
+		return cmd, platform.IsFile(cmd)
 	}
 	p, err := look(cmd)
 	return p, err == nil

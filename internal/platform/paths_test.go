@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// (Moved from internal/scripts/installcomfymcp.)
 func TestVenvPathsFollowTheOS(t *testing.T) {
 	want := filepath.Join("v", "bin", "python")
 	if runtime.GOOS == "windows" {

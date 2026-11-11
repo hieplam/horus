@@ -1,5 +1,5 @@
 // horus errors: the table of error codes, for a reader that is not Go (the
-// contract test). It ports the table ERRORS of horus/errors.py. And horus
+// contract test). And horus
 // mcp: the flags of the MCP server.
 package cli
 

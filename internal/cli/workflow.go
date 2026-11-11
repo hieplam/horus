@@ -1,6 +1,6 @@
 // horus workflow lists the horus workflows, and installs, checks or removes
-// the model files of one. It ports the flags and the output of
-// scripts/workflow.ps1. The work is in the service internal/provision.
+// the model files of one.
+// The work is in the service internal/provision.
 //
 // Actions:
 //
@@ -352,7 +352,7 @@ func (p *printer) remove(res *provision.Result, ok bool) {
 	}
 }
 
-// gb2 is "{0:N2}" -f ($bytes / 1e9) as workflow.ps1 prints it on Windows in
+// gb2 writes bytes in GB with two decimals, as PowerShell "{0:N2}" -f ($bytes / 1e9) prints them on Windows in
 // the en-US culture: .NET Framework takes the value with 15 significant digits,
 // rounds it half away from zero to two decimals, and puts a comma between
 // groups of three digits. So 999.995 gives "1,000.00" and 1.005 gives "1.01".

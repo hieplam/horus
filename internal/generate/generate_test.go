@@ -1,4 +1,4 @@
-// Tests of the port of horus/generate.py, against a fake of the interface
+// Tests of the image service, against a fake of the interface
 // ComfyUI (fake_test.go) and workflows in a temporary folder. The same path
 // through the real adapter and a fake ComfyUI over HTTP is tested in
 // cmd/horus (image_test.go).

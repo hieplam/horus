@@ -1,5 +1,4 @@
-// horus run-illustration makes one image without MCP. It ports
-// scripts/run-illustration.py.
+// horus run-illustration makes one image without MCP.
 //
 // It calls the image service internal/generate, the same code as the tool
 // generate_image, so it holds no second copy of the steps (convert the graph,
@@ -38,8 +37,8 @@ type Images interface {
 	Generate(ctx context.Context, r generate.Request, o generate.Options) (*generate.Result, error)
 }
 
-// IllustrationOptions is everything that Illustrate needs.
-type IllustrationOptions struct {
+// illustrationOptions is everything that illustrate needs.
+type illustrationOptions struct {
 	Subject  string
 	Workflow string
 	Out      string
@@ -53,8 +52,8 @@ type IllustrationOptions struct {
 	Timeout   time.Duration
 }
 
-// IllustrationResult is the JSON line of a success.
-type IllustrationResult struct {
+// illustrationResult is the JSON line of a success.
+type illustrationResult struct {
 	OK               bool     `json:"ok"`
 	PromptID         string   `json:"prompt_id"`
 	Out              string   `json:"out"`
@@ -88,8 +87,8 @@ func illustrationPrompt(subject, stylePath string) (string, error) {
 	return *style.Prefix + " " + subject + " " + *style.Suffix, nil
 }
 
-// Illustrate makes one image through the image service.
-func Illustrate(ctx context.Context, images Images, o IllustrationOptions) (*IllustrationResult, error) {
+// illustrate makes one image through the image service.
+func illustrate(ctx context.Context, images Images, o illustrationOptions) (*illustrationResult, error) {
 	prompt, err := illustrationPrompt(o.Subject, o.StylePath)
 	if err != nil {
 		return nil, err
@@ -105,15 +104,15 @@ func Illustrate(ctx context.Context, images Images, o IllustrationOptions) (*Ill
 	if err != nil {
 		return nil, err
 	}
-	return &IllustrationResult{OK: true, PromptID: res.JobID, Out: res.Path, Seed: res.Seed, Steps: res.Steps,
+	return &illustrationResult{OK: true, PromptID: res.JobID, Out: res.Path, Seed: res.Seed, Steps: res.Steps,
 		Width: res.Width, Height: res.Height, ExecutionSeconds: res.BackendSeconds, ComfyOutput: res.ComfyOutput}, nil
 }
 
 // illustrationWorkflow turns the value of -workflow into a workflow name. A
 // plain name stays as it is. The path of a workflow.json inside a workflow
 // folder becomes the name of that folder, and the parent of the folder becomes
-// the workflows folder of this process, as the old script ran the file that it
-// was given.
+// the workflows folder of this process, so that a run of a file of a workflow
+// uses that file's folder.
 func illustrationWorkflow(v string) (string, error) {
 	if !strings.ContainsAny(v, `/\`) && !strings.HasSuffix(strings.ToLower(v), ".json") {
 		return v, nil
@@ -181,7 +180,7 @@ func RunIllustration(args []string, stdout, stderr io.Writer, imagesAt func(url 
 	if err != nil {
 		return fail(err)
 	}
-	o := IllustrationOptions{Subject: text, Workflow: name, Out: *out, Seed: *seed, StylePath: *style,
+	o := illustrationOptions{Subject: text, Workflow: name, Out: *out, Seed: *seed, StylePath: *style,
 		Timeout: time.Duration(*timeout) * time.Second}
 	if *steps != 0 {
 		o.Steps = steps
@@ -194,7 +193,7 @@ func RunIllustration(args []string, stdout, stderr io.Writer, imagesAt func(url 
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	res, err := Illustrate(ctx, imagesAt(*url), o)
+	res, err := illustrate(ctx, imagesAt(*url), o)
 	if err != nil {
 		return fail(err)
 	}

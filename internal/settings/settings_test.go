@@ -1,4 +1,4 @@
-// Tests of the port of horus/settings.py.
+// Tests of the settings.
 package settings
 
 import (

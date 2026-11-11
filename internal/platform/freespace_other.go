@@ -1,7 +1,7 @@
 //go:build !windows && !darwin && !linux
 
 // Other systems: the free space is not read, and the download goes on with a
-// warning, as download-model.ps1 does for a network path.
+// warning.
 package platform
 
 import "errors"

@@ -1,5 +1,4 @@
-// Package modelfiles is the adapter for the model files on the disk. It ports
-// the file part of scripts/workflow.ps1.
+// Package modelfiles is the adapter for the model files on the disk.
 //
 // Where a model file of folder F is looked for, in this order: the models
 // folder/F (HORUS_MODELS_DIR; for F = text_encoders, the text encoder folder
@@ -14,7 +13,6 @@
 package modelfiles
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -25,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
 )
@@ -82,7 +81,7 @@ func (s *Store) Map(pairs [][2]string) error {
 	yamlPath := s.yamlPath()
 	text := ""
 	if data, err := os.ReadFile(yamlPath); err == nil {
-		text = string(bytes.TrimPrefix(data, bom))
+		text = string(catalog.TrimBOM(data))
 		now := time.Now
 		if s.Now != nil {
 			now = s.Now
@@ -192,7 +191,7 @@ func yamlFolders(path string) map[string][]string {
 		return out
 	}
 	base, blockKey := "", ""
-	for _, raw := range splitLines(data) {
+	for _, raw := range catalog.SplitLines(data) {
 		line := strings.TrimRightFunc(yamlComment.ReplaceAllString(raw, ""), isSpace)
 		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimLeftFunc(line, isSpace), "#") {
 			continue
@@ -234,20 +233,6 @@ func yamlFolders(path string) map[string][]string {
 	return out
 }
 
-// splitLines splits as [IO.File]::ReadAllLines does, without a BOM.
-func splitLines(data []byte) []string {
-	s := string(bytes.TrimPrefix(data, bom))
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\n")
-	s = strings.TrimSuffix(s, "\n")
-	if s == "" {
-		return nil
-	}
-	return strings.Split(s, "\n")
-}
-
-var bom = []byte{0xef, 0xbb, 0xbf}
-
 func isSpace(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\r' || r == '\n' || r == '\f' || r == '\v'
 }
@@ -263,9 +248,4 @@ func fullPath(p string) string {
 		p = a
 	}
 	return strings.TrimRight(filepath.Clean(p), `\`)
-}
-
-func isFile(p string) bool {
-	fi, err := os.Stat(p)
-	return err == nil && fi.Mode().IsRegular()
 }

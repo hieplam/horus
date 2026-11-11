@@ -1,5 +1,4 @@
-// The free space of a folder on Windows. Ports the DriveInfo check of
-// scripts/download-model.ps1.
+// The free space of a folder on Windows.
 package platform
 
 import (

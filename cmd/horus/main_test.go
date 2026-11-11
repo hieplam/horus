@@ -3,7 +3,7 @@ package main
 
 import "testing"
 
-// portMap is one command for each row of the port map in issue #4 (Phase 1),
+// portMap is one command for each row of the command table of Phase 1,
 // plus errors. install-workflow-models is dropped (spec, design decisions).
 var portMap = []string{"mcp", "workflow", "download-model", "check-setup", "install-comfyui", "start-comfyui",
 	"install-comfy-mcp", "sync-workflows", "new-workflow", "register", "run-illustration", "errors",

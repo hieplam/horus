@@ -1,5 +1,4 @@
-// The envelope that every tool returns, and the guard around each call. Part
-// of the port of horus/server.py (_ok, _fail, _guard).
+// The envelope that every tool returns, and the guard around each call.
 package mcpserver
 
 import (
@@ -54,10 +53,10 @@ func result(env Envelope) *mcp.CallToolResult {
 
 func ptr[T any](v T) *T { return &v }
 
-// okResult is _ok of server.py.
+// okResult wraps the result of a tool that succeeded.
 func okResult(v any) *mcp.CallToolResult { return result(Envelope{OK: true, Result: v}) }
 
-// failResult is _fail of server.py. It also sets isError.
+// failResult wraps a horus error. It also sets isError.
 func failResult(e *herr.Error) *mcp.CallToolResult {
 	return result(Envelope{OK: false, Error: ptr(e.Info())})
 }

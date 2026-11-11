@@ -1,4 +1,4 @@
-// The tool uninstall_workflow. Part of the port of horus/server.py.
+// The tool uninstall_workflow.
 package mcpserver
 
 import (
@@ -10,7 +10,7 @@ import (
 	"github.com/hieplam/horus/internal/herr"
 )
 
-// UninstallResult is the result of uninstall_workflow, in the key order of server.py.
+// UninstallResult is the result of uninstall_workflow, in the key order that the tool shows.
 type UninstallResult struct {
 	Workflow   string        `json:"workflow"`
 	Files      []InstallFile `json:"files"`

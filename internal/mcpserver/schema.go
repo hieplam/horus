@@ -1,6 +1,5 @@
-// JSON schemas of the tools, written as pydantic writes them for the result
-// models and the arguments of horus/server.py. Part of the port of
-// horus/server.py. The test compares them with testdata/tools.golden.json.
+// JSON schemas of the tools: the result models and the arguments.
+// The test compares them with testdata/tools.golden.json.
 package mcpserver
 
 import "strings"
@@ -29,11 +28,10 @@ func (x field) null() field { x.nullable = true; return x }
 // dflt makes the field optional with a default value.
 func (x field) dflt(v any) field { x.optional, x.def, x.hasDef = true, v, true; return x }
 
-// factory makes the field optional without a "default" key, as pydantic
-// writes a field with default_factory.
+// factory makes the field optional without a "default" key.
 func (x field) factory() field { x.optional = true; return x }
 
-// title is the pydantic title of a field: "out_path" becomes "Out Path".
+// title is the title of a field in the schema: "out_path" becomes "Out Path".
 func title(name string) string {
 	parts := strings.Split(name, "_")
 	for i, p := range parts {
@@ -63,7 +61,7 @@ func (x field) schema() obj {
 	return s
 }
 
-// model is the object schema of a pydantic model or of the arguments of a tool.
+// model is the object schema of a result model or of the arguments of a tool.
 func model(name string, fields ...field) obj {
 	props := obj{}
 	required := []any{}
@@ -102,7 +100,7 @@ func tEnum(values ...string) obj {
 
 var tInstallState = tEnum("installed", "partially_installed", "not_installed")
 
-// errorInfoModel is ErrorInfo of server.py.
+// errorInfoModel is the schema of the error in an envelope.
 var errorInfoModel = model("ErrorInfo",
 	f("code", tString).d("Stable error code, for example WORKFLOW_NOT_INSTALLED. See docs/mcp.md."),
 	f("message", tString).d("What went wrong, for a person."),
@@ -113,7 +111,7 @@ var errorInfoModel = model("ErrorInfo",
 	f("details", tDict).d("Facts: file names, allowed values, backend message.").factory(),
 )
 
-// installFileModel is InstallFile of server.py.
+// installFileModel is the schema of InstallFile.
 var installFileModel = model("InstallFile",
 	f("role", tString),
 	f("file", tString),
@@ -123,7 +121,7 @@ var installFileModel = model("InstallFile",
 	f("detail", tString).null().dflt(nil),
 )
 
-// envelope is the output schema Envelope[<result>] of server.py. defs holds
+// envelope is the output schema of an Envelope that holds a result. defs holds
 // the result model and the models that it refers to.
 func envelope(result string, defs obj) obj {
 	all := obj{"ErrorInfo": errorInfoModel}

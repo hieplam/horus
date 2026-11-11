@@ -48,14 +48,14 @@ type Layout struct {
 	Logs    []string // the log files of a ComfyUI that horus started
 }
 
-// NotInstalledError is the error of Start when ComfyUI is not installed.
-type NotInstalledError struct{ msg string }
+// notInstalledError is the error of Start when ComfyUI is not installed.
+type notInstalledError struct{ msg string }
 
-func (e *NotInstalledError) Error() string { return e.msg }
+func (e *notInstalledError) Error() string { return e.msg }
 
 // NotInstalled marks the error, so that a caller can test for it with
 // errors.As and an interface of its own.
-func (e *NotInstalledError) NotInstalled() bool { return true }
+func (e *notInstalledError) NotInstalled() bool { return true }
 
 // New gives the backend of this OS: the portable build on Windows, else a
 // backend that answers "not supported on this OS yet".

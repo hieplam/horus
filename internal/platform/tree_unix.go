@@ -35,7 +35,7 @@ func endTree(id string) error {
 	return endGroup(pgid)
 }
 
-// endGroup sends SIGTERM to the process group pgid, waits up to EndWait for
+// endGroup sends SIGTERM to the process group pgid, waits up to endWait for
 // the group to be empty, then sends SIGKILL.
 func endGroup(pgid int) error {
 	if pgid <= 1 {
@@ -48,7 +48,7 @@ func endGroup(pgid int) error {
 		}
 		return err
 	}
-	deadline := time.Now().Add(EndWait)
+	deadline := time.Now().Add(endWait)
 	for time.Now().Before(deadline) {
 		if errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH) {
 			return nil
@@ -60,5 +60,3 @@ func endGroup(pgid int) error {
 	}
 	return nil
 }
-
-func noConsole(*exec.Cmd) {}

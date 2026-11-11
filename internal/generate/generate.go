@@ -1,4 +1,4 @@
-// Package generate makes one image from one workflow. It ports horus/generate.py.
+// Package generate makes one image from one workflow.
 //
 // The steps:
 //  1. Check the arguments against the workflow manifest (subject length, size, out_path).
@@ -126,7 +126,7 @@ type Request struct {
 	Steps *int64
 }
 
-// Result is the result of generate_image, in the key order of ImageResult of server.py.
+// Result is the result of generate_image, in the key order that the tool shows.
 type Result struct {
 	Workflow       string   `json:"workflow"`
 	Path           string   `json:"path"`
@@ -145,7 +145,7 @@ type Result struct {
 	ComfyOutput string `json:"-"`
 }
 
-// checked is the output of Validate.
+// checked is the output of validate.
 type checked struct {
 	subject       string
 	seed          uint64
@@ -186,8 +186,8 @@ func toBig(v any) (*big.Int, bool) {
 
 var maxSeed = new(big.Int).Lsh(big.NewInt(1), 64)
 
-// Validate checks the arguments against the manifest of w.
-func Validate(w *catalog.Workflow, r Request) (*checked, error) {
+// validate checks the arguments against the manifest of w.
+func validate(w *catalog.Workflow, r Request) (*checked, error) {
 	var out outputRules
 	var rules subjectRules
 	if err := w.Manifest.Decode("output", &out); err != nil {
@@ -303,12 +303,7 @@ func pyQuote(s string) string {
 	return "'" + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "'", `\'`) + "'"
 }
 
-// round1 is round(x, 1) of Python: the exact binary value rounded half to
-// even. roundInt is round(x) of Python (half to even).
-func round1(x float64) float64 {
-	v, _ := strconv.ParseFloat(strconv.FormatFloat(x, 'f', 1, 64), 64)
-	return v
-}
+// roundInt rounds x to the nearest whole number, and a half to the even one.
 func roundInt(x float64) float64 { return math.RoundToEven(x) }
 
 // Options are the parts of a call that the server or a test sets.
@@ -325,7 +320,7 @@ func (s *Service) Generate(ctx context.Context, r Request, o Options) (*Result, 
 	if err != nil {
 		return nil, err
 	}
-	req, err := Validate(w, r)
+	req, err := validate(w, r)
 	if err != nil {
 		return nil, err
 	}
@@ -472,7 +467,7 @@ func (s *Service) Generate(ctx context.Context, r Request, o Options) (*Result, 
 		Width:          req.width,
 		Height:         req.height,
 		Seed:           req.seed,
-		Seconds:        round1(time.Since(t0).Seconds()),
+		Seconds:        graph.Round1(time.Since(t0).Seconds()),
 		BackendSeconds: job.BackendSeconds,
 		StartedBackend: started,
 		JobID:          promptID,

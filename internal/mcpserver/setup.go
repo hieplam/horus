@@ -1,6 +1,5 @@
 // What the model tools need from the setup service internal/provision, and
-// the mapping of its typed results to the horus error codes. Part of the port
-// of horus/models.py.
+// the mapping of its typed results to the horus error codes.
 package mcpserver
 
 import (

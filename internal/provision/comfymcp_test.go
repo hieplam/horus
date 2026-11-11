@@ -43,8 +43,8 @@ func fakePython(args []string) int {
 		if _, err := os.Stat(filepath.Join(binDir, "installed.marker")); err != nil {
 			return 1
 		}
-		fmt.Println(MCPVersion)
-		fmt.Println(CLIVersion)
+		fmt.Println(mcpVersion)
+		fmt.Println(cliVersion)
 	}
 	return 0
 }

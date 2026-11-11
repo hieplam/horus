@@ -1,6 +1,4 @@
-// The arguments of a tool call: checked against the fields of the tool, as
-// pydantic checks them in horus/server.py. Part of the port of
-// horus/server.py.
+// The arguments of a tool call: checked against the fields of the tool.
 package mcpserver
 
 import (
@@ -42,7 +40,7 @@ func (a args) intPtr(name string) *int64 {
 }
 
 // parseArgs checks the raw arguments against the fields. Unknown arguments
-// are ignored, as in the Python server. The problems are returned as lines
+// are ignored. The problems are returned as lines
 // "<field>\n  <message>".
 func parseArgs(raw json.RawMessage, fields []field) (args, []string) {
 	in := map[string]json.RawMessage{}
@@ -102,7 +100,7 @@ func checkValue(raw json.RawMessage, x field) (any, string) {
 				return i, ""
 			}
 			if b, ok := new(big.Int).SetString(n.String(), 10); ok {
-				return b, "" // a Python int has no size limit; the tool checks the range
+				return b, "" // a whole number of any size is kept; the tool checks the range
 			}
 			if fl, err := n.Float64(); err == nil && fl == math.Trunc(fl) && math.Abs(fl) < 1<<53 {
 				return int64(fl), ""
@@ -114,7 +112,7 @@ func checkValue(raw json.RawMessage, x field) (any, string) {
 	return v, ""
 }
 
-// argsError is the answer of the Python server to arguments that fail the
+// argsError is the answer of the server to arguments that fail the
 // check: isError, no structuredContent, and the problems as text.
 func argsError(tool string, problems []string) *mcp.CallToolResult {
 	n := len(problems)

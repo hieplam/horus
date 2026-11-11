@@ -1,6 +1,6 @@
 // horus doctor (also horus check-setup): one PASS or FAIL line for each check
-// of the setup. It ports the flags and the output of
-// scripts/check-setup.ps1. The checks are in the service internal/doctor.
+// of the setup.
+// The checks are in the service internal/doctor.
 // With -workflow, the handler then runs the check of horus workflow check on
 // the setup service, and writes its lines with an indent.
 //

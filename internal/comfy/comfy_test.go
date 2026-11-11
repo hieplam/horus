@@ -1,5 +1,4 @@
-// Tests of the ComfyUI client and the job error mapping. Part of
-// the port of horus/comfy.py.
+// Tests of the ComfyUI client and the job error mapping.
 package comfy
 
 import (
@@ -41,9 +40,9 @@ func codeOf(err error) string {
 	return ""
 }
 
-func status(t *testing.T, s string) Status {
+func status(t *testing.T, s string) jobStatus {
 	t.Helper()
-	var st Status
+	var st jobStatus
 	if err := json.Unmarshal([]byte(s), &st); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +73,7 @@ func TestJobErrors(t *testing.T) {
 		{"no message", `{"status_str": "error", "messages": []}`, "GENERATION_FAILED", true, "retry"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			info := JobError("job-1", status(t, c.status)).Info()
+			info := jobError("job-1", status(t, c.status)).Info()
 			if info.Code != c.code || info.Retryable != c.retryable || info.ActionBy != c.actionBy {
 				t.Fatalf("got %s retryable=%v action_by=%s", info.Code, info.Retryable, info.ActionBy)
 			}
@@ -83,12 +82,12 @@ func TestJobErrors(t *testing.T) {
 			}
 		})
 	}
-	info := JobError("j", status(t, execError("RuntimeError", "CUDA driver version is insufficient"))).Info()
+	info := jobError("j", status(t, execError("RuntimeError", "CUDA driver version is insufficient"))).Info()
 	if !strings.Contains(info.NextStep, "update the NVIDIA driver") {
 		t.Fatalf("next_step: %s", info.NextStep)
 	}
 	long := strings.Repeat("a", 1000) + strings.Repeat("b", 1500)
-	info = JobError("j", status(t, execError("ValueError", long))).Info()
+	info = jobError("j", status(t, execError("ValueError", long))).Info()
 	if info.Details["backend_message"] != strings.Repeat("b", 1500) {
 		t.Fatal("backend_message must be the last 1500 characters")
 	}
@@ -102,12 +101,12 @@ func TestRejectedGraphError(t *testing.T) {
 	_ = json.Unmarshal([]byte(`{"error": {"type": "x"}, "node_errors": {"1": {"errors": [
 		{"type": "value_not_in_list", "extra_info": {"received_value": "Gone.SAFETENSORS"}},
 		{"type": "value_not_in_list", "extra_info": {"received_value": "euler"}}]}}}`), &reply)
-	e := RejectedGraphError(&reply)
+	e := rejectedGraphError(&reply)
 	if e.Code != "WORKFLOW_NOT_INSTALLED" || !reflect.DeepEqual(e.Details["missing"], []string{"Gone.SAFETENSORS"}) {
 		t.Fatalf("got %v %v", e, e.Details)
 	}
 	_ = json.Unmarshal([]byte(`{"error": {"type": "prompt_no_outputs", "message": "Prompt has no outputs"}, "node_errors": []}`), &reply)
-	info := RejectedGraphError(&reply).Info()
+	info := rejectedGraphError(&reply).Info()
 	if info.Code != "GENERATION_FAILED" || info.Retryable || !strings.Contains(info.NextStep, "defect of the workflow") ||
 		info.Details["backend_message"] != `{"error": {"type": "prompt_no_outputs", "message": "Prompt has no outputs"}, "node_errors": []}` {
 		t.Fatalf("got %+v", info)
@@ -115,12 +114,12 @@ func TestRejectedGraphError(t *testing.T) {
 }
 
 func TestExecutionSeconds(t *testing.T) {
-	e := &Entry{Status: status(t, `{"messages": [["execution_start", {"timestamp": 1000}], ["execution_success", {"timestamp": 4550}]]}`)}
-	if got := ExecutionSeconds(e); got == nil || *got != 3.5 {
+	e := &historyEntry{Status: status(t, `{"messages": [["execution_start", {"timestamp": 1000}], ["execution_success", {"timestamp": 4550}]]}`)}
+	if got := executionSeconds(e); got == nil || *got != 3.5 {
 		t.Fatalf("got %v", got) // 3.55 is 3.5499... in binary, as in Python
 	}
-	e = &Entry{Status: status(t, `{"messages": [["execution_start", {"timestamp": 1000}]]}`)}
-	if ExecutionSeconds(e) != nil {
+	e = &historyEntry{Status: status(t, `{"messages": [["execution_start", {"timestamp": 1000}]]}`)}
+	if executionSeconds(e) != nil {
 		t.Fatal("no execution_success must give nil")
 	}
 }
@@ -196,7 +195,7 @@ func TestClientJobCalls(t *testing.T) {
 }
 
 // TestHistoryOfAFailedJobIsItsError: History maps a job with status "error"
-// to the horus error of JobError, here OUT_OF_MEMORY. The service
+// to the horus error of jobError, here OUT_OF_MEMORY. The service
 // internal/generate returns that error as it is.
 func TestHistoryOfAFailedJobIsItsError(t *testing.T) {
 	f := comfytest.New(t, fixturePath())

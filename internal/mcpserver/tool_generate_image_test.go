@@ -1,7 +1,7 @@
 // Tests of the tool generate_image as a handler, with a fake of the image
 // service. The same tool through the wiring (the real service, the real
 // ComfyUI adapter and the fake ComfyUI of comfytest) is tested in cmd/horus
-// (image_test.go). Part of the port of horus/server.py.
+// (image_test.go).
 package mcpserver
 
 import (

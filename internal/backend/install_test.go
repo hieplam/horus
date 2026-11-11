@@ -79,10 +79,10 @@ func newInstallRig(t *testing.T, serve []byte) *installRig {
 	r := &installRig{dir: dir, record: filepath.Join(dir, "7z.record"), out: &bytes.Buffer{}, hits: hits, ranges: ranges}
 	t.Setenv("HORUS_FAKE_7Z", "1")
 	t.Setenv("HORUS_FAKE_RECORD", r.record)
-	r.archive = filepath.Join(dir, AssetName)
+	r.archive = filepath.Join(dir, assetName)
 	r.p = &Portable{
 		Dir: filepath.Join(dir, "ComfyUI_windows_portable"), SevenZip: exe,
-		ArchiveURL: srv.URL + "/" + AssetName, ExpectedBytes: int64(len(archiveBytes)), ExpectedSHA256: sha(archiveBytes),
+		ArchiveURL: srv.URL + "/" + assetName, ExpectedBytes: int64(len(archiveBytes)), ExpectedSHA256: sha(archiveBytes),
 		ExpandedBytes: 1000, SpareBytes: 1000,
 		FreeSpace: func(string) (int64, error) { return 1 << 40, nil },
 		Sleep:     func(time.Duration) {}, Client: srv.Client(),
@@ -163,7 +163,7 @@ func TestKeepArchive(t *testing.T) {
 func TestTooLittleFreeSpaceStopsWithTheMessageOfTheScript(t *testing.T) {
 	r := newInstallRig(t, archiveBytes)
 	// the real sizes: 8.1 GiB needed
-	r.p.ExpectedBytes, r.p.ExpandedBytes, r.p.SpareBytes = ExpectedBytes, ExpandedBytes, SpareBytes
+	r.p.ExpectedBytes, r.p.ExpandedBytes, r.p.SpareBytes = expectedBytes, expandedBytes, spareBytes
 	r.p.FreeSpace = func(string) (int64, error) { return 1 << 30, nil }
 	err := r.p.Install(context.Background(), r.out)
 	want := "Need 8.1 GiB (archive, unpacked files and 1 GiB spare), have 1.0 GiB."

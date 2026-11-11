@@ -1,4 +1,4 @@
-// Package settings holds the settings of horus. It ports horus/settings.py.
+// Package settings holds the settings of horus.
 //
 // Each setting comes from, in this order: the environment variable, the .env
 // file in the repo root, the default. An empty value counts as not set. The
@@ -73,7 +73,7 @@ func findRoot() string {
 	return "."
 }
 
-// ParseEnv reads the lines of a .env file as settings.py does: it skips empty
+// ParseEnv reads the lines of a .env file: it skips empty
 // lines, comments and lines without "=", strips quotes from the value, and
 // drops a key whose value is empty.
 func ParseEnv(data []byte) map[string]string {

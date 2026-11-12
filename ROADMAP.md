@@ -5,7 +5,10 @@ can call when it needs an image.
 
 ## Now: v0, the starter kit
 
-- Flow 1: [a fresh Windows PC to a working setup](docs/setup.md).
+- Flow 1: [a fresh Windows PC or Mac to a working setup](docs/setup.md).
+  On macOS, `horus` installs, starts and stops ComfyUI through comfy-cli
+  (Phase 3 of [issue #4](https://github.com/hieplam/horus/issues/4)). The real
+  run of the whole setup on a Mac is the last part of that phase.
 - Flow 2: [a style description to a tested workflow](docs/style-to-workflow.md).
 - One example workflow: [`it-illustration`](workflows/it-illustration/README.md).
 
@@ -13,9 +16,12 @@ can call when it needs an image.
 
 - **More example workflows.** Each one has a `models.json`, a verified run and
   example images. Candidates: a photo-style workflow and an image-to-image edit.
-- **macOS and Linux setup.** `horus` builds and runs on Windows, macOS and Linux.
-  `horus install-comfyui`, `horus start-comfyui` and `horus stop-comfyui` are Windows-only today
-  (Phase 3 of [issue #4](https://github.com/hieplam/horus/issues/4)).
+- **One install line, and uninstall.** A release of the `horus` program for
+  Windows and macOS, an install line that puts it on the PATH, and
+  `horus uninstall` (Phase 4 of [issue #4](https://github.com/hieplam/horus/issues/4)).
+- **Linux setup.** `horus` builds and runs on Linux, but
+  `horus install-comfyui`, `horus start-comfyui` and `horus stop-comfyui` answer
+  "not supported on this OS yet" there.
 - **Video.** Short text-to-video and image-to-video clips on consumer GPUs.
 
 ## Now: v0.1, horus as an MCP server

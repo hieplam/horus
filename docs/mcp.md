@@ -92,7 +92,7 @@ sequenceDiagram
   S->>G: make one image
   G->>C: ask GET /system_stats: are you running?
   opt ComfyUI does not answer and HORUS_AUTOSTART is not 0
-    G->>B: start ComfyUI (Windows only)
+    G->>B: start ComfyUI (Windows and macOS)
     B->>C: start the process and wait until it answers
   end
   G->>C: ask GET /object_info: do you list the model files of this workflow?
@@ -121,6 +121,7 @@ horus register
 
 - `go install` builds the program `horus` into the Go bin folder (`%USERPROFILE%\go\bin` on Windows, `$HOME/go/bin` on macOS and Linux). That folder must be on the PATH: see step 0 of [`setup.md`](setup.md#step-0-get-the-horus-program). After a `git pull`, run `go install ./cmd/horus` again.
 - In this repo, `.mcp.json` names the server as the command `horus` with the argument `mcp`, so an agent here finds it without `horus register`.
+- The same `.mcp.json` starts the comfy MCP server as `horus comfy-mcp`, on Windows and on macOS. `horus comfy-mcp` runs the program `comfy-mcp` of the venv of `horus install-comfy-mcp` (`<home>/.venvs/comfy-mcp`), else the `comfy-mcp` of the PATH, over the same standard input and output. It sets `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`, and `COMFY_BIN` to the `comfy` next to comfy-mcp when that program exists and `COMFY_BIN` is not set. Its exit code is the exit code of comfy-mcp. When it finds no comfy-mcp, it writes `comfy-mcp was not found in ... Fix: horus install-comfy-mcp` to the standard error and exits 1.
 - `horus register` runs `claude mcp add --scope user horus -e HORUS_ROOT=<repo root> -- <path of horus> mcp`. `<repo root>` is the absolute path of this repo (the folder that has `workflows/`). Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
 - `horus register` finds the repo root from the current folder, so run it inside the repo. Use `-root <repo folder>` to name another folder, and `-horus-path <path>` to register another `horus` program. When the current folder is not in the repo and no `-root` is given, or when the folder has no `workflows/`, `horus register` fails and registers nothing.
 - Another harness (Codex, an IDE) needs one stdio server entry: command `horus` (or its full path), argument `mcp`, and `HORUS_ROOT` when it starts outside this repo.
@@ -131,7 +132,7 @@ program. It needs ComfyUI and the setup of [`setup.md`](setup.md). When ComfyUI
 does not answer, `generate_image` starts it in the same way as `horus start-comfyui`
 (the backend of `internal/backend`, in the process of the server).
 `horus stop-comfyui` stops a ComfyUI that horus started, and no other one. The
-backend writes the file `horus-comfyui.state.json` in the ComfyUI folder when
+backend writes the file `horus-comfyui.state.json` in the install folder when
 it starts ComfyUI, and `horus stop-comfyui` reads it.
 
 ## The tools
@@ -252,8 +253,8 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | Setting | Default | What it does |
 |---|---|---|
 | `HORUS_ROOT` | the nearest folder at or above the current folder that has `workflows`, then the folder of the program | The repo root, where horus reads `workflows/` and `.env`. Set it when the server starts outside this repo. Only the environment sets it, not `.env`. |
-| `HORUS_COMFYUI_URL` | `http://127.0.0.1:8188` | The ComfyUI address. |
-| `HORUS_COMFYUI_DIR` | `%USERPROFILE%\ComfyUI_windows_portable` | The ComfyUI portable folder. |
+| `HORUS_COMFYUI_URL` | `http://127.0.0.1:8188` | The ComfyUI address. `horus doctor`, `horus start-comfyui` and `horus stop-comfyui` also use it when they get no `-server-url`. |
+| `HORUS_COMFYUI_DIR` | Windows: `%USERPROFILE%\ComfyUI_windows_portable`. macOS: `~/horus`. | The install folder of ComfyUI. ComfyUI itself is in its subfolder `ComfyUI`. |
 | `HORUS_OUTPUT_DIR` | `.scratch/outputs` in this repo | Where a PNG goes when the call has no `out_path`. |
 | `HORUS_AUTOSTART` | `1` | `0`: never start ComfyUI; return `BACKEND_UNAVAILABLE`. |
 | `HORUS_GENERATE_TIMEOUT` | `1800` | Seconds before horus cancels a job and returns `GENERATION_TIMEOUT`. |

@@ -4,7 +4,7 @@ Get your first image from a local AI model, with an AI agent at the controls.
 
 horus is a starter kit for engineers who are new to local image generation.
 It installs [ComfyUI](https://github.com/comfyanonymous/ComfyUI) on a Windows PC
-with an NVIDIA GPU, downloads one verified model set (FLUX 3 Image Klein), and
+with an NVIDIA GPU or on a Mac with Apple Silicon, downloads one verified model set (FLUX 3 Image Klein), and
 gives an AI agent (Claude Code or Codex) the written rules it needs to drive
 ComfyUI for you through the comfy MCP server.
 
@@ -35,7 +35,7 @@ flowchart LR
 ## Start here
 
 1. **Set up the machine:** [`docs/setup.md`](docs/setup.md). Seven steps, from
-   an empty PC to a test image. Every command is safe to run again.
+   an empty PC or Mac to a test image. Every command is safe to run again.
 2. **Make your first image:** [`workflows/it-illustration`](workflows/it-illustration/README.md).
    Ask the agent for "an illustration of a message queue", or run
    `horus run-illustration -subject "..."` without an agent.
@@ -50,11 +50,13 @@ Claude Code starts each MCP server itself, as a child program (a stdio server).
 You only install the programs. The full setup, with ComfyUI and the models, is
 [`docs/setup.md`](docs/setup.md).
 
-1. Install Go 1.27.3 or newer, Python 3.12 with the Python Launcher, and Claude Code.
+1. Install Go 1.27.3 or newer, Python 3.12 and Claude Code. On Windows, Python
+   needs the Python Launcher. On macOS, `brew install python@3.12 go uv` installs
+   Python and Go.
 2. Clone this repo and open a terminal in its root folder.
 3. Build `horus`, then install the comfy MCP server. `go install` puts `horus` in
-   `%USERPROFILE%\go\bin` (`$HOME/go/bin` on macOS and Linux). That folder must be
-   on the PATH, because `.mcp.json` starts `horus` by name
+   `%USERPROFILE%\go\bin` (`~/go/bin` on macOS). That folder must be
+   on the PATH, because `.mcp.json` starts both servers through `horus`
    ([how](docs/setup.md#step-0-get-the-horus-program)).
 
    ```
@@ -62,7 +64,8 @@ You only install the programs. The full setup, with ComfyUI and the models, is
    horus install-comfy-mcp
    ```
 
-4. Check the machine. Every line must show `PASS`.
+4. Check the machine. No line may show `FAIL`. On macOS, a `WARN` line names a
+   path in a folder that macOS protects ([why](docs/setup.md#the-macos-privacy-folders)).
 
    ```
    horus doctor
@@ -107,7 +110,10 @@ the variable `HORUS_ROOT` to the repo folder. You do not set it by hand
 ## What you need
 
 - Windows 10 or 11, NVIDIA GPU with 6 GB VRAM or more, 16 GB RAM, about 20 GB free disk.
+- Or macOS on Apple Silicon with 16 GB of memory and about 14 GB free disk.
+  Linux and Intel Macs are not supported yet.
 - Git, Go 1.27.3 or newer, Python 3.12 (for the comfy MCP server), and a free Hugging Face account.
+  The [prerequisites](docs/setup.md#prerequisites) list each item for each system.
 - An AI agent CLI: [Claude Code](https://claude.com/claude-code) or Codex.
 
 ## Docs

@@ -71,6 +71,15 @@ commands.
 | 2026-11-12 | The Phase 1 row `no-python` fails on `main` before T5, for comments that name PowerShell in 4 Go files. Its `.mcp.json` part passes with the new file. Follow-up #117, outside the epic. | T5 changes none of the 4 files. No row of Phase 3 reads `no-python`. | T5 |
 | 2026-11-12 | `docs/setup.md` and `docs/mcp.md` are not changed by T5. The lines of `docs/setup.md` that the new `.mcp.json` makes false (24-25, 156, 160, 253, 255) are named in a comment on #106 (T6). | T6 owns the one setup page and `horus comfy-mcp` in `docs/mcp.md` (plan, T6 steps 1 and 4). | T5 |
 | 2026-11-12 | `TestComfyCLIIsTheBackendOfDarwin` no longer asserts that `Start` and `Stop` answer "not supported". It asserts that they do not: `Start` of an empty folder gives the error of a missing ComfyUI, and `Stop` says "Nothing to stop.". The address is a free port (it was 8190). | The behaviour changed by design (ratchet 2 → 0). The new tests of T2 prove `Start` and `Stop`. | T2 |
+| 2026-11-12 | The third Red search of T6 (`git grep -n "not supported on this OS yet" -- docs/setup.md`) printed nothing on `main`, because the phrase breaks over lines 20 and 21. Line 20 of `main` names macOS ("On macOS and Linux they exit with "not supported on this"). After T6 the search prints one line, and that paragraph names Linux only. | The plan expected a line. The other two searches and the goal tool give the 4 lines of #91, so the Red holds. | T6 |
+| 2026-11-12 | `docs/setup.md` swaps steps 1 and 2: step 1 is `horus install-comfy-mcp`, step 2 is `horus install-comfyui` and `horus start-comfyui`. Step 0 and steps 3 to 6 keep their numbers. | On macOS the backend finds `comfy` on the PATH, then in the venv of `horus install-comfy-mcp` (decision of the plan). So that venv must exist before the install of ComfyUI. `horus install-comfy-mcp` prints "docs/setup.md, step 5" for the agent step, and step 5 keeps its number. | T6 |
+| 2026-11-12 | The help texts of `-comfyui-dir` use one form on every command: "the ComfyUI install folder" + `dirHelp` (`HORUS_COMFYUI_DIR, then <home>/...`). `start-comfyui` says "with ComfyUI/ in it" in place of "with ComfyUI/ and python_embeded/". On Windows the default still shows `<home>/ComfyUI_windows_portable`. On macOS it shows `<home>/horus` (`platform.DefaultComfyDir`, tested by `TestDefaultComfyDirOfEachOS`). The help of `-seven-zip` keeps `7z.exe` with "(Windows only)" on macOS. | Issue #91, fix 3. "portable" and `python_embeded` name the Windows build, which a Mac does not have. No golden file and no test holds these help texts (`git grep` of "portable folder" in `tests/` and `internal/`). No command changes its behaviour. | T6 |
+| 2026-11-12 | T6 also changes `.env.example`, which is not in the plan's file list: the comment of `HORUS_COMFYUI_DIR` names the default of Windows and of macOS. | Step 3 of `docs/setup.md` sends the user into that file, and its old line named only the Windows folder. | T6 |
+| 2026-11-12 | The macOS prerequisites name `brew install python@3.12 go uv`, the command of the Mac test run (#53). The page does not say that `uv` is needed. | comfy-cli 1.25.0 lists `uv>=0.11.15` in its `Requires-Dist` (the `METADATA` file of the venv on the PC), so the venv has a `uv`. Whether `comfy install` runs with only that `uv` is not proven. #53 is the one run that worked. T7 (#107) runs it. | T6 |
+| 2026-11-12 | The times on the page: Windows 217 s to 470 s (`workflows/it-illustration/manifest.json`, `timing`), macOS 1033 s cold and 469 s warm (#53). | The measured numbers of each machine. | T6 |
+| 2026-11-12 | The page says "Do not clone the repo into `~/horus`". A `horus doctor` check for that case is follow-up #119, outside the epic. | `~/horus` is the default install folder on macOS, and `horus` is the name of the repo, so `git clone` in the home folder makes the same folder. The page now names it, so no goal row waits for #119. | T6 |
+| 2026-11-12 | No sentence of the page says that a macOS step was tested with the code of Phase 3. The page gives the numbers of #53 as "the Mac test run". | #53 ran comfy-cli by hand, not `horus install-comfyui`. The real run of `horus` on the Mac is T7 (#107). | T6 |
+| 2026-11-12 | Issue #4 gets the decisions D42 to D53 of Phase 3, the ticked boxes of Phase 3 and a new "Resume here". The old body is saved before the edit, and the edit changes no other part of it (checked with `diff`). | Step 5 of T6. | T6 |
 
 ## Baseline
 
@@ -570,3 +579,104 @@ Stub check, each a scratch edit that was then restored with `git checkout`:
 | Windows-only paths in `.mcp.json` | 2 | 0 | the search above, and `one-config` of the goal tool |
 | Pinned tests of `one-config` that pass | 1 of 2 | 2 of 2 | `2 pinned tests pass` |
 | Go test functions (`go test -list . ./...`) | 243 (after T2) | 249 | 6 new tests, none removed |
+
+## T6
+
+Red, on `main` at `b7b71cf`, before any change:
+
+```
+$ git grep -n "Two commands are\|does steps 1 and 4" -- docs/setup.md
+docs/setup.md:18:**macOS and Linux.** `horus` builds and runs there too. Two commands are
+docs/setup.md:112:**The short way.** `horus setup it-illustration` does steps 1 and 4 in one
+$ git grep -n "then ~/ComfyUI_windows_portable" -- internal/cli
+internal/cli/setup.go:38:	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the ComfyUI portable folder (default: HORUS_COMFYUI_DIR, then ~/ComfyUI_windows_portable)")
+internal/cli/workflow.go:89:	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the ComfyUI portable folder (default: HORUS_COMFYUI_DIR, then ~/ComfyUI_windows_portable)")
+$ git grep -n "not supported on this OS yet" -- docs/setup.md
+(no output: the phrase breaks over lines 20 and 21; line 20 names macOS, decision above)
+$ python tools/goal_check.py --phase 3 --no-ci --only one-setup-doc
+FAIL  one-setup-doc - 4 lines that the commands contradict; docs/setup.md:18, docs/setup.md:112, internal/cli/setup.go:38, internal/cli/workflow.go:89, docs/setup.md has no macOS section
+goal: 0 of 1 rows passed
+exit 1
+```
+
+Green, on the PC (Windows), on the branch of T6 (based on `b7b71cf`), with a binary of the branch
+from `go build -o <scratch>/t6/horus.exe ./cmd/horus` and the test venv of `tests/requirements.txt`:
+
+```
+$ git grep -n "Two commands are\|does steps 1 and 4" -- docs/setup.md
+(no output, exit 1)
+$ git grep -n "then ~/ComfyUI_windows_portable" -- internal/cli
+(no output, exit 1)
+$ git grep -n "not supported on this OS yet" -- docs/setup.md
+docs/setup.md:22:commands exit with "not supported on this OS yet" there: `horus
+$ python tools/goal_check.py --phase 3 --no-ci --only one-setup-doc
+PASS  one-setup-doc - 0 lines that the commands contradict; docs/setup.md has a macOS section
+goal: 1 of 1 rows passed
+$ python scripts/lint-public.py
+lint-public: 0 finding(s)
+$ gofmt -l .
+(no output)
+$ go test -count=1 ./...
+ok  	github.com/hieplam/horus/cmd/horus
+ok  	github.com/hieplam/horus/internal/archtest
+ok  	github.com/hieplam/horus/internal/backend
+?   	github.com/hieplam/horus/internal/backend/comfyclitest	[no test files]
+ok  	github.com/hieplam/horus/internal/catalog
+ok  	github.com/hieplam/horus/internal/cli
+ok  	github.com/hieplam/horus/internal/comfy
+?   	github.com/hieplam/horus/internal/comfy/comfytest	[no test files]
+ok  	github.com/hieplam/horus/internal/devtools
+ok  	github.com/hieplam/horus/internal/doctor
+ok  	github.com/hieplam/horus/internal/download
+ok  	github.com/hieplam/horus/internal/generate
+ok  	github.com/hieplam/horus/internal/graph
+ok  	github.com/hieplam/horus/internal/herr
+ok  	github.com/hieplam/horus/internal/mcpserver
+ok  	github.com/hieplam/horus/internal/modelfiles
+ok  	github.com/hieplam/horus/internal/platform
+ok  	github.com/hieplam/horus/internal/provision
+ok  	github.com/hieplam/horus/internal/settings
+$ python tests/mcp_contract.py --server-cmd <scratch>/t6/horus.exe mcp
+contract: 30 of 30 passed
+$ python tests/workflow_parity.py --horus <scratch>/t6/horus.exe
+parity: 17 of 17 cases equal
+$ GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go vet ./internal/cli/
+(no output, exit 0)
+```
+
+The help line of `-comfyui-dir` after T6, on Windows. `horus setup -h`, `horus workflow -h`,
+`horus doctor -h`, `horus stop-comfyui -h` and `horus sync-workflows -h` print the same words:
+
+```
+  -comfyui-dir string
+    	the ComfyUI install folder (default: HORUS_COMFYUI_DIR, then <home>/ComfyUI_windows_portable)
+```
+
+On macOS the same line ends with `then <home>/horus)`. This PC cannot run the macOS binary. The
+text comes from `platform.DefaultComfyDir("<home>")`, and its test `TestDefaultComfyDirOfEachOS`
+checks `<home>/horus` for `darwin`. The CI job `go darwin/arm64` runs the tests of `internal/cli`
+on macOS.
+
+Each sentence of the page about a command was checked against `horus -h`, `<command> -h` of the
+binary of `b7b71cf`, and the code:
+
+- `internal/backend/comfycli.go`: the install, start and stop commands, the log path, the text "comfy-cli (the program comfy) was not found".
+- `internal/cli/comfyui.go`: the archive flags exit 2 on macOS.
+- `internal/platform/platform.go`: the default folder, the TCC folders, `python3.12`.
+- `internal/doctor/doctor.go`: the WARN line.
+- `internal/provision/comfymcp.go`: `horus comfy-mcp` (the venv, then the PATH, `PYTHONUTF8`, `COMFY_BIN`). The binary printed `horus comfy-mcp: comfy-mcp was not found in <scratch>\novenv\Scripts or on the PATH. Fix: horus install-comfy-mcp` for an empty `-venv-path` folder, exit 1.
+
+The sentences about macOS that only a real Mac confirms are for T7 (#107):
+
+- `horus install-comfyui` installs ComfyUI in `~/horus/ComfyUI` through comfy-cli, in about 2 minutes and 2.0 GB.
+- `horus start-comfyui` and `horus stop-comfyui` start and stop it, and the log is `ComfyUI/user/comfyui_8188.log`.
+- `horus install-comfyui` finds `comfy` in the venv of `horus install-comfy-mcp`, and that `comfy` installs ComfyUI with no `uv` from Homebrew.
+- `horus doctor` prints the WARN line for a clone in `~/Desktop`.
+- The times: 1033 s cold and 469 s warm, and 5 minutes for the 11 GB download.
+
+| Number | Before | After | Evidence |
+|---|---|---|---|
+| Sentences of the setup docs and help texts that the commands contradict (#91) | 4 | 0 | the two searches and `one-setup-doc` above |
+| macOS sections in `docs/setup.md` | 0 | 2 (`Windows and macOS: what differs`, `The macOS privacy folders`) | `one-setup-doc` above |
+| Lines of `docs/setup.md` that the new `.mcp.json` made false (comment of T5 on #106) | 5 | 0 | the lines 24-25, 156, 160, 253 and 255 of `main` are gone or rewritten for `horus comfy-mcp` |
+| Go test functions (`go test -list . ./...`) | 249 | 249 | T6 changes no test (`same-behaviour`: 249 Go test functions) |

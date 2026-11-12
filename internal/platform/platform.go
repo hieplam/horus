@@ -3,7 +3,8 @@
 // a handle or a signal.
 //
 //   - StartTree starts a process tree that keeps running after its starter
-//     ends. EndTree ends that tree, also from another process.
+//     ends. EndTree ends that tree, also from another process. Alive tells
+//     if a process runs.
 //   - Programs finds a program on the PATH and runs it to its end.
 //   - FreeSpace gives the free bytes of a folder.
 //   - IsFile tells if a path is a regular file.
@@ -47,6 +48,11 @@ func StartTree(cmd *exec.Cmd) (string, error) { return startTree(cmd) }
 // SIGTERM to the process group, waits up to endWait, then sends SIGKILL.
 func EndTree(id string) error { return endTree(id) }
 
+// Alive tells if the process pid runs. A pid of 0 or less, a process that
+// ended, and (on Linux) a zombie give false. A running process of another
+// user gives true.
+func Alive(pid int) bool { return alive(pid) }
+
 // endWait is the time that EndTree waits on Unix between SIGTERM and SIGKILL.
 var endWait = 3 * time.Second
 
@@ -54,7 +60,7 @@ var endWait = 3 * time.Second
 var ErrBadTree = errors.New("not the id of a process tree")
 
 // ErrNotSupported is the error of a step that horus cannot do on this OS
-// yet, for example the ComfyUI backend on macOS (Phase 3).
+// yet, for example the ComfyUI backend on Linux.
 var ErrNotSupported = errors.New("not supported on this OS yet")
 
 // FreeSpace returns the bytes that the current user can write in the folder

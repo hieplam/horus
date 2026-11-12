@@ -12,15 +12,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hieplam/horus/internal/backend/comfyclitest"
+	"github.com/hieplam/horus/internal/platform"
 )
 
 // The test binary is also each helper program of the tests. The same helpers
 // run on Windows, macOS and Linux:
 //
 //	HORUS_FAKE_7Z     the fake 7z.exe of the install tests (install_test.go)
-//	HORUS_FAKE_COMFY  the fake comfy of the comfy-cli backend (comfycli_test.go):
-//	                  "1" records its arguments and makes ComfyUI/main.py,
-//	                  "fail" exits 3, "nomain" makes no main.py
+//	HORUS_FAKE_COMFY  the fake comfy of the comfy-cli backend (comfyclitest)
 //	HORUS_FAKE_PY     the fake python.exe of the portable build: "1" records its
 //	                  start and sleeps; "serve" also starts a grandchild and
 //	                  answers /system_stats on its --port, as ComfyUI does
@@ -32,9 +33,7 @@ func TestMain(m *testing.M) {
 	if os.Getenv("HORUS_FAKE_7Z") != "" {
 		os.Exit(fake7z(os.Args[1:]))
 	}
-	if mode := os.Getenv("HORUS_FAKE_COMFY"); mode != "" {
-		os.Exit(fakeComfy(mode, os.Args[1:]))
-	}
+	comfyclitest.Main()
 	switch os.Getenv("HORUS_FAKE_PY") {
 	case "":
 	case "grandchild":
@@ -125,10 +124,10 @@ func freeURL(t *testing.T) string {
 // Windows cannot delete a folder that a running program holds open.
 func killAtEnd(t *testing.T, pid int) {
 	t.Cleanup(func() {
-		if pid > 0 && alive(pid) {
+		if pid > 0 && platform.Alive(pid) {
 			if p, err := os.FindProcess(pid); err == nil {
 				p.Kill()
-				for end := time.Now().Add(5 * time.Second); alive(pid) && time.Now().Before(end); {
+				for end := time.Now().Add(5 * time.Second); platform.Alive(pid) && time.Now().Before(end); {
 					time.Sleep(20 * time.Millisecond)
 				}
 			}

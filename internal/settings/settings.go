@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/hieplam/horus/internal/platform"
 )
 
 var (
@@ -127,10 +129,18 @@ func ComfyURL() string {
 	return strings.TrimRight(Get("HORUS_COMFYUI_URL", "http://127.0.0.1:8188"), "/")
 }
 
-// ComfyDir is the ComfyUI portable folder.
+// ComfyDir is the install folder of ComfyUI: HORUS_COMFYUI_DIR, then the
+// default folder of this OS (platform.DefaultComfyDir).
 func ComfyDir() string {
 	home, _ := os.UserHomeDir()
-	return Get("HORUS_COMFYUI_DIR", filepath.Join(home, "ComfyUI_windows_portable"))
+	return Get("HORUS_COMFYUI_DIR", platform.DefaultComfyDir(home))
+}
+
+// ComfyMCPVenv is the Python venv of horus install-comfy-mcp:
+// <home>/.venvs/comfy-mcp. It holds the programs comfy-mcp and comfy.
+func ComfyMCPVenv() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".venvs", "comfy-mcp")
 }
 
 // WorkflowsDir is the folder of the workflows.

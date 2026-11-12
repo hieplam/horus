@@ -47,7 +47,7 @@ var archiveBytes = bytes.Repeat([]byte("fake comfyui archive "), 1000)
 func sha(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
 
 type installRig struct {
-	p       *Portable
+	p       *portable
 	dir     string // folder that holds the install dir and the archive
 	record  string // the file where the fake 7z writes its arguments
 	out     *bytes.Buffer
@@ -80,8 +80,8 @@ func newInstallRig(t *testing.T, serve []byte) *installRig {
 	t.Setenv("HORUS_FAKE_7Z", "1")
 	t.Setenv("HORUS_FAKE_RECORD", r.record)
 	r.archive = filepath.Join(dir, assetName)
-	r.p = &Portable{
-		Dir: filepath.Join(dir, "ComfyUI_windows_portable"), SevenZip: exe,
+	r.p = &portable{
+		Place: Place{Dir: filepath.Join(dir, "ComfyUI_windows_portable")}, Archive: Archive{SevenZip: exe},
 		ArchiveURL: srv.URL + "/" + assetName, ExpectedBytes: int64(len(archiveBytes)), ExpectedSHA256: sha(archiveBytes),
 		ExpandedBytes: 1000, SpareBytes: 1000,
 		FreeSpace: func(string) (int64, error) { return 1 << 40, nil },
@@ -308,7 +308,7 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestPinnedValues(t *testing.T) {
-	d := (&Portable{}).withInstallDefaults()
+	d := (&portable{}).withInstallDefaults()
 	if d.ExpectedBytes != 1945636677 || d.ExpectedSHA256 != "a26cf84f043b3d9fbf0d53296f57d7190482c339caf1b3b5cfda5149d454be9f" {
 		t.Errorf("pinned size or hash changed: %d %s", d.ExpectedBytes, d.ExpectedSHA256)
 	}

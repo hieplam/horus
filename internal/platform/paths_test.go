@@ -43,3 +43,23 @@ func TestIsRootedIsIsPathRootedOfThisOS(t *testing.T) {
 		}
 	}
 }
+
+// TestDefaultComfyDirOfEachOS: the default install folder is
+// <home>/ComfyUI_windows_portable on Windows and <home>/horus on macOS and on
+// every other OS. DefaultComfyDir follows the OS of this build.
+func TestDefaultComfyDirOfEachOS(t *testing.T) {
+	home := filepath.Join("h", "user")
+	cases := map[string]string{
+		"windows": filepath.Join(home, "ComfyUI_windows_portable"),
+		"darwin":  filepath.Join(home, "horus"),
+		"linux":   filepath.Join(home, "horus"),
+	}
+	for goos, want := range cases {
+		if got := defaultComfyDir(goos, home); got != want {
+			t.Errorf("%s: defaultComfyDir = %s, want %s", goos, got, want)
+		}
+	}
+	if got, want := DefaultComfyDir(home), defaultComfyDir(runtime.GOOS, home); got != want {
+		t.Errorf("DefaultComfyDir = %s, want the folder of %s: %s", got, runtime.GOOS, want)
+	}
+}

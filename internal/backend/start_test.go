@@ -20,7 +20,7 @@ type rig struct {
 	dir    string
 	record string
 	out    *bytes.Buffer
-	p      *Portable
+	p      *portable
 	srv    *httptest.Server
 }
 
@@ -63,7 +63,7 @@ func newRig(t *testing.T, alwaysUp, neverUp bool) *rig {
 			}
 		}
 	})
-	r.p = &Portable{Dir: dir, URL: r.srv.URL, Timeout: 20 * time.Second, PollInterval: 20 * time.Millisecond}
+	r.p = &portable{Place: Place{Dir: dir, URL: r.srv.URL, Timeout: 20 * time.Second, PollInterval: 20 * time.Millisecond}}
 	return r
 }
 
@@ -250,7 +250,7 @@ func TestFailsWhenComfyUIIsNotInstalled(t *testing.T) {
 func TestPortFollowsTheSetting(t *testing.T) {
 	r := newRig(t, false, false)
 	useSettings(t, map[string]string{"HORUS_COMFYUI_URL": r.srv.URL + "/", "HORUS_COMFYUI_DIR": r.dir})
-	p := &Portable{Timeout: 20 * time.Second, PollInterval: 20 * time.Millisecond}
+	p := &portable{Place: Place{Timeout: 20 * time.Second, PollInterval: 20 * time.Millisecond}}
 	if err := p.Start(context.Background(), r.out); err != nil {
 		t.Fatal(err)
 	}

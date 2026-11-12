@@ -24,7 +24,7 @@ import (
 // The backend starts ComfyUI at the same address, in the HORUS_COMFYUI_DIR
 // folder.
 func newImages(url string) *generate.Service {
-	return generate.New(comfy.New(url), backend.New(&backend.Portable{URL: url}))
+	return generate.New(comfy.New(url), backend.New(backend.Place{URL: url}, backend.Archive{}))
 }
 
 // imagesAt is the image service for the -url flag of run-illustration.
@@ -33,13 +33,17 @@ func imagesAt(url string) cli.Images { return newImages(url) }
 // newBackend makes the backend of this OS for the flags of a command. An
 // empty field means the setting, read at each call.
 func newBackend(p cli.BackendPlace) backend.Backend {
-	return backend.New(&backend.Portable{Dir: p.Dir, URL: p.ServerURL, ArchivePath: p.ArchivePath,
-		SevenZip: p.SevenZip, KeepArchive: p.KeepArchive, Timeout: p.Timeout})
+	return backend.New(backend.Place{Dir: p.Dir, URL: p.ServerURL, Timeout: p.Timeout},
+		backend.Archive{ArchivePath: p.ArchivePath, SevenZip: p.SevenZip, KeepArchive: p.KeepArchive})
 }
 
 // backendAt is the backend for the flags of install-comfyui, start-comfyui
 // and stop-comfyui.
 func backendAt(p cli.BackendPlace) cli.Backend { return newBackend(p) }
+
+// takesArchive tells install-comfyui if the backend of this OS takes the
+// flags of the archive (the Windows portable build).
+var takesArchive = backend.TakesArchive()
 
 // installAt is the ComfyUI install for the flag -comfyui-dir of
 // sync-workflows.

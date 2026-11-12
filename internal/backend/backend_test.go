@@ -25,13 +25,14 @@ func useSettings(t *testing.T, env map[string]string) {
 	t.Cleanup(settings.Reset)
 }
 
-// TestOtherOSAnswersNotSupported: off Windows, Install, Start and Stop answer
-// "not supported on this OS yet" and touch nothing. Installed and Layout
-// still give the folders.
+// TestOtherOSAnswersNotSupported: on an OS that is not Windows or macOS,
+// Install, Start and Stop answer "not supported on this OS yet" and touch
+// nothing. Installed and Layout still give the folders. (macOS has the
+// comfy-cli backend: comfycli_test.go.)
 func TestOtherOSAnswersNotSupported(t *testing.T) {
 	dir := t.TempDir()
-	for _, goos := range []string{"linux", "darwin"} {
-		b := newFor(goos, &Portable{Dir: dir, URL: freeURL(t)})
+	for _, goos := range []string{"linux", "freebsd"} {
+		b := newFor(goos, Place{Dir: dir, URL: freeURL(t)}, Archive{})
 		for name, call := range map[string]func(context.Context, io.Writer) error{"Install": b.Install, "Start": b.Start, "Stop": b.Stop} {
 			if err := call(context.Background(), io.Discard); !errors.Is(err, platform.ErrNotSupported) || err.Error() != "not supported on this OS yet" {
 				t.Errorf("%s: %s = %v", goos, name, err)
@@ -44,8 +45,9 @@ func TestOtherOSAnswersNotSupported(t *testing.T) {
 			t.Errorf("%s: the calls wrote %d files", goos, len(entries))
 		}
 	}
-	if _, ok := newFor("windows", &Portable{Dir: dir}).(*Portable); !ok {
-		t.Error("on Windows, New does not give the portable backend")
+	a := Archive{ArchivePath: "a.7z", SevenZip: "7z.exe", KeepArchive: true}
+	if p, ok := newFor("windows", Place{Dir: dir}, a).(*portable); !ok || p.Archive != a || p.Dir != dir {
+		t.Error("on Windows, New does not give the portable backend with the archive")
 	}
 }
 
@@ -55,7 +57,7 @@ func TestOtherOSAnswersNotSupported(t *testing.T) {
 func TestInstalledAndLayout(t *testing.T) {
 	dir := t.TempDir()
 	useSettings(t, map[string]string{"HORUS_COMFYUI_DIR": dir})
-	p := &Portable{}
+	p := &portable{}
 	if d, ok := p.Installed(); d != dir || ok {
 		t.Errorf("without main.py: %s %v", d, ok)
 	}

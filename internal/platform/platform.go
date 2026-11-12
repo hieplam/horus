@@ -7,8 +7,8 @@
 //   - Programs finds a program on the PATH and runs it to its end.
 //   - FreeSpace gives the free bytes of a folder.
 //   - IsFile tells if a path is a regular file.
-//   - IsRooted, VenvBin, ExeName and PythonCommand give the paths and the
-//     program names of this OS. They are pure functions.
+//   - IsRooted, VenvBin, ExeName, PythonCommand and DefaultComfyDir give the
+//     paths and the program names of this OS. They are pure functions.
 //   - BlockDelete makes the delete of a file fail, for a test.
 //   - ErrNotSupported is the error of a step that this OS does not have yet.
 //
@@ -109,6 +109,21 @@ func PythonCommand(version string) (cmd []string, notFound string) {
 			fmt.Sprintf("The Python Launcher (py.exe) was not found. Install Python %s from python.org.", version)
 	}
 	return []string{"python" + version}, fmt.Sprintf("python%s was not found. Install Python %s.", version, version)
+}
+
+// DefaultComfyDir gives the default install folder of ComfyUI (the default
+// of HORUS_COMFYUI_DIR) in the home folder home: <home>/ComfyUI_windows_portable
+// on Windows, <home>/horus elsewhere. On macOS the folder is outside the TCC
+// folders (~/Desktop, ~/Documents, ~/Downloads), and ComfyUI goes to
+// <home>/horus/ComfyUI.
+func DefaultComfyDir(home string) string { return defaultComfyDir(runtime.GOOS, home) }
+
+// defaultComfyDir is DefaultComfyDir for the OS goos.
+func defaultComfyDir(goos, home string) string {
+	if goos == "windows" {
+		return filepath.Join(home, "ComfyUI_windows_portable")
+	}
+	return filepath.Join(home, "horus")
 }
 
 // IsFile reports whether p is a regular file. A folder, and a path that does

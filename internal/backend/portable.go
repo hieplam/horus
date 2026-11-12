@@ -39,12 +39,10 @@ import (
 	"time"
 
 	"github.com/hieplam/horus/internal/platform"
-	"github.com/hieplam/horus/internal/settings"
 )
 
 // The official release asset. The size and the hash come from the GitHub release page.
 const (
-	version        = "v0.44.0"
 	assetName      = "ComfyUI_windows_portable_nvidia_cu126.7z"
 	expectedBytes  = int64(1945636677)
 	expectedSHA256 = "a26cf84f043b3d9fbf0d53296f57d7190482c339caf1b3b5cfda5149d454be9f"
@@ -70,22 +68,10 @@ const (
 	stateName  = "horus-comfyui.state.json"
 )
 
-// Portable is the Windows portable build in one install folder. An empty
-// field has its default; Dir and URL are then read from the settings at each
-// call.
-type Portable struct {
-	Dir string // the install folder (default: HORUS_COMFYUI_DIR, then <home>/ComfyUI_windows_portable)
-	URL string // the address that the server answers on; the port comes from it (default: HORUS_COMFYUI_URL)
-
-	// Install.
-	ArchivePath string // where the .7z file stays during the install (default: next to Dir)
-	SevenZip    string // the full path of 7z.exe (default: the PATH, then Program Files\7-Zip)
-	KeepArchive bool   // do not delete the archive after a successful install
-
-	// Start and Stop.
-	Timeout      time.Duration // the wait of Start (default: startTimeout)
-	StopTimeout  time.Duration // the wait of Stop (default: stopTimeout)
-	PollInterval time.Duration // the time between two checks of the server (default: 2 s)
+// portable is the Windows portable build in one install folder.
+type portable struct {
+	Place
+	Archive
 
 	// Test seams of Install. The zero value is the pinned archive, the real
 	// disk check, time.Sleep and http.DefaultClient.
@@ -99,20 +85,6 @@ type Portable struct {
 	Client         *http.Client
 }
 
-func (p *Portable) dir() string {
-	if p.Dir != "" {
-		return p.Dir
-	}
-	return settings.ComfyDir()
-}
-
-func (p *Portable) serverURL() string {
-	if p.URL != "" {
-		return strings.TrimRight(p.URL, "/")
-	}
-	return settings.ComfyURL()
-}
-
 func orDuration(d, def time.Duration) time.Duration {
 	if d > 0 {
 		return d
@@ -121,11 +93,11 @@ func orDuration(d, def time.Duration) time.Duration {
 }
 
 // Layout gives the folders and files of the install.
-func (p *Portable) Layout() Layout {
+func (p *portable) Layout() Layout {
 	dir := p.dir()
 	return Layout{
 		Dir:     dir,
-		ComfyUI: filepath.Join(dir, "ComfyUI"),
+		ComfyUI: comfyUIDir(dir),
 		Python:  filepath.Join(dir, "python_embeded", "python.exe"),
 		Logs:    []string{filepath.Join(dir, outLogName), filepath.Join(dir, errLogName)},
 	}
@@ -133,15 +105,15 @@ func (p *Portable) Layout() Layout {
 
 // Installed gives the install folder, and reports if ComfyUI is installed
 // there: its ComfyUI/main.py is a file.
-func (p *Portable) Installed() (string, bool) {
-	l := p.Layout()
-	return l.Dir, platform.IsFile(filepath.Join(l.ComfyUI, "main.py"))
+func (p *portable) Installed() (string, bool) {
+	dir := p.dir()
+	return dir, isInstalled(dir)
 }
 
 // -- install ------------------------------------------------------------------
 
 // Install runs the steps of the install. It returns nil after a skip.
-func (p *Portable) Install(ctx context.Context, out io.Writer) error {
+func (p *portable) Install(ctx context.Context, out io.Writer) error {
 	o := p.withInstallDefaults()
 	installDir, err := filepath.Abs(o.dir())
 	if err != nil {
@@ -159,8 +131,8 @@ func (p *Portable) Install(ctx context.Context, out io.Writer) error {
 	partPath := archivePath + ".part"
 
 	// 1. Already installed?
-	if platform.IsFile(filepath.Join(installDir, "ComfyUI", "main.py")) {
-		fmt.Fprintf(out, "SKIP: ComfyUI is already installed in %s\n", installDir)
+	if isInstalled(installDir) {
+		saySkip(out, installDir)
 		return nil
 	}
 	if entries, err := os.ReadDir(installDir); err == nil && len(entries) > 0 {
@@ -246,14 +218,13 @@ func (p *Portable) Install(ctx context.Context, out io.Writer) error {
 		os.Remove(archivePath)
 		fmt.Fprintln(out, "Deleted the archive. Use -keep-archive to keep it next time.")
 	}
-	fmt.Fprintf(out, "OK: ComfyUI %s is installed in %s\n", version, installDir)
-	fmt.Fprintf(out, "Next: horus start-comfyui -comfyui-dir '%s'\n", installDir)
+	sayInstalled(out, installDir)
 	return nil
 }
 
 // withInstallDefaults gives a copy with the pinned archive and the real
 // helpers in each empty field.
-func (p *Portable) withInstallDefaults() Portable {
+func (p *portable) withInstallDefaults() portable {
 	o := *p
 	if o.ArchiveURL == "" {
 		o.ArchiveURL = pinnedURL
@@ -290,7 +261,7 @@ func freeSpace(path string) (int64, error) {
 	return int64(n), err
 }
 
-func (o Portable) download(ctx context.Context, part string, out io.Writer) error {
+func (o portable) download(ctx context.Context, part string, out io.Writer) error {
 	const attempts = 3
 	for attempt := 1; attempt <= attempts; attempt++ {
 		if fileSize(part) > o.ExpectedBytes {
@@ -323,7 +294,7 @@ func (o Portable) download(ctx context.Context, part string, out io.Writer) erro
 }
 
 // fetch downloads the rest of the file. It sends a Range header when a part exists.
-func (o Portable) fetch(ctx context.Context, part string) error {
+func (o portable) fetch(ctx context.Context, part string) error {
 	have := fileSize(part)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, o.ArchiveURL, nil)
 	if err != nil {
@@ -368,10 +339,10 @@ type state struct {
 	Started string `json:"started"` // the time of the start (RFC 3339)
 }
 
-func (p *Portable) statePath() string { return filepath.Join(p.dir(), stateName) }
+func (p *portable) statePath() string { return filepath.Join(p.dir(), stateName) }
 
 // Start starts ComfyUI when its server does not answer, then waits for it.
-func (p *Portable) Start(ctx context.Context, out io.Writer) error {
+func (p *portable) Start(ctx context.Context, out io.Writer) error {
 	l := p.Layout()
 	serverURL := p.serverURL()
 	if !platform.IsFile(l.Python) || !platform.IsFile(filepath.Join(l.ComfyUI, "main.py")) {
@@ -472,7 +443,7 @@ func portOf(serverURL string) (string, error) {
 // Stop ends the ComfyUI that Start started at the same address. Without a
 // state file for that address it ends nothing: when a server answers there,
 // horus did not start it, and Stop refuses with an error.
-func (p *Portable) Stop(ctx context.Context, out io.Writer) error {
+func (p *portable) Stop(ctx context.Context, out io.Writer) error {
 	serverURL := p.serverURL()
 	path := p.statePath()
 	st, err := readState(path)
@@ -510,7 +481,7 @@ func (p *Portable) Stop(ctx context.Context, out io.Writer) error {
 
 // waitDown waits until the server no longer answers. It reports false when
 // it still answers after the wait of Stop.
-func (p *Portable) waitDown(ctx context.Context, serverURL string) bool {
+func (p *portable) waitDown(ctx context.Context, serverURL string) bool {
 	deadline := time.Now().Add(orDuration(p.StopTimeout, stopTimeout))
 	every := orDuration(p.PollInterval, pollInterval)
 	if every > 500*time.Millisecond {

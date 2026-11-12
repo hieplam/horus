@@ -18,16 +18,22 @@ import (
 // run on Windows, macOS and Linux:
 //
 //	HORUS_FAKE_7Z     the fake 7z.exe of the install tests (install_test.go)
+//	HORUS_FAKE_COMFY  the fake comfy of the comfy-cli backend (comfycli_test.go):
+//	                  "1" records its arguments and makes ComfyUI/main.py,
+//	                  "fail" exits 3, "nomain" makes no main.py
 //	HORUS_FAKE_PY     the fake python.exe of the portable build: "1" records its
 //	                  start and sleeps; "serve" also starts a grandchild and
 //	                  answers /system_stats on its --port, as ComfyUI does
 //	HORUS_FAKE_PY=grandchild  a process that the fake ComfyUI started: it sleeps
-//	HORUS_BACKEND_HELPER=start  calls Portable.Start for HORUS_COMFYUI_DIR and
+//	HORUS_BACKEND_HELPER=start  calls portable.Start for HORUS_COMFYUI_DIR and
 //	                  HORUS_COMFYUI_URL, then ends: the starter of the stop tests.
 //	                  Its fake python gets the mode HORUS_HELPER_PY.
 func TestMain(m *testing.M) {
 	if os.Getenv("HORUS_FAKE_7Z") != "" {
 		os.Exit(fake7z(os.Args[1:]))
+	}
+	if mode := os.Getenv("HORUS_FAKE_COMFY"); mode != "" {
+		os.Exit(fakeComfy(mode, os.Args[1:]))
 	}
 	switch os.Getenv("HORUS_FAKE_PY") {
 	case "":
@@ -40,8 +46,8 @@ func TestMain(m *testing.M) {
 	if os.Getenv("HORUS_BACKEND_HELPER") == "start" {
 		// The fake python gets its mode from the environment of this starter.
 		os.Setenv("HORUS_FAKE_PY", os.Getenv("HORUS_HELPER_PY"))
-		p := &Portable{Dir: os.Getenv("HORUS_COMFYUI_DIR"), URL: os.Getenv("HORUS_COMFYUI_URL"),
-			Timeout: 20 * time.Second, PollInterval: 20 * time.Millisecond}
+		p := &portable{Place: Place{Dir: os.Getenv("HORUS_COMFYUI_DIR"), URL: os.Getenv("HORUS_COMFYUI_URL"),
+			Timeout: 20 * time.Second, PollInterval: 20 * time.Millisecond}}
 		if err := p.Start(context.Background(), os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "Start:", err)
 			os.Exit(1)

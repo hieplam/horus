@@ -97,7 +97,7 @@ internal/devtools/                service: new-workflow and sync-workflows
 internal/comfy/                   adapter: the ComfyUI REST client (comfy/comfytest is the fake ComfyUI for tests)
 internal/download/                adapter: download with resume, size and SHA-256 check; the only code that reads HF_TOKEN
 internal/modelfiles/              adapter: find, check and remove model files, extra_model_paths.yaml
-internal/backend/                 adapter: Install, Start, Stop and Layout of a ComfyUI install (the Windows portable build; comfy-cli on macOS; backend/comfyclitest is the fake comfy for tests)
+internal/backend/                 adapter: Install, Start, Stop and Installed of a ComfyUI install (the Windows portable build; comfy-cli on macOS; backend/comfyclitest is the fake comfy for tests)
 internal/catalog/, graph/, herr/, settings/, platform/    base: manifests, graph conversion, error codes, settings, processes and OS facts
 internal/archtest/                the test of the design rules
 scripts/                          lint-public.py (a Python check before a pull request)

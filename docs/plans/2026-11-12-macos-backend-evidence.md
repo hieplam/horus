@@ -96,6 +96,7 @@ commands.
 | 2026-11-12 | T9 ran in the main checkout on the branch of its pull request, at `866006e` (the merge of T8), with a clean tree. The goal tool ran with `--real-out <scratch>/real-out`. The PNG of T9 is not added to the repo. | The rows read the files of `main` (the branch adds only this log). `workflows/it-illustration/examples/mac-conveyor-belt.png` of T7 already shows the Mac image. | T9 |
 | 2026-11-12 | The PNG of T9 (seed 7) shows the same picture as the PNG of T7 (seed 7), with the same gap: each box has its own belt. The two files are not equal byte for byte (SHA-256 `56ffb0e5...` and `dbd3bfd3...`). No issue. | `mac-image` asks for a PNG that shows the subject, not for equal bytes. The cause of the byte difference is not verified. | T9 |
 | 2026-11-12 | The plan says that the pull request of T9 waits for the owner's merge. The owner asked the agent to merge it after CI is green. | The owner's request in the session of T9. | Owner |
+| 2026-11-13 | The `Backend` interface now has 4 methods (`Install`, `Start`, `Stop`, `Installed`). D37 of #4 listed 5, with `Layout`. `Layout` is no method of it, and its type is `layout`, inside `internal/backend`. | Design rule 2 (deep modules): no caller outside the package used `Layout`. The agent acceptance (T10) found it. Issue #124. | Plan |
 
 ## Baseline
 
@@ -1522,3 +1523,45 @@ Part A on the page of `943d430` stops at the install of ComfyUI.
 | Steps of part A that the page does not name | 1 (run 1) | 0 (run 2) | part A |
 | Sentences of part A that a command contradicts | 1 | 0 | #128 |
 | Part B `generate_image` with `ok: true` | 0 of 1 (timeout, the Mac swapping) | 1 of 1 | part B |
+
+## Issue 124
+
+`Layout` leaves the exported interface `Backend` of `internal/backend`. The type is now `layout`.
+No behaviour changes. Run on the PC (Windows), on the branch `refactor/124-backend-layout`.
+
+Goal: the interface `Backend` has only the methods that callers outside the package use.
+
+Red (on `origin/main` `4bda133`, before the change):
+
+    $ git show origin/main:internal/backend/backend.go | grep -n "Layout() Layout"
+    47:	Layout() Layout
+    $ git grep -n "Layout()" origin/main -- '*.go' | grep -v "origin/main:internal/backend/"
+    (no output: no caller outside the package)
+
+Green (after the change):
+
+    $ gofmt -l .
+    (no output)
+    $ go vet ./...            (also GOOS=darwin GOARCH=arm64 and GOOS=linux)
+    (no output)
+    $ go doc ./internal/backend Backend
+    type Backend interface {
+        Install(ctx context.Context, out io.Writer) error
+        Start(ctx context.Context, out io.Writer) error
+        Stop(ctx context.Context, out io.Writer) error
+        Installed() (dir string, ok bool)
+    }
+    $ go test ./...
+    ok for every package with tests (cmd/horus, archtest, backend, catalog, cli, comfy, devtools,
+    doctor, download, generate, graph, herr, mcpserver, modelfiles, platform, provision, settings)
+    $ python scripts/lint-public.py
+    lint-public: 0 finding(s)
+    $ python tests/mcp_contract.py --server-cmd <scratch>/horus.exe mcp
+    contract: 30 of 30 passed
+    $ python tools/goal_check.py --phase 3 --no-ci --server-cmd <scratch>/horus.exe mcp
+    goal: 7 of 8 rows passed      (mac-image: needs --real on macOS, as before)
+
+Stub check: not applicable: the change removes an export.
+
+Ratchet: exported methods of `Backend` that no outside caller uses: 1 -> 0.
+Go test functions: 250 (`go test -list . ./...`), unchanged: the change renames, and deletes no test.

@@ -148,8 +148,8 @@ func TestWritesTheTwoLogFiles(t *testing.T) {
 	if err := r.p.Start(context.Background(), r.out); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := r.p.Layout().Logs, []string{filepath.Join(r.dir, "horus-comfyui.out.log"), filepath.Join(r.dir, "horus-comfyui.err.log")}; !equal(got, want) {
-		t.Errorf("Layout().Logs = %v, want %v", got, want)
+	if got, want := r.p.layout().Logs, []string{filepath.Join(r.dir, "horus-comfyui.out.log"), filepath.Join(r.dir, "horus-comfyui.err.log")}; !equal(got, want) {
+		t.Errorf("layout().Logs = %v, want %v", got, want)
 	}
 	// The fake python writes the lines before it waits, but the server can answer
 	// as soon as the record exists, so wait a little for the lines.

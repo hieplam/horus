@@ -27,7 +27,7 @@ func useSettings(t *testing.T, env map[string]string) {
 
 // TestOtherOSAnswersNotSupported: on an OS that is not Windows or macOS,
 // Install, Start and Stop answer "not supported on this OS yet" and touch
-// nothing. Installed and Layout still give the folders. (macOS has the
+// nothing. Installed still gives the folders. (macOS has the
 // comfy-cli backend: comfycli_test.go.)
 func TestOtherOSAnswersNotSupported(t *testing.T) {
 	dir := t.TempDir()
@@ -66,8 +66,8 @@ func TestInstalledAndLayout(t *testing.T) {
 	if d, ok := p.Installed(); d != dir || !ok {
 		t.Errorf("with main.py: %s %v", d, ok)
 	}
-	l := p.Layout()
-	want := Layout{Dir: dir, ComfyUI: filepath.Join(dir, "ComfyUI"), Python: filepath.Join(dir, "python_embeded", "python.exe"),
+	l := p.layout()
+	want := layout{Dir: dir, ComfyUI: filepath.Join(dir, "ComfyUI"), Python: filepath.Join(dir, "python_embeded", "python.exe"),
 		Logs: []string{filepath.Join(dir, "horus-comfyui.out.log"), filepath.Join(dir, "horus-comfyui.err.log")}}
 	if l.Dir != want.Dir || l.ComfyUI != want.ComfyUI || l.Python != want.Python || !equal(l.Logs, want.Logs) {
 		t.Errorf("Layout = %+v, want %+v", l, want)

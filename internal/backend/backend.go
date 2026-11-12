@@ -8,7 +8,7 @@
 //   - macOS: the comfy-cli backend (comfycli.go). It runs the program comfy
 //     of Comfy Org as a separate process.
 //   - every other OS: a backend whose Install, Start and Stop answer
-//     platform.ErrNotSupported. Its Installed and Layout still work.
+//     platform.ErrNotSupported. Its Installed still works.
 //
 // Every backend has the same rule for "installed": <dir>/ComfyUI/main.py is a
 // file. The interface has no pid, no job name and no archive in it.
@@ -43,12 +43,10 @@ type Backend interface {
 	// Installed gives the install folder, and reports if ComfyUI is
 	// installed there.
 	Installed() (dir string, ok bool)
-	// Layout gives the folders and files of the install.
-	Layout() Layout
 }
 
-// Layout is the folders and files of one install, as full paths.
-type Layout struct {
+// layout is the folders and files of one install, as full paths.
+type layout struct {
 	Dir     string   // the install folder (HORUS_COMFYUI_DIR)
 	ComfyUI string   // the ComfyUI folder: main.py, models/, user/
 	Python  string   // the Python that runs ComfyUI

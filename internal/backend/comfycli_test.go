@@ -108,7 +108,7 @@ func TestComfyCLIIsTheBackendOfDarwin(t *testing.T) {
 		t.Error("only the backend of Windows takes the archive")
 	}
 	ui := filepath.Join(dir, "ComfyUI")
-	l := b.Layout()
+	l := b.layout()
 	if l.Dir != dir || l.ComfyUI != ui || l.Python != filepath.Join(ui, ".venv", "bin", "python") ||
 		!equal(l.Logs, []string{filepath.Join(ui, "user", "comfyui_"+port+".log")}) {
 		t.Errorf("Layout = %+v", l)

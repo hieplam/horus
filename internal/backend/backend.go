@@ -121,6 +121,13 @@ func (p Place) serverURL() string {
 	return settings.ComfyURL()
 }
 
+// Installed gives the install folder, and reports if ComfyUI is installed
+// there. The rule is the same for every backend.
+func (p Place) Installed() (string, bool) {
+	dir := p.dir()
+	return dir, isInstalled(dir)
+}
+
 // comfyUIDir is the ComfyUI folder of the install: <dir>/ComfyUI.
 func comfyUIDir(dir string) string { return filepath.Join(dir, "ComfyUI") }
 

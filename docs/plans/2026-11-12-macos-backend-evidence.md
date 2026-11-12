@@ -35,6 +35,13 @@ commands.
 | 2026-11-12 | The Green of T0 ran the goal tool with `--server-cmd <scratch>/horus.exe mcp`, a binary of the same commit from `go build -o`. The plan says `horus`. | The PC rule: a running `horus mcp` holds `horus.exe`, so `go install` is not allowed here. The binary is the same code. | T0 |
 | 2026-11-12 | `pytest` is not in `tests/requirements.txt`. The test venv got it with `pip install pytest`. `python -m unittest discover -s tools` runs the same tests without it. | The plan's Green names `python -m pytest`. A change of `tests/requirements.txt` changes the CI install, and no row needs it. | T0 |
 | 2026-11-12 | The `next_step` of `OUT_OF_MEMORY` stays as it is. The time limit stays 1800 s. The fake ComfyUI gets the mode `OOMMPS` for the MPS text. | The text ("use a smaller width and height") is true on a Mac too, and the golden file does not change in Phase 3. The spec keeps 1800 s. A new fake mode leaves the mode `OOM` and its tests as they are. | T4 |
+| 2026-11-12 | `backend.New(Place, Archive)` replaces `backend.New(*Portable)`. `Place` (folder, address, waits) is what every backend takes. `Archive` (`ArchivePath`, `SevenZip`, `KeepArchive`) only the Windows portable build reads. The two backend types are not exported (`portable`, `comfyCLI`). | Step 2 of T1: the constructor takes the values of both backends and the values of the Windows backend apart, and the interface of the package stays small. `Place` holds `dir`, `serverURL` and `Installed` once, so the two backends share them and copy nothing. | T1 |
+| 2026-11-12 | The handler `cli.InstallComfyUI` gets a parameter `archive bool`. cmd/horus gives it `backend.TakesArchive()`. Without the archive, the three archive flags exit 2 with `horus install-comfyui: -<flag> is a flag of the Windows portable build: not supported on this OS yet`. | The handler must not read the OS (archtest), and a handler cannot import an adapter. `TakesArchive` and `New` read one function (`takesArchive`), so the flags and the backend cannot disagree. | T1 |
+| 2026-11-12 | The default folder is the pure function `platform.DefaultComfyDir(home)`. Its test calls `defaultComfyDir(goos, home)` for each OS. The help texts show it with `filepath.ToSlash(platform.DefaultComfyDir("<home>"))`. | The help text on Windows stays `<home>/ComfyUI_windows_portable`, character for character. | T1 |
+| 2026-11-12 | T1 changes the help texts that write `<home>/ComfyUI_windows_portable` (`install-comfyui`, `start-comfyui`, `stop-comfyui`, `sync-workflows`, `doctor`). It does not change `setup -h` and `workflow -h` (`then ~/ComfyUI_windows_portable`). The words "the portable folder" stay. | The Red of T6 (#91) needs those 2 lines. T6 owns the words of the help texts. | T1 |
+| 2026-11-12 | The venv of `horus install-comfy-mcp` is one function, `settings.ComfyMCPVenv()`. `horus doctor`, `horus install-comfy-mcp` and the comfy-cli backend call it. `install-comfy-mcp` no longer has its own error for a missing home folder. | Three copies of `<home>/.venvs/comfy-mcp` become one. T5 (`horus comfy-mcp`) needs the same folder. | T1 |
+| 2026-11-12 | `TestOtherOSAnswersNotSupported` now checks Linux and FreeBSD, not macOS. The macOS part moved to `TestComfyCLIIsTheBackendOfDarwin`: Start and Stop still answer "not supported", Install now works. | The behaviour of macOS changed by design (ratchet 3 → 2). No check was removed: each old assertion for macOS has a new one. | T1 |
+| 2026-11-12 | The summary of `install-comfyui` in the command list of `horus` is now "install ComfyUI: the portable build on Windows, comfy-cli on macOS". `start-comfyui` and `stop-comfyui` keep "Windows only" until T2. | The old summary says "Windows only", which is false after T1. No golden file holds it. | T1 |
 
 ## Baseline
 
@@ -188,3 +195,66 @@ image also needs less of it. The text does not mislead, so no follow-up issue.
 
 Step 4: the time limit stays 1800 s. `internal/settings/settings.go:158` and `internal/cli/run_illustration.go:155`
 keep the default 1800 (the spec: the cold run on the Mac took 1033 s). No code changed.
+
+## T1
+
+Red (on `main` at `003b840`), `go test ./internal/backend -run ComfyCLI -v`:
+
+```
+testing: warning: no tests to run
+PASS
+ok  	github.com/hieplam/horus/internal/backend	2.434s [no tests to run]
+```
+
+Green, on the PC (Windows), after the rebase on `51c0fe3`:
+
+```
+$ go test -count=1 ./internal/backend ./internal/platform ./internal/settings ./internal/cli
+ok  	github.com/hieplam/horus/internal/backend
+ok  	github.com/hieplam/horus/internal/platform
+ok  	github.com/hieplam/horus/internal/settings
+ok  	github.com/hieplam/horus/internal/cli
+$ go test -count=1 -v -run ComfyCLI ./internal/backend
+--- PASS: TestComfyCLIIsTheBackendOfDarwin
+--- PASS: TestComfyCLIInstallRunsTheCommandOfTheSpec
+--- PASS: TestComfyCLIInstallFindsComfyInTheVenv
+--- PASS: TestComfyCLIInstallSkipsWhenComfyUIIsInstalled
+--- PASS: TestComfyCLIInstallNamesBothFixesWhenComfyIsMissing
+--- PASS: TestComfyCLIInstallFailsWhenComfyFails
+ok  	github.com/hieplam/horus/internal/backend
+$ python tools/goal_check.py --phase 3 --no-ci --only tcc-folders --server-cmd <scratch>/horus.exe mcp
+FAIL  tcc-folders - no passing test: TestInTCCFolder (not in internal/platform, T3); TestTCCCheckWarnsForEachPathInATCCFolder (not in internal/doctor, T3); TestDoctorWarnLinesKeepExitCodeZero (not in internal/cli, T3)
+goal: 0 of 1 rows passed
+$ python tests/mcp_contract.py --server-cmd <scratch>/horus.exe mcp
+contract: 30 of 30 passed
+$ python tests/workflow_parity.py --horus <scratch>/horus.exe
+parity: 17 of 17 cases equal
+```
+
+The row `tcc-folders` names only the 3 tests of the WARN line (T3) as missing. The test of
+the default folder (T1) passes (decision of T0: the row pins 4 tests). The 4 pinned tests
+of T1 in `mac-backend` and the 2 in `mac-setup` are no longer named as missing.
+
+Also green: `gofmt -l .` (no output), `go vet ./...` for windows, darwin/arm64 and linux,
+`go test ./...` (every package `ok`), `python scripts/lint-public.py` (`0 finding(s)`).
+`tests/` and the golden files did not change. The help of `install-comfyui` on Windows
+still names `<home>/ComfyUI_windows_portable`. The CI job `go darwin/arm64` of the pull
+request is the oracle of the macOS code: its result is in the pull request.
+
+Stub check, each a scratch edit that was then reverted:
+
+```
+  # Install of the comfy-cli backend returns nil at once:
+--- FAIL: TestComfyCLIInstallRunsTheCommandOfTheSpec (0.02s)
+    comfycli_test.go:149: the fake comfy got "", want "--workspace C:\\...\\horus\\ComfyUI install --m-series --version 0.44.0\nstdin closed\n"
+  # The default folder of macOS stays ComfyUI_windows_portable:
+--- FAIL: TestDefaultComfyDirOfEachOS (0.00s)
+    paths_test.go:59: darwin: defaultComfyDir = h\user\ComfyUI_windows_portable, want h\user\horus
+    paths_test.go:59: linux: defaultComfyDir = h\user\ComfyUI_windows_portable, want h\user\horus
+```
+
+| Number | Before | After | Evidence |
+|---|---|---|---|
+| Commands that answer "not supported" on macOS | 3 | 2 (`start-comfyui`, `stop-comfyui`, until T2) | `newFor("darwin", ...)` gives `comfyCLI`, whose `Install` runs comfy (`TestComfyCLIIsTheBackendOfDarwin`, `TestComfyCLIInstallRunsTheCommandOfTheSpec`) |
+| Default folders that fit macOS | 0 | 1 (`<home>/horus`) | `TestDefaultComfyDirOfEachOS`, `TestComfyDirDefaultIsTheFolderOfPlatform` |
+| Go test functions (`go test -list . ./...`) | 217 (after T4) | 227 | 10 new tests, none removed |

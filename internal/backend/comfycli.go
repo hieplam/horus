@@ -46,13 +46,6 @@ func (c *comfyCLI) Layout() Layout {
 	return l
 }
 
-// Installed gives the install folder, and reports if ComfyUI is installed
-// there: its ComfyUI/main.py is a file.
-func (c *comfyCLI) Installed() (string, bool) {
-	dir := c.dir()
-	return dir, isInstalled(dir)
-}
-
 // Install installs ComfyUI with comfy. It returns nil after a skip.
 func (c *comfyCLI) Install(ctx context.Context, out io.Writer) error {
 	dir, err := filepath.Abs(c.dir())

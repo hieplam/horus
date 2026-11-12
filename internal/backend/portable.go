@@ -103,13 +103,6 @@ func (p *portable) Layout() Layout {
 	}
 }
 
-// Installed gives the install folder, and reports if ComfyUI is installed
-// there: its ComfyUI/main.py is a file.
-func (p *portable) Installed() (string, bool) {
-	dir := p.dir()
-	return dir, isInstalled(dir)
-}
-
 // -- install ------------------------------------------------------------------
 
 // Install runs the steps of the install. It returns nil after a skip.

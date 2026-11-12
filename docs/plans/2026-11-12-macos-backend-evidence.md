@@ -85,6 +85,14 @@ commands.
 | 2026-11-12 | The 2 manual steps of this run: the token line of `.env` (already there) and `export PATH="$HOME/go/bin:$PATH"` in `~/.zshrc` (`docs/setup.md`, step 0). | The ratchet of `mac-setup` (3 → 2). `HORUS_COMFYUI_DIR` is no longer a step. | T7 |
 | 2026-11-12 | No sentence of the page says that a macOS step was tested with the code of Phase 3. The page gives the numbers of #53 as "the Mac test run". | #53 ran comfy-cli by hand, not `horus install-comfyui`. The real run of `horus` on the Mac is T7 (#107). | T6 |
 | 2026-11-12 | Issue #4 gets the decisions D42 to D53 of Phase 3, the ticked boxes of Phase 3 and a new "Resume here". The old body is saved before the edit, and the edit changes no other part of it (checked with `diff`). | Step 5 of T6. | T6 |
+| 2026-11-12 | Step 1 of T8: a running `horus mcp` (process 23880) held `%USERPROFILE%\go\bin\horus.exe`. The old file became `horus.exe.old-20261112`, then `go install ./cmd/horus` ran. The renamed file stays. | The PC rule: rename, do not stop the process. | T8 |
+| 2026-11-12 | The owner's ComfyUI on port 8188 did not run during T8 (no answer at 18:20, no listener at any later reading). With only the owner's setting (`HORUS_COMFYUI_DIR=D:\ComfyUI_windows_portable`), `horus doctor` gives 1 FAIL line: `ComfyUI server - no answer at http://127.0.0.1:8188`. So the real parts of `one-config` and `commands` ran with the owner's `HORUS_COMFYUI_DIR` and `HORUS_COMFYUI_URL=http://127.0.0.1:8189`, a second ComfyUI that `horus start-comfyui` started from the folder of junctions. | The task must not start the owner's ComfyUI. The doctor checks the server at `HORUS_COMFYUI_URL` (#82, part of the row `one-config`). Every other check reads the owner's settings as they are. The row still needs 0 FAIL lines from the same 7 checks, as in Phase 2 (T10, run 2) with the owner's ComfyUI. | T8 |
+| 2026-11-12 | `HORUS_ROOT` of every real run is the worktree of T8 at `0f9192b` (`origin/main`), not the main checkout of Phase 2. | The main checkout belongs to another session, and its branch has the old `.mcp.json`. The rows must read the files of `main`. | T8 |
+| 2026-11-12 | The GPU was quiet enough for the image run: the only GPU process was the client window of a game (`LeagueClientUxRender.exe`), at 87 MiB and 25 %. One run, and it passed. | The same state as the start of run 3 of Phase 2 (T10): the client window only, 483 MiB, 28 %. | T8 |
+| 2026-11-12 | `claude mcp list` shows `horus` connected (the user-scope entry, the new binary) and `comfy-mcp: horus comfy-mcp - Pending approval`. T8 does not approve it. An MCP client started both entries of `.mcp.json` as written (`horus comfy-mcp`, `horus mcp`, found on the PATH) and got `initialize` and `tools/list` from both. | Claude Code asks a person to approve a project server one time for each folder. The approval changes the owner's Claude configuration, which a task does not do. The oracle of `one-config` is `horus doctor` and the Go tests. The MCP client proves that the entry starts the real comfy MCP server with the installed binary. | T8 |
+| 2026-11-12 | The review of T7 (PR #121) finds no Green without literal output and no line that contradicts a goal row. One note: `gh pr view 121 --json mergedBy` names `hoacao33`, and the spec says that the owner merges by hand. Whether a person merged it with that account is not verified. No issue. | No goal row depends on who pressed merge. The coordinator gets the note. | T8 |
+| 2026-11-12 | The PNG of the PC (seed 7) shows 4 envelopes. The PNG of Phase 2 (T10, seed 7) showed 5. No issue. | `same-behaviour` compares the answers of the contract and parity tests, not pixels. The cause is not verified. | T8 |
+| 2026-11-12 | `changed_contract_files` of the goal tool counts a warning line of `git diff` (`LF will be replaced by CRLF`) as a changed file (stub probe B of `same-behaviour`: "2 changed contract files" for 1 file). No issue. | The warning comes only with a changed file, so it can add to a FAIL but never makes a PASS. No goal row is at risk. | T8 |
 
 ## Baseline
 
@@ -890,3 +898,326 @@ to `main.py`, which ComfyUI accepts.
 | Images through MCP on macOS | 0 | 1 | `mac-image` above, `started_backend: true` |
 | Manual steps of #53 | 3 | 2 | the token and the PATH (decision above); no `HORUS_COMFYUI_DIR` (`mac-setup` above) |
 | Rows of Phase 3 with `--real` on the Mac | 0 of 5 | 5 of 5 | step 5 |
+
+## T8
+
+On the PC (Windows 11, NVIDIA GPU), on `main` at `0f9192b` (the merge of T7), in a worktree of
+`origin/main` with no `.env`. The goal tool ran in a Python 3.12 venv of `tests/requirements.txt`.
+`<scratch>` is a scratch folder outside the repo.
+
+Red: not applicable: this task builds nothing. Each stub probe below is a Red of its own.
+
+### Step 1: the binary
+
+```
+$ git rev-parse HEAD
+0f9192b52ca8aec1c574a41e80cb1f2d266bfbd3
+$ git status --porcelain
+(no output)
+$ Rename-Item %USERPROFILE%\go\bin\horus.exe horus.exe.old-20261112     (horus mcp, process 23880, holds it)
+$ go install ./cmd/horus
+exit 0
+$ go version -m %USERPROFILE%\go\bin\horus.exe
+	build	vcs.revision=0f9192b52ca8aec1c574a41e80cb1f2d266bfbd3
+	build	vcs.time=2026-11-12T11:06:58Z
+	build	vcs.modified=false
+```
+
+The binary before was `defd6ab`. CI of `0f9192b` (`gh run view 43206325839 --json jobs`): every job
+`success` (`contract` and `workflow-parity` on `windows-latest` and `macos-latest`, `go windows/amd64`,
+`go darwin/arm64`, `go linux/amd64`).
+
+### Step 2: every row without a real machine, with the CI part
+
+18:21:29 to 18:23:15:
+
+```
+$ python tools/goal_check.py --phase 3
+PASS  mac-backend - 10 pinned tests pass; CI: 1 jobs green (go darwin/arm64); real part not run (needs --real on macOS)
+PASS  mac-setup - 3 pinned tests pass; real part not run (needs --real on macOS)
+FAIL  mac-image - needs --real on macOS
+PASS  tcc-folders - 4 pinned tests pass; real part not run (needs --real on macOS)
+PASS  out-of-memory - 2 pinned tests pass
+PASS  one-config - .mcp.json ok; 2 pinned tests pass; real part not run (needs --real on Windows and on macOS)
+PASS  one-setup-doc - 0 lines that the commands contradict; docs/setup.md has a macOS section
+PASS  same-behaviour - contract: local 30 of 30; parity: 17 of 17; go test ./...: ok; archtest: ok, 0 allow list files; 249 Go test functions (baseline 215); 0 changed contract files; CI: 6 jobs green (contract windows-latest, contract macos-latest, workflow-parity windows-latest, workflow-parity macos-latest, go windows/amd64, go darwin/arm64); real part not run (needs --real on Windows)
+goal: 7 of 8 rows passed
+note: the real part did not run for mac-backend, mac-setup, tcc-folders, one-config, same-behaviour (run with --real on the Mac and on the PC)
+exit 1
+```
+
+`out-of-memory`, `one-setup-doc` and `same-behaviour` print PASS. `mac-image` and the real parts of
+the other rows name `needs --real`. The rows of the Mac pass with `--real` on the Mac in T7, and
+again in T9.
+
+### Step 3: the real rows on the PC
+
+The owner's ComfyUI on port 8188 did not run (decision above). It got no request that changes
+anything, and nothing started or stopped it.
+
+```
+$ curl http://127.0.0.1:8188/system_stats          (18:20)
+no answer: Unable to connect to the remote server
+```
+
+**The row `backend` of Phase 2**, with the method of Phase 2 (T7): a second install folder
+`<scratch>\comfy8189` with a junction `python_embeded` to the owner's install, a folder `ComfyUI`
+with 22 junctions (each folder of the owner's `ComfyUI` except `user`, `input`, `output`, `temp`), 4
+empty folders of its own and 36 copied small files. Settings: `HORUS_ROOT` = the worktree,
+`HORUS_COMFYUI_DIR=<scratch>\comfy8189`, `HORUS_COMFYUI_URL=http://127.0.0.1:8189`, `HORUS_AUTOSTART=1`.
+
+GPU before the run (`nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader`,
+and `--query-compute-apps`):
+
+```
+18:20     87 MiB, 25 %
+18:23:37  87 MiB, 25 %   GPU process: LeagueClientUxRender.exe (the client window of a game)
+18:23:42  87 MiB, 25 %   ports 8188 and 8189: no listener
+```
+
+The run, 18:23:56 to 18:29:23:
+
+```
+$ python tools/goal_check.py --phase 2 --real --only backend --real-out <scratch>\real
+PASS  backend - 1536x1024 <scratch>\real\real-image-seed7-20261112-182427.png (seed 7, 296 s); started through the backend
+goal: 1 of 1 rows passed
+exit 0
+nvidia-smi after: 125 MiB, 6 %; ports 8188 and 8189: no listener
+```
+
+The image: on the left a mint-green server box, on the right a sky-blue server box, and between
+them one purple conveyor belt with 4 yellow-orange envelopes. It shows the subject (`REAL_SUBJECT`
+of `tools/goal_check.py`). The envelopes are more amber than sun-yellow, and the belt is a deeper
+purple than lilac, as in Phase 2. Unlike the Mac image of T7, the belt goes from one box to the
+other. Small marks on the label of the belt frame look like text, a limit of the model.
+
+**The row `one-config`** with only the owner's setting first (decision above):
+
+```
+$ python tools/goal_check.py --phase 3 --real --only one-config      (HORUS_COMFYUI_DIR=D:\ComfyUI_windows_portable)
+FAIL  one-config - .mcp.json ok; 2 pinned tests pass; real: horus doctor on win32: exit 1, 1 FAIL lines
+goal: 0 of 1 rows passed
+$ horus doctor
+FAIL  ComfyUI server - no answer at http://127.0.0.1:8188. Fix: horus start-comfyui
+(the other 6 lines PASS)
+```
+
+Then the second ComfyUI on port 8189, started through the backend:
+
+```
+$ horus start-comfyui      (HORUS_COMFYUI_DIR=<scratch>\comfy8189, HORUS_COMFYUI_URL=http://127.0.0.1:8189; 18:30:00)
+Started ComfyUI (process 23000). Waiting for http://127.0.0.1:8189 ...
+OK: ComfyUI answers at http://127.0.0.1:8189
+exit 0
+```
+
+With `HORUS_COMFYUI_DIR=D:\ComfyUI_windows_portable` and `HORUS_COMFYUI_URL=http://127.0.0.1:8189`:
+
+```
+$ python tools/goal_check.py --phase 3 --real --only one-config
+PASS  one-config - .mcp.json ok; 2 pinned tests pass; real: horus doctor on win32: 0 FAIL lines
+goal: 1 of 1 rows passed
+exit 0
+$ horus doctor
+PASS  ComfyUI folder - D:\ComfyUI_windows_portable
+PASS  ComfyUI server - answers at http://127.0.0.1:8189 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - %USERPROFILE%\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+PASS  comfy-cli - %USERPROFILE%\.venvs\comfy-mcp\Scripts\comfy.exe
+PASS  .mcp.json - command points at %USERPROFILE%\go\bin\horus.exe comfy-mcp
+PASS  horus on PATH - %USERPROFILE%\go\bin\horus.exe
+PASS  .mcp.json horus - command points at %USERPROFILE%\go\bin\horus.exe
+All checks passed.
+exit 0
+$ python tools/goal_check.py --phase 2 --real --only commands
+PASS  commands - horus doctor: 0 FAIL lines; horus setup it-illustration: 0 steps, nothing is missing; 5 of 5 named files present and unchanged
+goal: 1 of 1 rows passed
+exit 0
+$ horus setup it-illustration
+Setup of workflow 'it-illustration':
+PRESENT   ComfyUI in D:\ComfyUI_windows_portable
+PRESENT   diffusion flux3-image-klein-int8-convrot.safetensors (5.83 GB) %USERPROFILE%\ComfyUI-models\diffusion_models\flux3-image-klein-int8-convrot.safetensors
+PRESENT   text_encoder qwen3vl_4b_int8_convrot.safetensors (4.86 GB) %USERPROFILE%\ComfyUI-models\text_encoders\qwen3vl_4b_int8_convrot.safetensors
+PRESENT   vae flux2-vae.safetensors (0.34 GB) %USERPROFILE%\ComfyUI-models\vae\flux2-vae.safetensors
+Plan: 0 steps. Nothing is missing.
+exit 0
+```
+
+**The new `.mcp.json` in Claude Code** (left to T8 by T5), from the worktree root:
+
+```
+$ claude mcp list
+horus: %USERPROFILE%\go\bin\horus.exe mcp - ✔ Connected
+comfy-mcp: horus comfy-mcp - ⏸ Pending approval (run `claude` to approve)
+[Conflicting scopes]
+├ Server "horus" is defined in multiple scopes with different endpoints: user (%USERPROFILE%\go\bin\horus.exe mcp), project (horus mcp).
+```
+
+(The other lines are servers of other projects.) T8 does not approve the project server (decision
+above). An MCP client (`mcp` of `tests/requirements.txt`) started each entry of `.mcp.json` as
+written, with the PATH lookup:
+
+```
+comfy-mcp: command horus comfy-mcp -> %USERPROFILE%\go\bin\horus.EXE
+  initialize: server comfy-mcp, protocol 2025-11-25
+  tools/list: 39 tools
+horus: command horus mcp -> %USERPROFILE%\go\bin\horus.EXE
+  initialize: server horus, protocol 2025-11-25
+  tools/list: 5 tools
+exit 0
+```
+
+**After the runs** (18:31:56), with the settings of the start:
+
+```
+$ horus stop-comfyui      (HORUS_COMFYUI_DIR=<scratch>\comfy8189, HORUS_COMFYUI_URL=http://127.0.0.1:8189)
+OK: stopped the ComfyUI that horus started at http://127.0.0.1:8189 (process 23000).
+exit 0
+listeners on 8188 and 8189: 0
+processes with comfy8189 in the command line: 0
+nvidia-smi: 125 MiB, 27 %
+```
+
+Cleanup: the 23 junctions (1 + 22) were deleted one at a time with `(Get-Item <junction>).Delete()`,
+which removes only the link. Then:
+
+```
+$ cmd /c dir /AL /S /B <scratch>\comfy8189
+File Not Found
+```
+
+Then the 44 files were deleted one by one, and the 8 folders, each after it was empty, with a
+non-recursive delete. No recursive delete ran. After the cleanup:
+
+```
+Test-Path D:\ComfyUI_windows_portable\ComfyUI\main.py               True
+Test-Path D:\ComfyUI_windows_portable\python_embeded\python.exe     True
+entries in D:\ComfyUI_windows_portable\ComfyUI\models               26
+flux3-image-klein-int8-convrot.safetensors   5827874779 bytes
+qwen3vl_4b_int8_convrot.safetensors          4858559240 bytes
+flux2-vae.safetensors                         336211292 bytes
+Test-Path <scratch>\comfy8189                                       False
+```
+
+The byte sizes are equal to `workflows/it-illustration/models.json`.
+
+### Step 4: stub probes of the goal tool
+
+Each probe ran in a second worktree of `origin/main` in `<scratch>`, not in the tree of the pull
+request. Each change was restored with `git checkout -- .`, and `git status --porcelain` printed
+nothing at the end. The worktree was removed with `git worktree remove`. The rows that run Go tests
+ran with `--no-ci`, so that the stub, not a missing CI run, gives the FAIL.
+
+```
+  # mac-backend: Start of the comfy-cli backend returns nil at once (comfycli.go:114)
+FAIL  mac-backend - no passing test: TestComfyCLIIsTheBackendOfDarwin (did not pass in internal/backend: FAIL, T1); TestComfyCLIStartRunsLaunchAndTheServerAnswers (did not pass in internal/backend: FAIL, T2); TestComfyCLIStartFailsWhenComfyUIIsNotInstalled (did not pass in internal/backend: FAIL, T2); TestComfyCLIStopRunsStopAndTheServerEnds (did not pass in internal/backend: FAIL, T2); TestGenerateStartsComfyUIThroughTheComfyCLIBackend (did not pass in cmd/horus: FAIL, T2)
+  # mac-setup: defaultComfyDir gives ComfyUI_windows_portable on every OS (platform.go:130, `if true {`)
+FAIL  mac-setup - no passing test: TestDefaultComfyDirOfEachOS (did not pass in internal/platform: FAIL, T1)
+  # mac-image: no --real
+FAIL  mac-image - needs --real on macOS
+  # mac-image: --real on Windows
+FAIL  mac-image - needs --real on macOS; the real part needs macOS (this machine: win32)
+  # tcc-folders: inTCCFolder always answers "outside" (platform.go:152, `if true || ...`)
+FAIL  tcc-folders - no passing test: TestInTCCFolder (did not pass in internal/platform: FAIL, T3)
+  # out-of-memory A: the memory error gives GENERATION_FAILED (jobs.go:97)
+FAIL  out-of-memory - no passing test: TestJobErrorOfTheMPSOutOfMemoryText (did not pass in internal/comfy: FAIL, T4); TestImageMPSOutOfMemoryThroughTheAdapter (did not pass in cmd/horus: FAIL, T4)
+  # out-of-memory B: the pinned test of internal/comfy holds "CUDA out of memory", not the MPS text (the test itself passes: ok internal/comfy)
+FAIL  out-of-memory - no passing test: TestJobErrorOfTheMPSOutOfMemoryText (has no text 'MPS backend out of memory', T4)
+  # one-config A: the .mcp.json of 250302f (before T5)
+FAIL  one-config - .mcp.json: 2 Windows-only paths, the entry comfy-mcp is not `horus comfy-mcp`; 2 pinned tests pass
+  # one-config B: RunComfyMCP returns 0 at once and starts nothing (comfymcp.go:153)
+FAIL  one-config - .mcp.json ok; no passing test: TestComfyMCPPassesTheStreamsComfyBinAndTheExitCode (did not pass in cmd/horus: FAIL, T5)
+  # one-setup-doc A: docs/setup.md without the word macOS in its 2 headings
+FAIL  one-setup-doc - 0 lines that the commands contradict; docs/setup.md has no macOS section
+  # one-setup-doc B: docs/setup.md and internal/cli/setup.go of b7b71cf (before T6)
+FAIL  one-setup-doc - 3 lines that the commands contradict; docs/setup.md:18, docs/setup.md:112, internal/cli/setup.go:38, docs/setup.md has no macOS section
+  # same-behaviour A: 4 test files removed (download, devtools, comfy, herr: 37 Go test functions)
+FAIL  same-behaviour - contract: local 30 of 30; parity: 17 of 17; go test ./...: ok; archtest: ok, 0 allow list files; 212 Go test functions (baseline 215); 0 changed contract files; CI part skipped (--no-ci)
+  # same-behaviour B: one comment line added to tests/workflow_parity.py
+FAIL  same-behaviour - contract: local 30 of 30; parity: 17 of 17; go test ./...: ok; archtest: ok, 0 allow list files; 249 Go test functions (baseline 215); 2 changed contract files: M	tests/workflow_parity.py, warning: in the working copy of 'tests/workflow_parity.py', LF will be replaced by CRLF the next time Git touches it; CI part skipped (--no-ci)
+  # same-behaviour C: internal/archtest is one file `package archtest` (no rules, no tests)
+FAIL  same-behaviour - contract: local 30 of 30; parity: 17 of 17; go test ./...: ok; archtest: no passing test: TestRules, TestPlanted, TestProblems, 0 allow list files; 246 Go test functions (baseline 215); 0 changed contract files; CI part skipped (--no-ci)
+```
+
+Each run above ended with `goal: 0 of 1 rows passed` and exit 1. A first try of probe A of
+`same-behaviour` removed `internal/generate/generate_test.go`, and the build of the tests failed
+(`fake_test.go:212:12: undefined: contains`). That FAIL came from the build, not from the count, so
+the probe was run again with test files that no other file needs.
+
+The CI parts and the real part of `same-behaviour`, judged by the functions of the tool on job
+lists and results made by hand (no network, no GPU):
+
+```
+all green           same-behaviour: (True, 'CI: 6 jobs green (contract windows-latest, contract macos-latest, workflow-parity windows-latest, workflow-parity macos-latest, go windows/amd64, go darwin/arm64)')
+red go darwin/arm64 mac-backend:    (False, 'CI: not green: go darwin/arm64 (failure)')
+red go linux/amd64  mac-backend:    (False, 'CI: another job is not green: go linux/amd64 (failure)')
+parity macos running same-behaviour: (False, 'CI: not green: workflow-parity macos-latest (unknown)')
+real part of same-behaviour, backend fails: (False, 'backend: FAIL generate_image failed: BACKEND_UNAVAILABLE (stub); commands: PASS stub pass')
+real part of mac-backend on Windows: (False, 'the real part needs macOS (this machine: win32)')
+real part of tcc-folders on Windows: (False, 'the real part needs macOS (this machine: win32)')
+```
+
+No probe passed, so no issue for the tool. The real parts of the Mac rows (`mac-image` with a
+ComfyUI that a person started, `mac-backend` without a refusal) are probed by the tests of the tool
+(`tools/test_goal_check.py`, the stub table of T0) and by stub check 2 of T7 on the Mac.
+
+The tests of the tool on `0f9192b`:
+
+```
+$ python -m unittest discover -s tools
+Ran 52 tests in 66.724s
+
+OK
+```
+
+### Step 5: the check of the epic tool on every closed task
+
+```
+$ node epic.mjs -R hieplam/horus check <n> --dry-run --evidence docs/plans/2026-11-12-macos-backend-evidence.md --heading "## T<k>"
+PASS #100 via PR #111 (https://github.com/hieplam/horus/pull/111)
+PASS #101 via PR #113 (https://github.com/hieplam/horus/pull/113)
+PASS #102 via PR #116 (https://github.com/hieplam/horus/pull/116)
+PASS #103 via PR #115 (https://github.com/hieplam/horus/pull/115)
+PASS #104 via PR #112 (https://github.com/hieplam/horus/pull/112)
+PASS #105 via PR #118 (https://github.com/hieplam/horus/pull/118)
+PASS #106 via PR #120 (https://github.com/hieplam/horus/pull/120)
+PASS #107 via PR #121 (https://github.com/hieplam/horus/pull/121)
+```
+
+The 8 issues are closed. The sub-issues of #98 that are open: #108 (this task), #109 and #110.
+
+### The review of T7 (PR #121)
+
+Each Green of plan section T7 has its literal output in `## T7`:
+
+| Green of T7 | Literal output in `## T7` |
+|---|---|
+| Red: `horus doctor` prints `FAIL  ComfyUI folder` for `~/horus` | yes, the first line of the Red |
+| Step 4: 0 FAIL lines and `Plan: 0 steps. Nothing is missing.` | yes, `All checks passed.` and the second plan |
+| Step 5: `goal: 5 of 5 rows passed`, a 1536x1024 PNG, `started_backend: true` | yes |
+| Step 6: the refusal, exit 1, the server still answers | yes, `exit 1` and `200` |
+| Stub check: the backend before T1 fails step 3; an image from a ComfyUI that a person started fails | yes, `FAIL: not supported on this OS yet` and `started_backend: False` |
+| Ratchet: images on macOS 0 → 1, manual steps 3 → 2 | yes, the table |
+
+No line contradicts a goal row. `tcc-folders` asks for a WARN line that names the path: the lines
+name `~/Desktop/Private/horus`. `mac-setup` asks for no `HORUS_COMFYUI_DIR`: decision of T7 took it
+out, with `HORUS_MODELS_DIR`. `mac-image` asks for a picture that shows the subject: the agent
+opened `workflows/it-illustration/examples/mac-conveyor-belt.png` again for this review. Two boxes in
+the colours of the subject, amber envelopes on lilac belts, and each box has its own belt. The
+README of the workflow names that gap. The note about who merged PR #121 is in the decisions.
+
+### Ratchets
+
+The table of the spec, before → after, on `main` at `0f9192b`:
+
+| Row | Ratchet | Before | After | Command |
+|---|---|---|---|---|
+| `mac-backend` | Commands that answer "not supported" on macOS | 3 | 0 | step 2 `mac-backend` (10 pinned tests: `Install`, `Start` and `Stop` of the comfy-cli backend), and the real part on the Mac in T7 |
+| `mac-setup` | Manual steps of #53 | 3 | 2 | the Mac only: T7, step 5 and the decision of T7 (not measured on the PC) |
+| `mac-image` | Images through MCP on macOS | 0 | 1 | the Mac only: T7, step 5 (not measured on the PC) |
+| `tcc-folders` | Default folders that fit macOS | 0 | 1 | step 2 `tcc-folders` (`TestDefaultComfyDirOfEachOS`: `<home>/horus` for `darwin`) |
+| `out-of-memory` | Test cases with the MPS text | 0 | 2 | `git grep -l "MPS backend out of memory" -- '*_test.go'`: `cmd/horus/image_test.go`, `internal/comfy/comfy_test.go`; step 2 `2 pinned tests pass` |
+| `one-config` | Windows-only paths in `.mcp.json` | 2 | 0 | `git grep -n "USERPROFILE" -- .mcp.json` (no output, exit 1); step 2 `.mcp.json ok` |
+| `one-setup-doc` | Sentences that the commands contradict | 4 | 0 | step 2 `0 lines that the commands contradict` |
+| `same-behaviour` | Go test functions, never below the baseline | 215 | 249 | `go test -list . ./...`, lines `^Test\w+$`: 249; step 2 |
+| all | Rows of the goal tool that pass on the PC | 1 of 8 (baseline) | 7 of 8 without `--real`; `one-config` and the PC part of `same-behaviour` (`backend`, `commands`) pass with `--real` | steps 2 and 3 |
+| all | Probes that pass on a stub | not measured | 0 of 20 (14 runs of the tool, 6 judgements of made-up input) | step 4 |

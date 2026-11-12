@@ -119,6 +119,7 @@ On failure it prints `{"ok":false,"error":...}` to stderr and exits with code 1.
 - This GPU has no native bf16, so ComfyUI computes in fp32. That is slow.
 - Measured: 217 s to 284 s per picture at 1536x1024 and 15 steps. One run took 470 s. The cause of that run is not verified. A job that ran just before it had been cancelled.
 - A GPU with more VRAM and a CUDA 13 driver is faster. Not tested.
+- macOS: tested on an Apple M4 with 16 GB of unified memory (macOS 26.5.1), ComfyUI 0.44.0 on MPS through comfy-cli 1.25.0. The same int8 model files work. Measured: 434 s for a cold picture at 1536x1024 and 15 steps (the model load included). See [macOS run](#macos-run-2026-11-12).
 
 ## Evidence
 
@@ -145,6 +146,20 @@ then `generate_image` 4 times, and wrote each subject itself. Another agent's jo
 `validate_workflow` on `workflow.json`: `valid: true`, `converted_node_count: 10`.
 
 The style is the same across the three examples, but the model does not follow the layout exactly. In the read-replicas picture, the sky-blue arrows reach only one of the three small cylinders.
+
+### macOS run (2026-11-12)
+
+One run on an Apple M4 (16 GB, macOS 26.5.1) through the horus MCP server
+(`generate_image`), with a cold start: horus started ComfyUI through comfy-cli
+(`started_backend: true`). The machine was set up from nothing with
+`horus setup it-illustration -yes` (392 s: ComfyUI and the 11 GB of model files).
+Evidence: [`docs/plans/2026-11-12-macos-backend-evidence.md`](../../docs/plans/2026-11-12-macos-backend-evidence.md), section T7.
+
+| Route | Subject | Seed | Seconds of the call | Result |
+|---|---|---|---|---|
+| horus MCP | A mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt; a sky-blue server box takes them off | 7 | 434 (cold: start of ComfyUI and model load included) | Passes, with one gap: each server has its own lilac belt; the subject asks for one belt between them. Small marks on the boxes look like text. |
+
+![mint-green and sky-blue servers with yellow envelopes on lilac belts](examples/mac-conveyor-belt.png)
 
 ### Style-neutral check (2026-11-09)
 

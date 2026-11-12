@@ -70,12 +70,13 @@ direction. `go test ./internal/archtest` has no allow list.
 `internal/backend` gets one new file for the comfy-cli backend. `backend.New`
 picks by OS: the portable backend on Windows, the comfy-cli backend on macOS,
 and the "not supported on this OS yet" backend on every other OS. The `Backend`
-interface does not change (decision D37 of #4).
+interface does not change (decision D37 of #4). Phase 3 removed one method from it: `Layout` is no
+method of `Backend` any more, because no caller outside the package used it (#124).
 
-| Method | What the comfy-cli backend does |
+| Method or type | What the comfy-cli backend does |
 |---|---|
 | `Installed` | `<dir>/ComfyUI/main.py` is a file. The same rule as on Windows. |
-| `Layout` | `ComfyUI` = `<dir>/ComfyUI`. `Python` = `<dir>/ComfyUI/.venv/bin/python`. `Logs` = `<dir>/ComfyUI/user/comfyui_<port>.log`. |
+| `layout` (a type of the package, no method of the interface) | `ComfyUI` = `<dir>/ComfyUI`. `Python` = `<dir>/ComfyUI/.venv/bin/python`. `Logs` = `<dir>/ComfyUI/user/comfyui_<port>.log`. |
 | `Install` | Skips when ComfyUI is installed. Else it runs `comfy --workspace <dir>/ComfyUI install --m-series --version 0.44.0` with a closed standard input, and gives the lines of `comfy` to `out`. |
 | `Start` | When the server answers: nothing. When ComfyUI is not installed: an error with the method `NotInstalled`. Else it runs `comfy --workspace <dir>/ComfyUI launch --background -- --listen 127.0.0.1 --port <port>`, writes the state file, and waits until the server answers. |
 | `Stop` | It reads the state file. Without a state file for the same address it stops nothing, and it refuses when a server answers there. With one, it runs `comfy --workspace <dir>/ComfyUI stop`, deletes the state file, and waits until the server does not answer. |

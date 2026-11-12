@@ -5,16 +5,14 @@ Text in, image out. The picture is 1536x1024. The model is FLUX 3 Image Klein
 
 The workflow has no style. horus sends the subject to the model exactly as
 written. The caller writes the look (style, palette, light, composition) in the
-subject. The examples below are flat vector because their subjects ask for flat
-vector, with the sentences in
-[`prompts/flux3-klein/flat-vector-tech-style.md`](../../prompts/flux3-klein/flat-vector-tech-style.md).
-The name `it-illustration` is older than this rule. It does not mean a style.
+subject. The name `it-illustration` is older than this rule. It does not mean a style.
 
-| Example | Subject |
-|---|---|
-| ![message queue](examples/message-queue.png) | A message queue between two services |
-| ![database with read replicas](examples/read-replicas.png) | A database with read replicas |
-| ![load balancer](examples/load-balancer.png) | A laptop, a load balancer and three servers |
+This folder has no sample subject and no sample image. Callers copied the look of
+the old samples (flat vector, navy outlines, pastel fills) into their own
+subjects, so every picture got the same look. `horus` now refuses a manifest
+with `subject.examples`. The saved prompts of past runs, with their images, are
+in [`prompts/flux3-klein/`](../../prompts/flux3-klein/). They are caller-side
+prompts, not a part of this workflow.
 
 Files in this folder:
 
@@ -24,7 +22,6 @@ Files in this folder:
 | `workflow.json` | The graph, in ComfyUI "UI" format. 10 nodes. Do not edit it by hand. |
 | `recipe.json` | A comfy-cli recipe that builds the same graph. |
 | `models.json` | The model files, with size and SHA-256. `horus workflow install` reads it. |
-| `examples/` | Pictures made with this workflow. |
 
 ## Models and pairings
 
@@ -144,7 +141,7 @@ then `generate_image` 4 times, and wrote each subject itself. Another agent's jo
 
 `validate_workflow` on `workflow.json`: `valid: true`, `converted_node_count: 10`.
 
-The style is the same across the three examples, but the model does not follow the layout exactly. In the read-replicas picture, the sky-blue arrows reach only one of the three small cylinders.
+The style is the same across the three pictures of 2026-11-05 (in `prompts/flux3-klein/`), but the model does not follow the layout exactly. In the read-replicas picture, the sky-blue arrows reach only one of the three small cylinders.
 
 ### Style-neutral check (2026-11-09)
 

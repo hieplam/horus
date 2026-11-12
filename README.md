@@ -130,7 +130,7 @@ List them, install the files of one, or remove them with
 
 | Workflow | Does | Model family |
 |---|---|---|
-| [`it-illustration`](workflows/it-illustration/README.md) | Text to flat-vector tech illustration, 1536×1024 | FLUX 3 Image Klein |
+| [`it-illustration`](workflows/it-illustration/README.md) | Text to image in the look that the caller writes, 1536×1024 | FLUX 3 Image Klein |
 
 ## License
 

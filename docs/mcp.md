@@ -139,7 +139,7 @@ it starts ComfyUI, and `horus stop-comfyui` reads it.
 | Tool | Does | Changes the PC |
 |---|---|---|
 | `list_workflows` | Lists the workflows: name, summary, `good_for`, `not_good_for`, default size, measured time, `install_state`. | No |
-| `describe_workflow(workflow)` | One workflow in full: size limits, how to write the subject (rules and examples), license, the state of each model file. | No |
+| `describe_workflow(workflow)` | One workflow in full: size limits, how to write the subject (the rules), license, the state of each model file. | No |
 | `install_workflow(workflow, accept_license=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license and the size. | Yes: downloads GB |
 | `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another workflow lists is kept unless `remove_shared=true`. | Yes: deletes files |
 | `generate_image(workflow, subject, out_path?, seed?, width?, height?, overwrite=false)` | Makes one PNG and waits until it is on disk. Returns the absolute path and the seed. | Writes one PNG |
@@ -238,7 +238,7 @@ and change every field. The fields:
 | `name` | Must equal the folder name. |
 | `title`, `summary`, `good_for`, `not_good_for` | What the caller reads to choose a workflow. Write what the model can and cannot draw. Do not describe a look: the caller owns the look. |
 | `output` | `default_width`, `default_height`, `min_side`, `max_side`, `multiple_of`. Set `max_side` to a size that you ran on the target GPU. |
-| `subject` | `min_chars`, `max_chars`, `how_to_write`, `rules`, `examples` (subject, image, seed). The caller writes the subject from these. |
+| `subject` | `min_chars`, `max_chars`, `how_to_write`, `rules`. The caller writes the subject from these. A manifest has no sample subject: callers copy the look of a sample into every picture, so `horus` refuses a manifest with `subject.examples`. |
 | `timing` | Measured seconds per image and the hardware. |
 | `graph.file`, `graph.node_count` | The UI-format graph and its node count. A different count after conversion stops the run. |
 | `graph.inputs` | For each of `caption`, `seed`, `width`, `height`, `filename_prefix`: the node class and the input name that horus sets. Exactly one node of that class must exist. |

@@ -16,8 +16,8 @@ A clean flat vector illustration for a modern tech explainer. It looks like a ti
 
 ## Result
 
-- File: `workflows/it-illustration/examples/read-replicas.png`
-- Run: `horus run-illustration -subject "<the subject sentences above>" -seed 1001 -out workflows/it-illustration/examples/read-replicas.png`. The run of 2026-11-05 used the old Python script with the same options. The script is deleted.
+- File: `prompts/flux3-klein/read-replicas.png`
+- Run: `horus run-illustration -subject "<the subject sentences above>" -seed 1001 -out prompts/flux3-klein/read-replicas.png`. The run of 2026-11-05 used the old Python script with the same options. The script is deleted.
 - Time: 262.4 s on a GTX 1660 Ti (6 GB).
 - Check: flat vector, on subject, no visible text.
 

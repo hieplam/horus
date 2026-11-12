@@ -16,7 +16,7 @@ A clean flat vector illustration for a modern tech explainer. It looks like a ti
 
 ## Result
 
-- File: `workflows/it-illustration/examples/load-balancer.png`
+- File: `prompts/flux3-klein/load-balancer.png`
 - Run: comfy MCP: `set_workflow_slot` on a copy of `workflow.json` (caption, seed 77, `filename_prefix`), `validate_workflow`, `run_workflow(wait=False)`, `job(action="wait")`, `fetch_outputs`. Prompt id `2e80323c-53f3-4c73-bf99-8287d0a7432b`.
 - Time: 284.5 s on a GTX 1660 Ti (6 GB).
 - Check: flat vector, on subject, no visible text.

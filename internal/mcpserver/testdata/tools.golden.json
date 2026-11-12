@@ -1,5 +1,5 @@
 {
- "instructions": "horus makes images on this machine with local AI models. You do not need to know how.\n1. Call list_workflows. Each workflow is one image model and graph; pick the one whose summary and good_for fit.\n2. Call describe_workflow for that workflow once, and read subject.rules and subject.examples.\n   horus adds no style: it sends your subject to the model exactly as written. You own the look,\n   the palette, the light and the composition, so write them in the subject.\n3. Call generate_image. It waits until the PNG is on disk (often 3 to 8 minutes, longer on a cold start)\n   and returns its absolute path. Open the file and check it against what you asked.\nEvery result has ok, result and error. On ok=false, read error.code, error.action_by and error.next_step:\naction_by \"retry\" = call again, \"caller\" = change your arguments, \"human\" = ask the user to do error.next_step.\nNever install or uninstall a workflow without the user's consent: those tools ask for it.",
+ "instructions": "horus makes images on this machine with local AI models. You do not need to know how.\n1. Call list_workflows. Each workflow is one image model and graph; pick the one whose summary and good_for fit.\n2. Call describe_workflow for that workflow once, and read subject.rules.\n   horus adds no style: it sends your subject to the model exactly as written. You own the look,\n   the palette, the light and the composition, so write them in the subject.\n3. Call generate_image. It waits until the PNG is on disk (often 3 to 8 minutes, longer on a cold start)\n   and returns its absolute path. Open the file and check it against what you asked.\nEvery result has ok, result and error. On ok=false, read error.code, error.action_by and error.next_step:\naction_by \"retry\" = call again, \"caller\" = change your arguments, \"human\" = ask the user to do error.next_step.\nNever install or uninstall a workflow without the user's consent: those tools ask for it.",
  "server": "horus",
  "tools": [
   {
@@ -8,7 +8,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
    },
-   "description": "Everything a caller needs to use one image workflow: the allowed sizes, how to write the subject (rules and example subjects with their images), the license and the install state of each model file. The workflow has no style of its own. Read subject.rules before the first generate_image with this workflow.",
+   "description": "Everything a caller needs to use one image workflow: the allowed sizes, how to write the subject (the rules), the license and the install state of each model file. The workflow has no style of its own. Read subject.rules before the first generate_image with this workflow.",
    "inputSchema": {
     "properties": {
      "workflow": {
@@ -76,7 +76,7 @@
        },
        "subject": {
         "additionalProperties": true,
-        "description": "min_chars, max_chars, how_to_write, rules, examples (subject, image path, seed)",
+        "description": "min_chars, max_chars, how_to_write, rules",
         "title": "Subject",
         "type": "object"
        },

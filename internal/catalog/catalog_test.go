@@ -112,6 +112,9 @@ func TestManifestChecks(t *testing.T) {
 	}{
 		{"theme", func(m map[string]any) { m["theme"] = "navy" }, "has theme: a workflow must not add a style; the caller owns it"},
 		{"caption", func(m map[string]any) { m["caption"] = map[string]any{} }, "has caption: a workflow must not add a style"},
+		{"examples", func(m map[string]any) {
+			m["subject"].(map[string]any)["examples"] = []any{map[string]any{"subject": "A flat vector picture."}}
+		}, "has subject.examples: a sample subject carries a style that callers copy; the caller owns the look"},
 		{"lacks", func(m map[string]any) { delete(m, "summary"); delete(m, "graph") }, "lacks: summary, graph"},
 		{"wrongname", func(m map[string]any) { m["name"] = "other" }, "has name 'other'"},
 		{"inputs", func(m map[string]any) {

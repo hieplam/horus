@@ -23,8 +23,20 @@ import (
 // An empty url means the HORUS_COMFYUI_URL setting, read at each request.
 // The backend starts ComfyUI at the same address, in the HORUS_COMFYUI_DIR
 // folder.
-func newImages(url string) *generate.Service {
-	return generate.New(comfy.New(url), backend.New(backend.Place{URL: url}, backend.Archive{}))
+func newImages(url string) *generate.Service { return imagesFor(url, seams{}) }
+
+// imagesFor is newImages with the test seams s: s.goos picks the backend of
+// another OS.
+func imagesFor(url string, s seams) *generate.Service {
+	return generate.New(comfy.New(url), backendFor(s.goos, backend.Place{URL: url}, backend.Archive{}))
+}
+
+// backendFor gives the backend of the OS goos, or of this OS when goos is "".
+func backendFor(goos string, p backend.Place, a backend.Archive) backend.Backend {
+	if goos != "" {
+		return backend.NewFor(goos, p, a)
+	}
+	return backend.New(p, a)
 }
 
 // imagesAt is the image service for the -url flag of run-illustration.
@@ -49,12 +61,12 @@ var takesArchive = backend.TakesArchive()
 // sync-workflows.
 func installAt(dir string) devtools.Install { return newBackend(cli.BackendPlace{Dir: dir}) }
 
-// seams are the test seams of the setup service. The zero value is the real
+// seams are the test seams of the setup service and the image service. The zero value is the real
 // behaviour.
 type seams struct {
 	download download.Options // the base options of each download
 	now      func() time.Time // the time in the name of a backup of extra_model_paths.yaml
-	goos     string           // the OS whose backend installs ComfyUI; "" means this OS
+	goos     string           // the OS whose backend installs and starts ComfyUI; "" means this OS
 }
 
 // newSetup makes the setup service on the model files, the downloader, the
@@ -62,10 +74,7 @@ type seams struct {
 // setting, read at each call.
 func newSetup(place cli.SetupPlace, s seams) *provision.Service {
 	files := &modelfiles.Store{ComfyUIDir: place.ComfyUIDir, ModelsDir: place.ModelsDir, TextEncoderDir: place.TextEncoderDir, Now: s.now}
-	install := newBackend(cli.BackendPlace{Dir: place.ComfyUIDir, ServerURL: place.ServerURL})
-	if s.goos != "" {
-		install = backend.NewFor(s.goos, backend.Place{Dir: place.ComfyUIDir, URL: place.ServerURL}, backend.Archive{})
-	}
+	install := backendFor(s.goos, backend.Place{Dir: place.ComfyUIDir, URL: place.ServerURL}, backend.Archive{})
 	return provision.New(files, downloader{s.download}, comfy.New(place.ServerURL), install, place.ServerURL)
 }
 

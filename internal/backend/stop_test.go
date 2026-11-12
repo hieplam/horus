@@ -54,7 +54,7 @@ func (s *standIn) pids(t *testing.T) []int {
 func countAlive(pids []int) int {
 	n := 0
 	for _, p := range pids {
-		if alive(p) {
+		if platform.Alive(p) {
 			n++
 		}
 	}
@@ -156,7 +156,7 @@ func TestStopRefusesAComfyUIThatHorusDidNotStart(t *testing.T) {
 	if n := countAlive(pids); n != 2 || !answers(context.Background(), s.url) {
 		t.Errorf("after the refusals: %d of 2 processes alive, answers %v", n, answers(context.Background(), s.url))
 	}
-	if !alive(other.Process.Pid) {
+	if !platform.Alive(other.Process.Pid) {
 		t.Error("Stop ended the tree of another address")
 	}
 	if _, err := os.Stat(filepath.Join(s.dir, stateName)); err != nil {

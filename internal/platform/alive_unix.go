@@ -1,6 +1,6 @@
 //go:build unix
 
-package backend
+package platform
 
 import (
 	"errors"
@@ -14,6 +14,9 @@ import (
 // alive tells if the process pid runs. A zombie (ended, not yet reaped) does
 // not run.
 func alive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
 	if runtime.GOOS == "linux" {
 		if b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)); err == nil {
 			s := string(b)

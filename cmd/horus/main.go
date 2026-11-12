@@ -58,10 +58,10 @@ var commands = map[string]command{
 			return cli.InstallComfyUI(ctx, args, os.Stdout, os.Stderr, backendAt, takesArchive)
 		})
 	}},
-	"start-comfyui": {"start ComfyUI and wait for its server, Windows only", func(args []string) int {
+	"start-comfyui": {"start ComfyUI and wait for its server", func(args []string) int {
 		return withSignal(func(ctx context.Context) int { return cli.StartComfyUI(ctx, args, os.Stdout, os.Stderr, backendAt) })
 	}},
-	"stop-comfyui": {"stop the ComfyUI that horus started, Windows only", func(args []string) int {
+	"stop-comfyui": {"stop the ComfyUI that horus started", func(args []string) int {
 		return withSignal(func(ctx context.Context) int { return cli.StopComfyUI(ctx, args, os.Stdout, os.Stderr, backendAt) })
 	}},
 	"install-comfy-mcp": {"install comfy-mcp and comfy-cli in their own venv", func(args []string) int {

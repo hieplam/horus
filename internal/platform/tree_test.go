@@ -79,10 +79,37 @@ func helper(role string, env ...string) *exec.Cmd {
 	return cmd
 }
 
+// TestAliveOfThisProcessAndOfAnEndedOne: Alive is true for this process,
+// false for a process that ended and was reaped, and false for a pid of 0
+// or less.
+func TestAliveOfThisProcessAndOfAnEndedOne(t *testing.T) {
+	if !Alive(os.Getpid()) {
+		t.Error("Alive(this process) = false")
+	}
+	cmd := helper("grandchild")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	if !Alive(pid) {
+		t.Error("Alive(a running child) = false")
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	if Alive(pid) {
+		t.Error("Alive(an ended child) = true")
+	}
+	for _, pid := range []int{0, -1} {
+		if Alive(pid) {
+			t.Errorf("Alive(%d) = true", pid)
+		}
+	}
+}
+
 func countAlive(pids []int) int {
 	n := 0
 	for _, p := range pids {
-		if alive(p) {
+		if Alive(p) {
 			n++
 		}
 	}
@@ -123,7 +150,7 @@ func TestTreeOutlivesItsStarterAndEndsFromAnotherProcess(t *testing.T) {
 	}
 	t.Cleanup(func() { // leave no process behind when a check fails
 		for _, p := range pids {
-			if pr, err := os.FindProcess(p); err == nil && alive(p) {
+			if pr, err := os.FindProcess(p); err == nil && Alive(p) {
 				_ = pr.Kill()
 			}
 		}

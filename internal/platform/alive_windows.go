@@ -1,4 +1,4 @@
-package backend
+package platform
 
 import "syscall"
 
@@ -9,6 +9,9 @@ const (
 
 // alive tells if the process pid runs.
 func alive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
 	h, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(pid))
 	if err != nil {
 		return false

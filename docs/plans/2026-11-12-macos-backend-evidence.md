@@ -1332,3 +1332,193 @@ stderr log), and nothing started ComfyUI.
 | all | Goal rows that pass on `main`, on the Mac with `--real` | 0 | 8 | step 2: `goal: 8 of 8 rows passed` at `866006e` |
 | `mac-image` | Cold time of the image on the Mac | 434 s (T7) | 469 s | step 2 |
 | `mac-image` | Stub runs that pass | not measured | 0 of 1 | stub check |
+
+## T10
+
+On the Mac (Apple M4, 16 GB, macOS 26.5.1), in the main checkout with a clean tree. Paths: `~`
+is the home folder, `<scratch>` a scratch folder outside the repo. Part A and part B ran as new
+agent sessions: part A a subagent that got only `README.md`, `docs/setup.md` and the pages that the
+setup page links to; part B `claude -p`. Part C was a read of the code by a subagent, checked by
+hand.
+
+Red: not applicable: this task builds nothing.
+
+### Decisions of T10
+
+| Decision | Why |
+|---|---|
+| A step that the page names in its prose, or that a command names in its output, is not "a step that the page does not name", also when it is outside the code block. Such a finding becomes a follow-up (#129), not a defect. | The goal row `one-setup-doc` says "a step that the page does not name". The restart of step 4 is in the bullet below the block (`docs/setup.md:305`). |
+| Part A runs in a tool shell that reads no shell profile, and it may not write in the repo. The `export PATH` of each call and an output path outside the repo are not unnamed steps. Step 3 (`.env`) was skipped: no download was needed. | They come from the test harness, not from the page. Step 0 of the page names the profile line and a new terminal. |
+| `Backend.Layout()` has no caller outside `internal/backend` (#124). It is a follow-up for the owner, not a defect of this phase. | `Layout` is part of the locked decision D37 of #4, and the spec says "The `Backend` interface does not change". A fix reopens D37. |
+| Part B ran a second time after the first try timed out. | The first try ran while the Mac swapped (27.8 GB of 28.7 GB of swap used by other programs); the server log shows each prompt took 30 min. horus answered `GENERATION_TIMEOUT` with `retryable: true`, as designed. The second try ran with the memory free. |
+
+### Part A, run 1 (on `8cdd194`)
+
+A second install with `HORUS_COMFYUI_DIR=~/horus-accept`, `HORUS_COMFYUI_URL=http://127.0.0.1:8189`
+and `HORUS_MODELS_DIR=~/horus/ComfyUI/models`. `horus install-comfyui` (74 s) and `horus
+start-comfyui` (64 s) worked as the page says. Then:
+
+```
+$ horus workflow install it-illustration
+SKIP flux3-image-klein-int8-convrot.safetensors : already present and verified.
+SKIP qwen3vl_4b_int8_convrot.safetensors : already present and verified.
+SKIP flux2-vae.safetensors : already present and verified.
+NOT SEEN  the server does not list flux3-image-klein-int8-convrot.safetensors. Check extra_model_paths.yaml, then restart ComfyUI.
+NOT SEEN  the server does not list qwen3vl_4b_int8_convrot.safetensors. Check extra_model_paths.yaml, then restart ComfyUI.
+NOT SEEN  the server does not list flux2-vae.safetensors. Check extra_model_paths.yaml, then restart ComfyUI.
+FAIL: The files are installed, but 3 check(s) failed.
+$ ls ~/horus-accept/ComfyUI/extra_model_paths.yaml
+ls: ...: No such file or directory
+```
+
+`docs/setup.md:305` says "When a model folder is outside ComfyUI, the command adds it to
+`extra_model_paths.yaml`." The agent wrote the file by hand: 1 step that the page does not name.
+Cause: `Service.Install` mapped only the folders of files that it downloaded. Defect **#125**,
+fixed by #126 (`a5bc2f5`). The image of run 1 (1536x1024, 1152.8 s while the Mac swapped) showed
+its subject.
+
+### Part A, run 2 (on `a5bc2f5`, Green)
+
+A new agent, the same settings. 16:59Z to 17:13Z.
+
+```
+$ horus install-comfyui                         exit 0, about 71 s
+OK: ComfyUI v0.44.0 is installed in ~/horus-accept
+$ horus start-comfyui                           exit 0, about 47 s
+OK: ComfyUI answers at http://127.0.0.1:8189
+$ horus workflow install it-illustration        exit 1
+SKIP flux3-image-klein-int8-convrot.safetensors : already present and verified.   (x3, no download)
+extra_model_paths.yaml: added diffusion_models -> ~/horus/ComfyUI/models/diffusion_models
+extra_model_paths.yaml: added text_encoders -> ~/horus/ComfyUI/models/text_encoders
+extra_model_paths.yaml: added vae -> ~/horus/ComfyUI/models/vae
+Restart ComfyUI so that it reads the new paths (horus start-comfyui).
+NOT SEEN  the server does not list flux3-image-klein-int8-convrot.safetensors. Check extra_model_paths.yaml, then restart ComfyUI.   (x3)
+FAIL: The files are installed, but 3 check(s) failed. See the lines above.
+$ horus stop-comfyui && horus start-comfyui     (the restart of docs/setup.md:305)
+OK: ComfyUI answers at http://127.0.0.1:8189
+$ horus sync-workflows                          exit 0
+$ horus doctor -workflow it-illustration        exit 0, 5.5 s
+PASS  models for 'it-illustration' - all files present and verified (SHA-256 checked)
+All checks passed.
+$ horus run-illustration -subject "..." -out <scratch>/out/robot-tree.png
+{"ok":true,...,"width":1536,"height":1024,"execution_seconds":394.6,...}
+$ horus stop-comfyui
+OK: stopped the ComfyUI that horus started at http://127.0.0.1:8189 (process 65787).
+$ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8189/system_stats
+000
+$ rm -rf ~/horus-accept
+```
+
+`extra_model_paths.yaml`, as horus wrote it:
+
+```
+horus_diffusion_models:
+    base_path: ~/horus/ComfyUI/models
+    diffusion_models: diffusion_models
+
+horus_text_encoders:
+    base_path: ~/horus/ComfyUI/models
+    text_encoders: text_encoders
+
+horus_vae:
+    base_path: ~/horus/ComfyUI/models
+    vae: vae
+```
+
+The PNG: `<scratch>/out/robot-tree.png`, 1536x1024, 1274675 bytes, SHA-256
+`e9bee0ede56d5bc20d26b39fdc2ba088c157e1175a065f27628935cb8e1a03b3`. Subject: an orange robot with
+round white eyes waters a small tree with blue leaves in a white pot with a yellow watering can,
+on a cream background, no text. The picture shows each part, with no text.
+
+What the agent found, and the verdict:
+
+| Finding of the agent | Verdict |
+|---|---|
+| The page has no walkthrough for a second install. | Not a step: the brief gave the 3 settings, and both commands are on the page. |
+| The restart between the commands of step 4. | Named by the page (`docs/setup.md:305`) and by the `NOT SEEN` lines. Follow-up **#129** (the block and the line `(horus start-comfyui)`, which does nothing while the server answers). |
+| `docs/setup.md:307`: "that needs a few minutes, because it hashes 11 GB". `horus doctor -workflow` took 5.5 s. | A sentence that a command contradicts. Defect **#127**, fixed by #128. `horus workflow check it-illustration` measured again by hand: `real 5.21`, `user 3.36` for 10.2 GB; the code keeps no hash cache. |
+
+Steps that the page does not name: 0. Sentences that a command contradicts, after #128: 0.
+
+### Part B, a new agent through MCP (Green)
+
+The config `<scratch>/partB/mcp.json` starts `~/go/bin/horus mcp` with `HORUS_ROOT` on the repo and
+`HORUS_OUTPUT_DIR` on `<scratch>/partB/out`. The binary was built at `a5bc2f5`
+(`vcs.modified=false`). No ComfyUI answered on port 8188 before the run.
+
+```
+$ claude -p --strict-mcp-config --mcp-config <scratch>/partB/mcp.json \
+    --allowedTools "mcp__horus__list_workflows,mcp__horus__describe_workflow,mcp__horus__generate_image" \
+    --output-format json "You have an image tool through MCP. Find the workflows, read the one for tech illustrations, then make one image of a subject that you choose yourself. ..."
+16:52:11Z to 16:59:24Z, exit 0, is_error false, 6 turns, permission_denials []
+```
+
+The envelope of `generate_image`:
+
+```
+{"ok":true,"result":{"workflow":"it-illustration","path":"<scratch>/partB/out/it-illustration/20261112T165229Z-3190444361.png","bytes":1116869,"width":1536,"height":1024,"seed":3190444361,"seconds":406.4,"backend_seconds":398.1,"started_backend":true,"job_id":"6e9246e0-96fe-4fb5-b35a-285db8f4cffe"},"error":null}
+```
+
+The PNG: 1536x1024, 1116869 bytes, SHA-256
+`59139d1cfb91662057b162b95794e6bc31f00969e80436eab43cafbe6710944d`. Subject of the agent: "a database
+cache layer: a laptop sends requests through a yellow cache box with a lightning bolt to a green
+database cylinder". The picture shows a laptop with a bar chart, arrows to a yellow box with a
+lightning bolt, an arrow to a green database cylinder, and no text. It shows its subject.
+`horus stop-comfyui` then stopped the ComfyUI that `generate_image` started.
+
+The first try (15:50Z to 16:51Z, on `8cdd194`) returned two times
+`{"ok":false,...,"error":{"code":"GENERATION_TIMEOUT","message":"the job did not finish in 1800 s","retryable":true,...}}`
+while `vm.swapusage` showed `used = 27846.81M` of `28672.00M` (decision above).
+
+### Part C, the design
+
+Each package read file by file against the design rules of `AGENTS.md` and
+`docs/specs/2026-11-11-restructure.md`. The search for OS tests (`runtime.GOOS`, `//go:build`,
+`_windows.go`, `_darwin.go`, `"windows"`, `"darwin"`, `\\`, `.exe`) found each real OS branch in
+`internal/platform` or `internal/backend` (and the rule text of `internal/archtest`).
+
+| Package | Result |
+|---|---|
+| `internal/backend` | No defect. `started.go` holds the state file, `alreadyUp`, `waitUp`, `stopStarted`, `waitDown`, `answers` and `portOf` for both backends; each backend adds only its own step. `New`, `NewFor` and `TakesArchive` are the only reads of `runtime.GOOS`. Follow-up **#124** (`Layout()` has no outside caller; locked by D37). |
+| `internal/backend/comfyclitest` | No defect. Imports only `internal/platform` and the standard library. |
+| `internal/platform` | No defect. Every `runtime.GOOS` and build tag of the product is here; `DefaultComfyDir`, `InTCCFolder`, `ExeName`, `VenvBin` are pure functions without an interface. |
+| `internal/doctor` | No defect. `Server`, `Install` and `Programs` are small interfaces that the service declares; `expand`, `resolve`, `isHorus` are pure. `isHorus` strips `.exe` on every OS, which is harmless and no OS test. |
+| `internal/provision` | No defect. Its `Backend` interface is `Installed` and `Install` only; the decisions (`fileCheck`, `graphCheck`, `serverCheck`, `removeDecision`, `mappings`, `steps`) are pure functions. The defect of part A (#125) was in `Install`, not in the design. |
+| `cmd/horus` (`main.go`, `wiring.go`) | No defect. `main.go` imports handlers and base packages; `wiring.go` is the one place that imports every layer. `seams.goos` is the test seam of decisions 41 and 51. |
+
+`go test ./internal/archtest` passes on `main`.
+
+### Stub check
+
+`docs/setup.md` at `943d430` says: "These commands are Windows-only in this phase. On macOS and
+Linux, install and start ComfyUI by hand." The `horus` of that commit, on the Mac, with the
+settings of part A:
+
+```
+$ go build -o <scratch>/horus943 ./cmd/horus    (in a worktree at 943d430)
+$ HORUS_COMFYUI_DIR=<scratch>/stub-accept HORUS_COMFYUI_URL=http://127.0.0.1:8189 <scratch>/horus943 install-comfyui
+horus install-comfyui: not supported on this OS yet
+exit=2
+$ ls <scratch>/stub-accept
+ls: ...: No such file or directory
+```
+
+Part A on the page of `943d430` stops at the install of ComfyUI.
+
+### Issues of the acceptance
+
+| Issue | Kind | State |
+|---|---|---|
+| #125 `workflow install` maps no folder for present files | defect (goal row `one-setup-doc`) | closed by #126 |
+| #127 the hash time on the setup page and in `doctor -h` | defect (goal row `one-setup-doc`) | closed by #128 |
+| #124 `Backend.Layout()` has no outside caller | follow-up (reopens D37) | open, for the owner |
+| #129 the restart of step 4 outside the block, and the line `(horus start-comfyui)` | follow-up | open |
+
+### Ratchet
+
+| Ratchet | Before | After | Command |
+|---|---|---|---|
+| Open defects of the acceptance | 2 (#125, #127) | 0 | `gh issue view 125`, `gh issue view 127`: `CLOSED` |
+| Steps of part A that the page does not name | 1 (run 1) | 0 (run 2) | part A |
+| Sentences of part A that a command contradicts | 1 | 0 | #128 |
+| Part B `generate_image` with `ok: true` | 0 of 1 (timeout, the Mac swapping) | 1 of 1 | part B |

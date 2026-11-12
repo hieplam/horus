@@ -60,7 +60,7 @@ var endWait = 3 * time.Second
 var ErrBadTree = errors.New("not the id of a process tree")
 
 // ErrNotSupported is the error of a step that horus cannot do on this OS
-// yet, for example the ComfyUI backend on macOS (Phase 3).
+// yet, for example the ComfyUI backend on Linux.
 var ErrNotSupported = errors.New("not supported on this OS yet")
 
 // FreeSpace returns the bytes that the current user can write in the folder

@@ -13,9 +13,9 @@
 // `comfy --workspace <dir>/ComfyUI --json launch --background -- --listen
 // 127.0.0.1 --port <port>`. comfy starts ComfyUI as a background process and
 // ends when ComfyUI reports its start. With --json, comfy prints an envelope
-// with the process id of that background ComfyUI on its standard output.
-// Start writes the state file (started.go) with that id, then waits until the
-// server answers.
+// on its standard output with the process id of the background process that
+// runs ComfyUI. That process ends when ComfyUI ends. Start writes the state
+// file (started.go) with that id, then waits until the server answers.
 //
 // Stop: comfy-cli keeps one background ComfyUI for each user, not for each
 // workspace, and `comfy stop` stops that one, also when a person started it.

@@ -51,6 +51,16 @@ commands.
 | 2026-11-12 | Step 4 of T3 (no Windows path in the texts on macOS): the fix texts of the doctor name no Windows path (`ComfyUI/main.py` and `platform.ExeName("comfy")` follow the OS). The help line `-comfyui-dir ... then ~/ComfyUI_windows_portable` of `horus setup` (`internal/cli/setup.go:38`) and the words "the portable folder" stay. | T6 (#91) owns these help texts, and its Red needs the 2 lines of `setup.go` and `workflow.go` (decision of T1). | T3 |
 | 2026-11-12 | The spec bullet "comfy-cli and comfy-mcp: the checks follow the new `.mcp.json`" is left to T5. | T5 makes the new `.mcp.json` and `horus comfy-mcp`. The plan steps of T3 do not name it, and the checks of today pass on the PC with the `.mcp.json` of today. | T3 |
 | 2026-11-12 | The diff of `horus doctor` on the PC ran in the worktree of the task (no `.env`), with the binary of `origin/main` at `bd4409c` and the binary of the branch, both from `go build -o`. | The main checkout belongs to another session. The two runs use the same folder and the same flags. | T3 |
+| 2026-11-12 | `Start` of the comfy-cli backend runs `comfy --workspace <dir>/ComfyUI --json launch --background -- --listen 127.0.0.1 --port <port>`. The global flag `--json` is the only flag that #53 did not have. `Stop` runs `comfy --workspace <dir>/ComfyUI stop` exactly as in #53. `--skip-prompt` is not added. The tests compare the full argument list. | The state file needs the process id, and only the envelope of `--json` holds it (`_emit_launch_success` of `comfy_cli/command/launch.py` in 1.25.0: `data.pid`). Without the flag, comfy-cli picks JSON or text by itself (a pipe gives JSON, `COMFY_OUTPUT=pretty` gives text), so horus could not rely on the format. comfy-cli asks nothing when its standard input is not a terminal (`tracking.prompt_tracking_consent`), and horus gives it a closed standard input, so `--skip-prompt` changes nothing. | T2 |
+| 2026-11-12 | The state file keeps its fields (`tree`, `pid`, `url`, `started`). For comfy-cli, `tree` is `comfy-cli:<workspace>` and `pid` is the process id of the envelope (0 when comfy-cli gives none). | The Windows backend keeps its file byte for byte, and one `readState` serves both backends. `tree` names what `Stop` ends in both. | T2 |
+| 2026-11-12 | `Stop` of the comfy-cli backend runs `comfy stop` only when the state file names the same address and `platform.Alive(pid)` is true, or the pid is 0. A dead pid runs no stop: the state file is deleted, and the text is "was not running any more", or the refusal when a server still answers. | The spec ("The stale state file"). The pid is the `comfy launch` process that runs ComfyUI, and it ends when ComfyUI ends (`launch_comfyui` exits with the server). A dead pid means that the background ComfyUI of comfy-cli is not the one that horus started. Limit: a pid of 0, or a pid that the OS gave to a new process after a restart, can still run a `comfy stop`. | T2 |
+| 2026-11-12 | The shared code of both backends is in `internal/backend/started.go`: the state file, `alreadyUp`, `waitUp`, `stopStarted` (the refusal and the texts of `Stop`), `waitDown`, `answers` and `portOf`. Each backend gives only its own step: the portable build ends its tree, comfy-cli runs `comfy stop`. | Step 1 of T2: no copy between the backends. The texts of the portable build do not change (its tests pass without a change). | T2 |
+| 2026-11-12 | `platform.Alive(pid)` is new. The 3 copies of `alive` in the tests of `internal/backend` and `internal/platform` are gone, and the tests call `platform.Alive`. | Whether a process runs is OS code, so it belongs in `internal/platform` (archtest). The backend needs it outside the tests now. | T2 |
+| 2026-11-12 | The fake comfy is the package `internal/backend/comfyclitest` (layer `test` in `internal/archtest/layers.go`), not a function in a test file. `internal/backend` and `cmd/horus` both use it. On `launch` it starts a stand-in ComfyUI as a separate process, keeps its pid in a "background record" (one for each user, as comfy-cli does), and prints the envelope. On `stop` it ends that process. With `Proxy`, the stand-in sends each request to the fake ComfyUI of comfytest. | Step 2 and step 4 of T2 need the same fake in two packages. A copy is against the design rules. The package holds no code of comfy-cli. | T2 |
+| 2026-11-12 | `TestGenerateStartsComfyUIThroughTheComfyCLIBackend` uses the test seam `seams.goos` of T3: `newImages(url)` is `imagesFor(url, seams{})`, and `imagesFor(url, seams{goos: "darwin"})` gives the image service on the comfy-cli backend (`backend.NewFor` of T3). The rule "goos empty = this OS" is one function, `backendFor`, for the setup service and the image service. No new export. | The pinned test of `cmd/horus` must pass on Windows too (the goal tool runs it on the PC), and `backend.New` gives the portable build there. The test goes through the MCP server, the image service, the ComfyUI adapter and the backend of the wiring. | T2 |
+| 2026-11-12 | The fake comfy of T3 in `cmd/horus/doctor_setup_test.go` (its own `TestMain` and `fakeComfy`) is replaced by `comfyclitest`. `TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps` now wants the record line `... install --m-series --version 0.44.0` followed by `stdin closed`, and counts runs by the line `stdin ...`. | A package has one `TestMain`, and two fakes of comfy were a copy. The test asserts the same command and one run, and now also the closed standard input. | T2 |
+| 2026-11-12 | The summaries of `start-comfyui` and `stop-comfyui` in the command list lose ", Windows only". | It is false after T2. No golden file holds it. | T2 |
+| 2026-11-12 | `TestComfyCLIIsTheBackendOfDarwin` no longer asserts that `Start` and `Stop` answer "not supported". It asserts that they do not: `Start` of an empty folder gives the error of a missing ComfyUI, and `Stop` says "Nothing to stop.". The address is a free port (it was 8190). | The behaviour changed by design (ratchet 2 → 0). The new tests of T2 prove `Start` and `Stop`. | T2 |
 
 ## Baseline
 
@@ -347,3 +357,85 @@ Stub check, each a scratch edit that was then restored with `git checkout`:
 | Open issue #82 | open | closed by the pull request | `TestDoctorUsesHorusComfyUIURLWithoutTheFlag` |
 | Pinned tests of T3 that pass | 0 of 5 | 5 of 5 | the `-v` run above |
 | Go test functions (`go test -list . ./...`) | 227 (after T1) | 233 | 6 new tests, none removed |
+
+## T2
+
+Red (on `main` at `bd4409c`), `go test ./internal/backend -run 'ComfyCLI.*(Start|Stop)' -v`:
+
+```
+testing: warning: no tests to run
+PASS
+ok  	github.com/hieplam/horus/internal/backend	2.419s [no tests to run]
+```
+
+Green, on the PC (Windows):
+
+```
+$ go test -count=1 ./internal/backend ./cmd/horus
+ok  	github.com/hieplam/horus/internal/backend	34.605s
+ok  	github.com/hieplam/horus/cmd/horus	2.256s
+$ go test -count=1 -v -run 'ComfyCLI.*(Start|Stop)' ./internal/backend
+--- PASS: TestComfyCLIStartRunsLaunchAndTheServerAnswers
+--- PASS: TestComfyCLIStartFailsWhenComfyUIIsNotInstalled
+--- PASS: TestComfyCLIStartFailsWhenLaunchFails
+--- PASS: TestComfyCLIStopRunsStopAndTheServerEnds
+--- PASS: TestComfyCLIStopRefusesAComfyUIThatHorusDidNotStart
+--- PASS: TestComfyCLIStopWithAStaleStateRunsNoStop
+--- PASS: TestComfyCLIStartAndStopWithoutAProcessID
+ok  	github.com/hieplam/horus/internal/backend	14.365s
+$ go test -count=1 -v -run TestGenerateStartsComfyUIThroughTheComfyCLIBackend ./cmd/horus
+--- PASS: TestGenerateStartsComfyUIThroughTheComfyCLIBackend
+ok  	github.com/hieplam/horus/cmd/horus	0.589s
+$ python tools/goal_check.py --phase 3 --no-ci --only mac-backend --server-cmd <scratch>/horus.exe mcp
+PASS  mac-backend - 10 pinned tests pass; CI part skipped (--no-ci); real part not run (needs --real on macOS)
+goal: 1 of 1 rows passed
+$ python tests/mcp_contract.py --server-cmd <scratch>/horus.exe mcp
+contract: 30 of 30 passed
+$ python tests/workflow_parity.py --horus <scratch>/horus.exe
+parity: 17 of 17 cases equal
+```
+
+Also green: `gofmt -l .` (no output), `go vet ./...` for windows, darwin/arm64 and linux,
+`go test ./...` (every package `ok`), `python scripts/lint-public.py` (`0 finding(s)`).
+`tests/` and the golden files did not change. The tests of the portable backend
+(`start_test.go`, `stop_test.go`) pass with no change of an assertion: only their helper
+`alive` became `platform.Alive`. The CI job `go darwin/arm64` of the pull request is the
+oracle of the macOS code: its result is in the pull request.
+
+The commands that horus sends, as the fake comfy records them (the tests compare the full lines):
+
+```
+--workspace <dir>/ComfyUI --json launch --background -- --listen 127.0.0.1 --port <port>
+--workspace <dir>/ComfyUI stop
+```
+
+Stub check, each a scratch edit that was then reverted with `git checkout`:
+
+```
+  # Start of the comfy-cli backend returns nil at once:
+--- FAIL: TestComfyCLIStartRunsLaunchAndTheServerAnswers (0.02s)
+    comfycli_test.go:239: the fake comfy got "", want "--workspace C:\\...\\horus\\ComfyUI --json launch --background -- --listen 127.0.0.1 --port 63182\nstdin closed\n"
+    comfycli_test.go:242: the server does not answer after Start
+--- FAIL: TestGenerateStartsComfyUIThroughTheComfyCLIBackend (0.03s)
+    comfycli_test.go:75: got map[error:map[action_by:human code:BACKEND_UNAVAILABLE ...
+  # Stop runs comfy stop first, every time:
+--- FAIL: TestComfyCLIStopRefusesAComfyUIThatHorusDidNotStart (1.55s)
+    comfycli_test.go:351: Stop without a state file = <nil>, want the refusal
+    comfycli_test.go:360: the fake comfy got a stop: "--workspace C:\\...\\horus\\ComfyUI launch --background -- --listen 127.0.0.1 --port 63205\nstdin closed\n-...
+    comfycli_test.go:363: the person's ComfyUI no longer answers
+--- FAIL: TestComfyCLIStopWithAStaleStateRunsNoStop (1.58s)
+    comfycli_test.go:400: the fake comfy got a stop: "--version\nstdin closed\n--workspace C:\\...\\horus\\ComfyUI stop\nstdin closed\n...
+```
+
+| Number | Before | After | Evidence |
+|---|---|---|---|
+| Commands that answer "not supported" on macOS | 2 (`start-comfyui`, `stop-comfyui`) | 0 | `comfyCLI.Start` runs `comfy launch` and `comfyCLI.Stop` runs `comfy stop` (the 5 pinned tests of T2 in `internal/backend`). Linux still answers "not supported" (`TestOtherOSAnswersNotSupported`). |
+| Go test functions (`go test -list . ./...`) | 227 (after T1) | 237 | 10 new tests, none removed |
+
+What only the Mac can confirm (task T7), because the tests use the fake comfy:
+
+1. `comfy --json launch --background` of comfy-cli 1.25.0 prints one envelope line on the standard output, with `data.pid`.
+2. That pid is the `comfy launch` process that runs ComfyUI, and it ends after `comfy stop`, within the 15 s of the wait of `Stop`.
+3. The background ComfyUI keeps running after `horus start-comfyui` ends, also when the terminal closes.
+4. The global flag `--json` before `launch` changes nothing else of the launch.
+5. `comfy stop` exits 0 after it stopped the background ComfyUI.

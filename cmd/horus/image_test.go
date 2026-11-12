@@ -145,6 +145,29 @@ func TestImageOutOfMemoryThroughTheAdapter(t *testing.T) {
 	}
 }
 
+// TestImageMPSOutOfMemoryThroughTheAdapter: the error of PyTorch on a Mac
+// ("MPS backend out of memory ...") in /history becomes OUT_OF_MEMORY,
+// retryable, action_by caller, and the backend message reaches the details.
+func TestImageMPSOutOfMemoryThroughTheAdapter(t *testing.T) {
+	if !strings.HasPrefix(comfytest.MPSOutOfMemoryText, "MPS backend out of memory") {
+		t.Fatal("the fake does not send the MPS text")
+	}
+	f := imageEnv(t)
+	f.SetMode(comfytest.OOMMPS)
+	_, err := newImages("").Generate(context.Background(), generate.Request{Workflow: "it-illustration", Subject: testSubject}, generate.Options{})
+	var he *herr.Error
+	if !errors.As(err, &he) {
+		t.Fatalf("not a horus error: %v", err)
+	}
+	i := he.Info()
+	if i.Code != "OUT_OF_MEMORY" || !i.Retryable || i.ActionBy != "caller" {
+		t.Fatalf("got %+v", i)
+	}
+	if msg, _ := i.Details["backend_message"].(string); !strings.HasPrefix(msg, "MPS backend out of memory") {
+		t.Fatalf("backend_message = %q", msg)
+	}
+}
+
 func TestGenerateImageTool(t *testing.T) {
 	useRepoWorkflows(t)
 	f := comfytest.New(t, filepath.Join("..", "..", "tests", "fixtures", "object_info.json"))

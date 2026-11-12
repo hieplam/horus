@@ -34,6 +34,7 @@ commands.
 | 2026-11-12 | The row `mac-backend` also pins the test of step 4 of T2 (`cmd/horus`: a generate call starts ComfyUI through the comfy-cli backend). The row `one-config` also pins the test of `horus comfy-mcp` (T5). | Without the second pin, an `.mcp.json` that names `horus comfy-mcp` passes when the command does not exist. | T0 |
 | 2026-11-12 | The Green of T0 ran the goal tool with `--server-cmd <scratch>/horus.exe mcp`, a binary of the same commit from `go build -o`. The plan says `horus`. | The PC rule: a running `horus mcp` holds `horus.exe`, so `go install` is not allowed here. The binary is the same code. | T0 |
 | 2026-11-12 | `pytest` is not in `tests/requirements.txt`. The test venv got it with `pip install pytest`. `python -m unittest discover -s tools` runs the same tests without it. | The plan's Green names `python -m pytest`. A change of `tests/requirements.txt` changes the CI install, and no row needs it. | T0 |
+| 2026-11-12 | The `next_step` of `OUT_OF_MEMORY` stays as it is. The time limit stays 1800 s. The fake ComfyUI gets the mode `OOMMPS` for the MPS text. | The text ("use a smaller width and height") is true on a Mac too, and the golden file does not change in Phase 3. The spec keeps 1800 s. A new fake mode leaves the mode `OOM` and its tests as they are. | T4 |
 
 ## Baseline
 
@@ -140,3 +141,50 @@ real `go` program on a small module in a temporary folder.
 | `same-behaviour` | each of: contract 29 of 30, parity 16 of 17, a red `go test ./...`, archtest without `TestPlanted`, 214 Go test functions, a changed contract file, an allow list file, a red `contract macos-latest` job, a red `go linux/amd64` job (#81); `--real` on Windows with a failing Phase 2 row `backend` | all facts good |
 
 Ratchet: goal rows with a committed check 0 → 8.
+
+## T4
+
+Red (on `main` at `003b840`): `git grep -n "MPS backend out of memory" -- '*.go'` printed nothing.
+The code already maps the text (`internal/comfy/jobs.go:95`), so the Red is the missing proof.
+
+Green:
+
+```
+$ git grep -n "MPS backend out of memory" -- '*.go' | wc -l
+7
+$ go test -count=1 ./internal/comfy ./cmd/horus
+ok  	github.com/hieplam/horus/internal/comfy
+ok  	github.com/hieplam/horus/cmd/horus
+$ python tools/goal_check.py --phase 3 --no-ci --only out-of-memory
+PASS  out-of-memory - 2 pinned tests pass
+goal: 1 of 1 rows passed
+```
+
+Also green: `go test ./...` (all packages ok), `gofmt -l .` (no output), `python scripts/lint-public.py`
+(`0 finding(s)`), `tests/mcp_contract.py` (`contract: 30 of 30 passed`, binary from `go build -o`).
+The golden files and the contract test did not change. `internal/comfy/jobs.go` did not change.
+
+Stub check: in a scratch edit of `internal/comfy/jobs.go`, the three text matches (`outofmemory`,
+`out of memory`, `allocation on device`) were replaced by `false`. Then the new tests ran:
+
+```
+--- FAIL: TestJobErrorOfTheMPSOutOfMemoryText (0.00s)
+    comfy_test.go:206: got GENERATION_FAILED retryable=true action_by=retry
+--- FAIL: TestImageMPSOutOfMemoryThroughTheAdapter (0.03s)
+    image_test.go:164: got {Code:GENERATION_FAILED Message:the backend failed while it ran the job Retryable:true ActionBy:retry ... backend_message:MPS backend out of memory (MPS allocated: 9.07 GB, ...
+```
+
+`jobs.go` was restored with `git checkout`. (`go vet` rejects `false || false`, so the first run used
+`-vet=off` for the `internal/comfy` package.)
+
+Ratchet: test cases with the MPS text 0 → 2 (`TestJobErrorOfTheMPSOutOfMemoryText`,
+`TestImageMPSOutOfMemoryThroughTheAdapter`). Go test functions 215 → 217 with T4 alone.
+
+Added to the fake ComfyUI: mode `OOMMPS` and the constant `comfytest.MPSOutOfMemoryText`. The mode `OOM` is unchanged.
+
+Step 3, the `next_step` of `OUT_OF_MEMORY` (`internal/herr/herr.go:63`): "Call again. If it fails again, use a
+smaller width and height." It names no thing that a Mac lacks. A Mac has unified memory, and a smaller
+image also needs less of it. The text does not mislead, so no follow-up issue.
+
+Step 4: the time limit stays 1800 s. `internal/settings/settings.go:158` and `internal/cli/run_illustration.go:155`
+keep the default 1800 (the spec: the cold run on the Mac took 1033 s). No code changed.

@@ -22,12 +22,16 @@ import (
 const (
 	OK      = "ok"      // done on the second poll, one image
 	OOM     = "oom"     // fails with a CUDA out-of-memory error
+	OOMMPS  = "oommps"  // fails with the out-of-memory error of PyTorch on MPS (a Mac)
 	Slow    = "slow"    // runs for ever
 	Pending = "pending" // waits in the queue for ever
 	Absent  = "absent"  // is neither in /history nor in /queue
 	NoImage = "noimage" // done, without an image
 	Reject  = "reject"  // /prompt answers HTTP 400 with node_errors for a model file
 )
+
+// MPSOutOfMemoryText is the error text of PyTorch when a Mac runs out of memory on MPS.
+const MPSOutOfMemoryText = "MPS backend out of memory (MPS allocated: 9.07 GB, other allocations: 6.50 GB, max allowed: 18.13 GB). Tried to allocate 256.00 MB on private pool. Use PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 to disable upper limit for memory allocations (may cause system failure)."
 
 // Job is one submitted graph.
 type Job struct {
@@ -238,12 +242,16 @@ func (f *Fake) history(w http.ResponseWriter, id string) {
 	switch {
 	case job.Mode == Slow || job.Mode == Pending || job.Mode == Absent || job.Polls < 2:
 		send(w, 200, map[string]any{})
-	case job.Mode == OOM:
+	case job.Mode == OOM || job.Mode == OOMMPS:
+		etype, emsg := "torch.OutOfMemoryError", "CUDA out of memory. Tried to allocate 2.00 GiB"
+		if job.Mode == OOMMPS {
+			etype, emsg = "RuntimeError", MPSOutOfMemoryText
+		}
 		send(w, 200, map[string]any{id: map[string]any{"status": map[string]any{"status_str": "error", "completed": false,
 			"messages": []any{
 				[]any{"execution_start", map[string]any{"timestamp": 1}},
-				[]any{"execution_error", map[string]any{"node_type": "KSampler", "exception_type": "torch.OutOfMemoryError",
-					"exception_message": "CUDA out of memory. Tried to allocate 2.00 GiB"}}}},
+				[]any{"execution_error", map[string]any{"node_type": "KSampler", "exception_type": etype,
+					"exception_message": emsg}}}},
 			"outputs": map[string]any{}}})
 	default:
 		outputs := map[string]any{"9": map[string]any{"images": []any{map[string]any{"filename": id + ".png", "subfolder": "", "type": "output"}}}}

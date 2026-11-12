@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,7 +55,7 @@ func TestDoctorRejectsAnUnknownFlag(t *testing.T) {
 // TestDoctorLinesAndExitCode: the lines of the two names are the lines of
 // check-setup: one PASS or FAIL line for each check, then the count.
 func TestDoctorLinesAndExitCode(t *testing.T) {
-	f := &fakeDoctor{rs: []doctor.Result{{Name: "ComfyUI folder", OK: true, Detail: "/c"},
+	f := &fakeDoctor{rs: []doctor.Result{{Name: "ComfyUI folder", Level: doctor.Pass, Detail: "/c"},
 		{Name: "ComfyUI server", Detail: "no answer at http://h:1. Fix: horus start-comfyui"}}}
 	for _, name := range []string{"doctor", "check-setup"} {
 		var out, errOut bytes.Buffer
@@ -71,6 +73,31 @@ func TestDoctorLinesAndExitCode(t *testing.T) {
 	}
 }
 
+// TestDoctorWarnLinesKeepExitCodeZero: a result of level Warn gives a WARN
+// line with its detail as the service wrote it, and it does not count as
+// failed: with only PASS and WARN lines the exit code is 0 and the last line
+// is "All checks passed.". A FAIL next to a WARN counts once.
+func TestDoctorWarnLinesKeepExitCodeZero(t *testing.T) {
+	warn := doctor.Result{Name: "macOS privacy folder", Level: doctor.Warn,
+		Detail: "the repo root /Users/you/Desktop/horus is inside /Users/you/Desktop, a folder that macOS protects."}
+	f := &fakeDoctor{rs: []doctor.Result{{Name: "ComfyUI folder", Level: doctor.Pass, Detail: "/c"}, warn}}
+	var out, errOut bytes.Buffer
+	code := RunDoctor(context.Background(), "doctor", nil, &out, &errOut, f.at)
+	want := "PASS  ComfyUI folder - /c\n" +
+		"WARN  macOS privacy folder - the repo root /Users/you/Desktop/horus is inside /Users/you/Desktop, a folder that macOS protects.\n" +
+		"All checks passed.\n"
+	if code != 0 || out.String() != want {
+		t.Errorf("exit %d, want 0:\n%s\nwant:\n%s", code, out.String(), want)
+	}
+
+	f.rs = append(f.rs, doctor.Result{Name: "ComfyUI server", Level: doctor.Fail, Detail: "no answer"})
+	out.Reset()
+	code = RunDoctor(context.Background(), "doctor", nil, &out, &errOut, f.at)
+	if code != 1 || !strings.HasSuffix(out.String(), "\nFAIL  ComfyUI server - no answer\n1 check(s) failed.\n") {
+		t.Errorf("with a FAIL: exit %d, want 1:\n%s", code, out.String())
+	}
+}
+
 // TestDoctorModelCheckLinesAndExitCode: with -workflow, the handler asks the
 // setup service for the check of horus workflow check. It writes the lines
 // of that check with an indent, then the PASS or FAIL line of the model
@@ -82,7 +109,7 @@ func TestDoctorModelCheckLinesAndExitCode(t *testing.T) {
 	}
 	setup := &fakeSetup{res: &provision.Result{Checked: true, CheckFiles: 2, Workflow: "w", Items: items},
 		err: errors.New("1 check(s) failed. Fix: horus workflow install w")}
-	f := &fakeDoctor{rs: []doctor.Result{{Name: "ComfyUI folder", OK: true, Detail: "/c"}}, setup: setup}
+	f := &fakeDoctor{rs: []doctor.Result{{Name: "ComfyUI folder", Level: doctor.Pass, Detail: "/c"}}, setup: setup}
 	var out, errOut bytes.Buffer
 	code := RunDoctor(context.Background(), "check-setup", []string{"-workflow", "w"}, &out, &errOut, f.at)
 	want := "PASS  ComfyUI folder - /c\n" +
@@ -142,7 +169,7 @@ func TestDoctorModelCheckLinesAndExitCode(t *testing.T) {
 // TestDoctorWithoutWorkflowRunsNoModelCheck: without -workflow, the handler
 // does not ask the setup service, and writes no model line.
 func TestDoctorWithoutWorkflowRunsNoModelCheck(t *testing.T) {
-	f := &fakeDoctor{rs: []doctor.Result{{Name: "ComfyUI folder", OK: true, Detail: "/c"}}}
+	f := &fakeDoctor{rs: []doctor.Result{{Name: "ComfyUI folder", Level: doctor.Pass, Detail: "/c"}}}
 	var out, errOut bytes.Buffer
 	if code := RunDoctor(context.Background(), "doctor", []string{"-quick"}, &out, &errOut, f.at); code != 0 ||
 		f.setup.req.WorkflowsDir != "" || strings.Contains(out.String(), "models for") {
@@ -168,12 +195,53 @@ func TestDoctorModelCheckIsFullByDefault(t *testing.T) {
 		if f.place != (DoctorPlace{ComfyUIDir: "/c", ServerURL: "http://127.0.0.1:1", ModelsDir: "/m", TextEncoderDir: "/t"}) {
 			t.Errorf("place %+v", f.place)
 		}
+		if f.opts.ModelsDir != "/m" || f.opts.TextEncoderDir != "/t" || f.opts.OutputDir != settings.OutputDir() {
+			t.Errorf("the folders of the TCC check: %+v", f.opts)
+		}
 	}
-	// The default address is the fixed address of check-setup.
+	// Without -server-url and HORUS_COMFYUI_URL, the address is the default
+	// of check-setup.
+	useRoot(t, t.TempDir())
+	t.Setenv("HORUS_COMFYUI_URL", "")
 	f := &fakeDoctor{}
 	var out, errOut bytes.Buffer
 	RunDoctor(context.Background(), "doctor", nil, &out, &errOut, f.at)
 	if f.place.ServerURL != "http://127.0.0.1:8188" || f.opts.ServerURL != "http://127.0.0.1:8188" || f.setup.req.Workflow != "" {
 		t.Errorf("defaults: %+v %+v %+v", f.place, f.opts, f.setup.req)
+	}
+}
+
+// TestDoctorUsesHorusComfyUIURLWithoutTheFlag (#82): without -server-url,
+// horus doctor asks the server of HORUS_COMFYUI_URL, the address that horus
+// start-comfyui starts. The line of the check names that address. Without
+// the variable, the address is http://127.0.0.1:8188. The flag wins over the
+// variable.
+func TestDoctorUsesHorusComfyUIURLWithoutTheFlag(t *testing.T) {
+	useRoot(t, t.TempDir()) // no .env of a real checkout is read
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	run := func(args ...string) *fakeDoctor {
+		t.Helper()
+		f := &fakeDoctor{}
+		var out, errOut bytes.Buffer
+		if code := RunDoctor(context.Background(), "doctor", args, &out, &errOut, f.at); code != 0 {
+			t.Fatalf("%v: exit %d:\n%s%s", args, code, out.String(), errOut.String())
+		}
+		return f
+	}
+
+	t.Setenv("HORUS_COMFYUI_URL", srv.URL+"/")
+	settings.Reset()
+	if f := run(); f.place.ServerURL != srv.URL || f.opts.ServerURL != srv.URL {
+		t.Errorf("HORUS_COMFYUI_URL=%s/: the doctor asks %q, its line names %q; want %s", srv.URL, f.place.ServerURL, f.opts.ServerURL, srv.URL)
+	}
+	if f := run("-server-url", "http://127.0.0.1:1"); f.place.ServerURL != "http://127.0.0.1:1" || f.opts.ServerURL != "http://127.0.0.1:1" {
+		t.Errorf("-server-url: the doctor asks %q, its line names %q", f.place.ServerURL, f.opts.ServerURL)
+	}
+
+	t.Setenv("HORUS_COMFYUI_URL", "")
+	settings.Reset()
+	if f := run(); f.place.ServerURL != "http://127.0.0.1:8188" || f.opts.ServerURL != "http://127.0.0.1:8188" {
+		t.Errorf("no HORUS_COMFYUI_URL: the doctor asks %q, its line names %q; want http://127.0.0.1:8188", f.place.ServerURL, f.opts.ServerURL)
 	}
 }

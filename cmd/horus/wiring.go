@@ -54,6 +54,7 @@ func installAt(dir string) devtools.Install { return newBackend(cli.BackendPlace
 type seams struct {
 	download download.Options // the base options of each download
 	now      func() time.Time // the time in the name of a backup of extra_model_paths.yaml
+	goos     string           // the OS whose backend installs ComfyUI; "" means this OS
 }
 
 // newSetup makes the setup service on the model files, the downloader, the
@@ -62,6 +63,9 @@ type seams struct {
 func newSetup(place cli.SetupPlace, s seams) *provision.Service {
 	files := &modelfiles.Store{ComfyUIDir: place.ComfyUIDir, ModelsDir: place.ModelsDir, TextEncoderDir: place.TextEncoderDir, Now: s.now}
 	install := newBackend(cli.BackendPlace{Dir: place.ComfyUIDir, ServerURL: place.ServerURL})
+	if s.goos != "" {
+		install = backend.NewFor(s.goos, backend.Place{Dir: place.ComfyUIDir, URL: place.ServerURL}, backend.Archive{})
+	}
 	return provision.New(files, downloader{s.download}, comfy.New(place.ServerURL), install, place.ServerURL)
 }
 

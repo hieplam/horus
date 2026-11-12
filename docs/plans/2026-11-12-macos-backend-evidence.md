@@ -42,6 +42,15 @@ commands.
 | 2026-11-12 | The venv of `horus install-comfy-mcp` is one function, `settings.ComfyMCPVenv()`. `horus doctor`, `horus install-comfy-mcp` and the comfy-cli backend call it. `install-comfy-mcp` no longer has its own error for a missing home folder. | Three copies of `<home>/.venvs/comfy-mcp` become one. T5 (`horus comfy-mcp`) needs the same folder. | T1 |
 | 2026-11-12 | `TestOtherOSAnswersNotSupported` now checks Linux and FreeBSD, not macOS. The macOS part moved to `TestComfyCLIIsTheBackendOfDarwin`: Start and Stop still answer "not supported", Install now works. | The behaviour of macOS changed by design (ratchet 3 → 2). No check was removed: each old assertion for macOS has a new one. | T1 |
 | 2026-11-12 | The summary of `install-comfyui` in the command list of `horus` is now "install ComfyUI: the portable build on Windows, comfy-cli on macOS". `start-comfyui` and `stop-comfyui` keep "Windows only" until T2. | The old summary says "Windows only", which is false after T1. No golden file holds it. | T1 |
+| 2026-11-12 | A result of the doctor has a `Level` (`doctor.Pass`, `doctor.Warn`, `doctor.Fail`) in place of `OK bool`. The zero value is `Fail`. `doctor.Failed` counts only `Fail`. The handler maps the level to the word `PASS`, `WARN` or `FAIL`. | Step 1 of T3. A result that forgets its level does not pass. The service writes no output words. | T3 |
+| 2026-11-12 | The test for "inside a TCC folder" is the pure function `inTCCFolder(goos, home, path)` of `internal/platform`. The exported `platform.InTCCFolder(home, path)` calls it with the OS of the build. The plan says "a pure function that takes the OS name". | The same pattern as `DefaultComfyDir` (decision of T1). No package outside `internal/platform` can name the OS (archtest). | T3 |
+| 2026-11-12 | `doctor.Options` gets `InTCCFolder func(path string) (string, bool)`; nil means `platform.InTCCFolder` in `Home`. The doctor test gives it the macOS answer, so the test runs on Windows, Linux and macOS. | The check is a pure function, so it gets no interface. `Options.Getenv` has the same form. Without the field, the doctor test passes nothing on the PC. | T3 |
+| 2026-11-12 | The TCC check gives one `WARN  macOS privacy folder - <what> <absolute path> is inside <folder> ...` line for each path, after the 7 checks. The paths: the repo root, the install folder, the models folder (`-models-dir`, else `HORUS_MODELS_DIR`), the text encoder folder (`-text-encoder-dir`, else `HORUS_TEXT_ENCODER_DIR`) and the output folder (`HORUS_OUTPUT_DIR`, else `<repo>/.scratch/outputs`). An empty folder is not checked. The same absolute path gives one line. | The spec names the 5 paths. The real part of `tcc-folders` needs the absolute path of the repo root in a WARN line (decision of T0), so the service calls `filepath.Abs`. An empty models folder is inside the install folder, which is checked. | T3 |
+| 2026-11-12 | #82: without `-server-url`, the handler reads `settings.ComfyURL()` one time (`HORUS_COMFYUI_URL`, then `http://127.0.0.1:8188`) and gives the same address to the server check and to its line. The default of the flag is now empty. `TestDoctorModelCheckIsFullByDefault` now sets `HORUS_ROOT` to a temporary folder and `HORUS_COMFYUI_URL` to empty before it checks the default. | The behaviour of `start-comfyui` and `stop-comfyui` (decision 73 of Phase 2). Without the isolation, a `.env` or a variable of the machine changes the default that the test reads. Its assertion did not change. | T3 |
+| 2026-11-12 | The setup test of `cmd/horus` drives the macOS backend through `backend.NewFor(goos, Place, Archive)`, a new export that gives the backend of the OS `goos` (`New` is `NewFor(runtime.GOOS, ...)`). `cmd/horus` gets the field `goos` in its test `seams`; empty means this OS. The test binary of `cmd/horus` is also the fake `comfy` (`TestMain`, `HORUS_FAKE_COMFY`). | `backend.New` picks by `runtime.GOOS`, and `cmd/horus` cannot name the unexported type `comfyCLI`. `NewFor` adds no behaviour and no setting: an environment variable would be a hidden option of the program. The test of T2 in `cmd/horus` (`TestGenerateStartsComfyUIThroughTheComfyCLIBackend`) can use the same export. | T3 |
+| 2026-11-12 | Step 4 of T3 (no Windows path in the texts on macOS): the fix texts of the doctor name no Windows path (`ComfyUI/main.py` and `platform.ExeName("comfy")` follow the OS). The help line `-comfyui-dir ... then ~/ComfyUI_windows_portable` of `horus setup` (`internal/cli/setup.go:38`) and the words "the portable folder" stay. | T6 (#91) owns these help texts, and its Red needs the 2 lines of `setup.go` and `workflow.go` (decision of T1). | T3 |
+| 2026-11-12 | The spec bullet "comfy-cli and comfy-mcp: the checks follow the new `.mcp.json`" is left to T5. | T5 makes the new `.mcp.json` and `horus comfy-mcp`. The plan steps of T3 do not name it, and the checks of today pass on the PC with the `.mcp.json` of today. | T3 |
+| 2026-11-12 | The diff of `horus doctor` on the PC ran in the worktree of the task (no `.env`), with the binary of `origin/main` at `bd4409c` and the binary of the branch, both from `go build -o`. | The main checkout belongs to another session. The two runs use the same folder and the same flags. | T3 |
 
 ## Baseline
 
@@ -258,3 +267,83 @@ Stub check, each a scratch edit that was then reverted:
 | Commands that answer "not supported" on macOS | 3 | 2 (`start-comfyui`, `stop-comfyui`, until T2) | `newFor("darwin", ...)` gives `comfyCLI`, whose `Install` runs comfy (`TestComfyCLIIsTheBackendOfDarwin`, `TestComfyCLIInstallRunsTheCommandOfTheSpec`) |
 | Default folders that fit macOS | 0 | 1 (`<home>/horus`) | `TestDefaultComfyDirOfEachOS`, `TestComfyDirDefaultIsTheFolderOfPlatform` |
 | Go test functions (`go test -list . ./...`) | 217 (after T4) | 227 | 10 new tests, none removed |
+
+## T3
+
+Red (on `main` at `bd4409c`, the test of #82 before the change), `go test -count=1 -run TestDoctorUsesHorusComfyUIURLWithoutTheFlag ./internal/cli`:
+
+```
+--- FAIL: TestDoctorUsesHorusComfyUIURLWithoutTheFlag (0.01s)
+    doctor_test.go:205: HORUS_COMFYUI_URL=http://127.0.0.1:63682/: the doctor asks "http://127.0.0.1:8188", its line names "http://127.0.0.1:8188"; want http://127.0.0.1:63682
+FAIL
+FAIL	github.com/hieplam/horus/internal/cli	2.532s
+```
+
+Green, on the PC (Windows):
+
+```
+$ go test -count=1 ./internal/doctor ./internal/cli ./internal/platform ./cmd/horus
+ok  	github.com/hieplam/horus/internal/doctor
+ok  	github.com/hieplam/horus/internal/cli
+ok  	github.com/hieplam/horus/internal/platform
+ok  	github.com/hieplam/horus/cmd/horus
+$ go test -count=1 -v -run '^(<the 5 pinned names of T3>)$' <their packages>
+--- PASS: TestInTCCFolder (0.00s)
+--- PASS: TestTCCCheckWarnsForEachPathInATCCFolder (0.03s)
+--- PASS: TestDoctorWarnLinesKeepExitCodeZero (0.00s)
+--- PASS: TestDoctorUsesHorusComfyUIURLWithoutTheFlag (0.01s)
+--- PASS: TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps (0.30s)
+$ python tools/goal_check.py --phase 3 --no-ci --only tcc-folders --server-cmd <scratch>/horus.exe mcp
+PASS  tcc-folders - 4 pinned tests pass; real part not run (needs --real on macOS)
+goal: 1 of 1 rows passed
+$ python tools/goal_check.py --phase 3 --no-ci --only one-config mac-setup --server-cmd <scratch>/horus.exe mcp
+PASS  mac-setup - 3 pinned tests pass; real part not run (needs --real on macOS)
+FAIL  one-config - .mcp.json: 2 Windows-only paths, the entry comfy-mcp is not `horus comfy-mcp`; no passing test: TestComfyMCPPassesTheStreamsComfyBinAndTheExitCode (not in cmd/horus, T5)
+goal: 1 of 2 rows passed
+$ python tests/mcp_contract.py --server-cmd <scratch>/horus.exe mcp
+contract: 30 of 30 passed
+$ python tests/workflow_parity.py --horus <scratch>/horus.exe
+parity: 17 of 17 cases equal
+```
+
+`one-config` no longer names `TestDoctorUsesHorusComfyUIURLWithoutTheFlag` as missing. Its other two parts belong to T5.
+
+`horus doctor` on the PC: the binary of `origin/main` (`bd4409c`) and the binary of the branch ran with the same flags in the same folder.
+The three runs were `horus doctor`, `horus doctor -workflow it-illustration -quick` and
+`horus doctor -server-url http://127.0.0.1:8188`. The output and the exit code of each pair were saved to files, and
+`diff` printed nothing for each of the 3 pairs. (`HORUS_COMFYUI_URL` is not set on the PC.)
+
+Also green: `gofmt -l .` (no output), `go vet ./...` for windows, darwin/arm64 and linux, `go test ./...` (every
+package `ok`, archtest included), `python scripts/lint-public.py` (`0 finding(s)`). `tests/`, the golden files and
+`.mcp.json` did not change. The CI job `go darwin/arm64` of the pull request is the oracle of the macOS code: its
+result is in the pull request.
+
+Stub check, each a scratch edit that was then restored with `git checkout`:
+
+```
+  # the TCC function always answers "outside" (inTCCFolder starts with `if true { return "", false }`):
+--- FAIL: TestInTCCFolder (0.00s)
+    paths_test.go:95: darwin "/Users/you/Desktop": got "" false, want "\\Users\\you\\Desktop"
+  # the doctor gives no TCC result (Check returns rs without tccWarnings):
+--- FAIL: TestTCCCheckWarnsForEachPathInATCCFolder (0.03s)
+    doctor_test.go:325: the doctor asked for 0 paths, want 5: []
+    doctor_test.go:339: 7 results, 0 failed, want 11 and 0:
+  # a WARN counts as failed (Failed counts `r.Level != Pass`):
+--- FAIL: TestDoctorWarnLinesKeepExitCodeZero (0.00s)
+    doctor_test.go:90: exit 1, want 0:
+  # a fixed default address (the handler sets http://127.0.0.1:8188 in place of settings.ComfyURL()):
+--- FAIL: TestDoctorUsesHorusComfyUIURLWithoutTheFlag (0.01s)
+    doctor_test.go:236: HORUS_COMFYUI_URL=http://127.0.0.1:53494/: the doctor asks "http://127.0.0.1:8188", its line names "http://127.0.0.1:8188"; want http://127.0.0.1:53494
+  # Install of the comfy-cli backend returns nil at once:
+--- FAIL: TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps (0.04s)
+    doctor_setup_test.go:240: -yes: exit 1:
+        Setup of workflow 'demo':
+        MISSING   ComfyUI in <temp>\comfy
+```
+
+| Number | Before | After | Evidence |
+|---|---|---|---|
+| Levels of a doctor line | 2 (`PASS`, `FAIL`) | 3 (`PASS`, `WARN`, `FAIL`) | `doctor.Level`, `TestDoctorWarnLinesKeepExitCodeZero` |
+| Open issue #82 | open | closed by the pull request | `TestDoctorUsesHorusComfyUIURLWithoutTheFlag` |
+| Pinned tests of T3 that pass | 0 of 5 | 5 of 5 | the `-v` run above |
+| Go test functions (`go test -list . ./...`) | 227 (after T1) | 233 | 6 new tests, none removed |

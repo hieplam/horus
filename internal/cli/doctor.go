@@ -1,11 +1,12 @@
-// horus doctor (also horus check-setup): one PASS or FAIL line for each check
-// of the setup.
+// horus doctor (also horus check-setup): one PASS, WARN or FAIL line for
+// each check of the setup. A WARN line (on macOS: a path inside a folder that
+// macOS protects) does not fail the run.
 // The checks are in the service internal/doctor.
 // With -workflow, the handler then runs the check of horus workflow check on
 // the setup service, and writes its lines with an indent.
 //
-// Exit code 0 = all checks passed, 1 = a check failed, 2 = a flag that does
-// not parse.
+// Exit code 0 = no check failed (WARN lines can be there), 1 = a check
+// failed, 2 = a flag that does not parse.
 package cli
 
 import (
@@ -30,7 +31,7 @@ type Doctor interface {
 // pick. An empty field means the setting.
 type DoctorPlace struct {
 	ComfyUIDir     string // -comfyui-dir
-	ServerURL      string // -server-url
+	ServerURL      string // -server-url, else HORUS_COMFYUI_URL, then http://127.0.0.1:8188
 	ModelsDir      string // -models-dir, for the model check
 	TextEncoderDir string // -text-encoder-dir, for the model check
 }
@@ -49,7 +50,7 @@ func RunDoctor(ctx context.Context, name string, args []string, out, errOut io.W
 	var quick bool
 	fs := newFlags("horus "+name, errOut)
 	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the portable folder "+dirHelp)
-	fs.StringVar(&place.ServerURL, "server-url", "http://127.0.0.1:8188", "address of the ComfyUI server")
+	fs.StringVar(&place.ServerURL, "server-url", "", "address of the ComfyUI server (default: HORUS_COMFYUI_URL, then http://127.0.0.1:8188)")
 	fs.StringVar(&o.VenvPath, "venv-path", "", "folder of the comfy-mcp venv (default: <home>/.venvs/comfy-mcp)")
 	fs.StringVar(&workflow, "workflow", "", "also check the model files of workflows/<name>/models.json")
 	fs.BoolVar(&quick, "quick", false, "with -workflow: check the size of each file only (the default also checks the SHA-256, and hashing 11 GB takes minutes)")
@@ -58,15 +59,23 @@ func RunDoctor(ctx context.Context, name string, args []string, out, errOut io.W
 	if code, done := parse(fs, args); done {
 		return code
 	}
+	if place.ServerURL == "" {
+		// #82: the server that horus start-comfyui starts.
+		place.ServerURL = settings.ComfyURL()
+	}
 	home, _ := os.UserHomeDir()
 	o.ServerURL, o.RepoRoot, o.Home = place.ServerURL, settings.Root(), home
 	if o.VenvPath == "" {
 		o.VenvPath = settings.ComfyMCPVenv()
 	}
+	// The folders of the TCC check: the flags, else the settings.
+	o.ModelsDir = or(place.ModelsDir, settings.Get("HORUS_MODELS_DIR", ""))
+	o.TextEncoderDir = or(place.TextEncoderDir, settings.Get("HORUS_TEXT_ENCODER_DIR", ""))
+	o.OutputDir = settings.OutputDir()
 	doc, setup := at(place)
 	rs := doc.Check(ctx, o)
 	for _, r := range rs {
-		resultLine(out, r.OK, r.Name, r.Detail)
+		resultLine(out, r.Level, r.Name, r.Detail)
 	}
 	n := doctor.Failed(rs)
 	if workflow != "" && !modelCheck(ctx, setup, workflow, quick, out) {
@@ -80,13 +89,20 @@ func RunDoctor(ctx context.Context, name string, args []string, out, errOut io.W
 	return 0
 }
 
-// resultLine writes the PASS or FAIL line of one check.
-func resultLine(out io.Writer, ok bool, name, detail string) {
-	word := "FAIL"
-	if ok {
-		word = "PASS"
+// levelWords are the first words of a line, for each level.
+var levelWords = map[doctor.Level]string{doctor.Pass: "PASS", doctor.Warn: "WARN", doctor.Fail: "FAIL"}
+
+// resultLine writes the PASS, WARN or FAIL line of one check.
+func resultLine(out io.Writer, level doctor.Level, name, detail string) {
+	fmt.Fprintf(out, "%s  %s - %s\n", levelWords[level], name, detail)
+}
+
+// or gives a, or b when a is empty.
+func or(a, b string) string {
+	if a != "" {
+		return a
 	}
-	fmt.Fprintf(out, "%s  %s - %s\n", word, name, detail)
+	return b
 }
 
 // modelCheck checks the model files of workflow on the setup service, as
@@ -102,13 +118,13 @@ func modelCheck(ctx context.Context, svc Setup, workflow string, quick bool, out
 	switch {
 	case err != nil:
 		p.say("FAIL: %v", err)
-		resultLine(out, false, name, "see lines above. Fix: horus workflow install "+workflow)
+		resultLine(out, doctor.Fail, name, "see lines above. Fix: horus workflow install "+workflow)
 	case quick:
 		p.say("OK: workflow '%s' is ready.", workflow)
-		resultLine(out, true, name, "all files present, size checked (the SHA-256 is not checked; drop -quick)")
+		resultLine(out, doctor.Pass, name, "all files present, size checked (the SHA-256 is not checked; drop -quick)")
 	default:
 		p.say("OK: workflow '%s' is ready.", workflow)
-		resultLine(out, true, name, "all files present and verified (SHA-256 checked)")
+		resultLine(out, doctor.Pass, name, "all files present and verified (SHA-256 checked)")
 	}
 	return err == nil
 }

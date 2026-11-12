@@ -16,6 +16,7 @@ import (
 
 	"github.com/hieplam/horus/internal/cli"
 	"github.com/hieplam/horus/internal/doctor"
+	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -74,7 +75,7 @@ func TestDoctorThroughTheWiring(t *testing.T) {
 	o := doctor.Options{ServerURL: s.comfyUI.URL, VenvPath: filepath.Join(tmp, "venv"), RepoRoot: tmp, Home: tmp}
 	doc, _ := doctorAt(place)
 	rs := doc.Check(context.Background(), o)
-	if len(rs) != 7 || !rs[0].OK || rs[0].Detail != s.comfy || !rs[1].OK {
+	if len(rs) != 7 || rs[0].Level != doctor.Pass || rs[0].Detail != s.comfy || rs[1].Level != doctor.Pass {
 		t.Fatalf("results: %+v", rs)
 	}
 
@@ -162,5 +163,107 @@ func TestSetupWithoutYesChangesNoFile(t *testing.T) {
 	}
 	if code, out = s.runSetup(t, sm, "demo"); code != 0 || !strings.Contains(out, "Plan: 0 steps. Nothing is missing.") {
 		t.Fatalf("after -yes: exit %d:\n%s", code, out)
+	}
+}
+
+// TestMain makes the test binary also the fake comfy (the program of
+// comfy-cli) of the setup test: with HORUS_FAKE_COMFY set to a record file,
+// it runs fakeComfy and exits.
+func TestMain(m *testing.M) {
+	if record := os.Getenv("HORUS_FAKE_COMFY"); record != "" {
+		os.Exit(fakeComfy(record, os.Args[1:]))
+	}
+	os.Exit(m.Run())
+}
+
+// fakeComfy holds no code of comfy-cli. It appends its arguments as one line
+// to the file record. For "install" it writes a line to stdout and makes
+// <workspace>/main.py, as comfy install makes ComfyUI.
+func fakeComfy(record string, args []string) int {
+	if f, err := os.OpenFile(record, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+		f.WriteString(strings.Join(args, " ") + "\n")
+		f.Close()
+	}
+	workspace := ""
+	for i, a := range args {
+		if a == "--workspace" && i+1 < len(args) {
+			workspace = args[i+1]
+		}
+	}
+	if len(args) > 2 && args[2] == "install" && workspace != "" {
+		os.Stdout.WriteString("fake comfy install line\n")
+		if err := os.MkdirAll(workspace, 0o755); err != nil {
+			return 4
+		}
+		if err := os.WriteFile(filepath.Join(workspace, "main.py"), []byte("# fake\n"), 0o644); err != nil {
+			return 4
+		}
+	}
+	return 0
+}
+
+// TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps: horus setup demo
+// -yes with the comfy-cli backend of macOS (on every OS), on a sandbox
+// without ComfyUI, with the fake comfy as the only program of the PATH and
+// the fake download server. The plan has 3 steps: install ComfyUI, then the 2
+// model files. comfy runs one time, with the install command of the spec,
+// and ComfyUI is installed before the first download. Then a second
+// horus setup demo -yes prints "Plan: 0 steps" and runs no comfy and no
+// download.
+func TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps(t *testing.T) {
+	s := newSandbox(t)
+	must(t, os.RemoveAll(filepath.Join(s.comfy, "ComfyUI")))
+	tmp := t.TempDir()
+	bin, home, record := filepath.Join(tmp, "bin"), filepath.Join(tmp, "home"), filepath.Join(tmp, "comfy.record")
+	must(t, os.MkdirAll(bin, 0o755))
+	must(t, os.MkdirAll(home, 0o755))
+	exe, err := os.Executable()
+	must(t, err)
+	b, err := os.ReadFile(exe)
+	must(t, err)
+	must(t, os.WriteFile(filepath.Join(bin, platform.ExeName("comfy")), b, 0o755))
+	t.Setenv("PATH", bin)
+	t.Setenv("HOME", home) // the venv of install-comfy-mcp is in the empty home folder
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HORUS_FAKE_COMFY", record)
+	sm := s.seams(1 << 50)
+	sm.goos = "darwin"
+	recorded := func() string { b, _ := os.ReadFile(record); return string(b) }
+
+	code, out := s.runSetup(t, sm, "demo", "-yes")
+	vae := filepath.Join(full(t, s.models), "vae", "demo-vae.safetensors")
+	te := filepath.Join(full(t, s.models), "text_encoders", "demo-te.safetensors")
+	ui := filepath.Join(full(t, s.comfy), "ComfyUI")
+	if code != 0 || !strings.Contains(out, "MISSING   ComfyUI in "+s.comfy+"\n") ||
+		!strings.Contains(out, "Plan: 3 step(s):\n  1. install ComfyUI in "+s.comfy+"\n  2. download vae ") ||
+		!strings.Contains(out, "OK: this machine is set up for workflow 'demo'.") {
+		t.Fatalf("-yes: exit %d:\n%s", code, out)
+	}
+	if got, want := recorded(), "--workspace "+ui+" install --m-series --version 0.44.0\n"; got != want {
+		t.Fatalf("the fake comfy got %q, want %q", got, want)
+	}
+	installed := strings.Index(out, "OK: ComfyUI v0.44.0 is installed in "+full(t, s.comfy)+"\n")
+	first := strings.Index(out, "-- vae -> "+vae+"\n")
+	if strings.Index(out, "fake comfy install line\n") < 0 || installed < 0 || first < 0 || installed > first ||
+		!strings.Contains(out, "-- text_encoder -> "+te+"\n") {
+		t.Fatalf("ComfyUI must be installed first, then the files:\n%s", out)
+	}
+	if !platform.IsFile(filepath.Join(ui, "main.py")) {
+		t.Fatalf("no %s after the install", filepath.Join(ui, "main.py"))
+	}
+	for p, want := range map[string][]byte{vae: vaeData, te: teData} {
+		if b, err := os.ReadFile(p); err != nil || !bytes.Equal(b, want) {
+			t.Fatalf("%s: %q, %v", p, b, err)
+		}
+	}
+
+	requests := s.requests()
+	code, out = s.runSetup(t, sm, "demo", "-yes")
+	if code != 0 || !strings.Contains(out, "PRESENT   ComfyUI in "+s.comfy+"\n") ||
+		!strings.HasSuffix(out, "Plan: 0 steps. Nothing is missing.\n") {
+		t.Fatalf("the second setup: exit %d:\n%s", code, out)
+	}
+	if got := strings.Count(recorded(), "\n"); got != 1 || s.requests() != requests {
+		t.Fatalf("the second setup ran comfy (%d runs in all) or downloaded (%d requests, want %d)", got, s.requests(), requests)
 	}
 }

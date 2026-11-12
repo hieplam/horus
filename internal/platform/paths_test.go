@@ -63,3 +63,52 @@ func TestDefaultComfyDirOfEachOS(t *testing.T) {
 		t.Errorf("DefaultComfyDir = %s, want the folder of %s: %s", got, runtime.GOOS, want)
 	}
 }
+
+// TestInTCCFolder: on macOS a path is inside a TCC folder when it is
+// <home>/Desktop, <home>/Documents or <home>/Downloads, or a path under one
+// of them, in any case. A folder with the same start of name, a path outside
+// the home folder and the default install folder are outside. On Windows and
+// Linux no path is inside. InTCCFolder follows the OS of this build.
+func TestInTCCFolder(t *testing.T) {
+	home := filepath.FromSlash("/Users/you")
+	desktop, docs, dls := filepath.Join(home, "Desktop"), filepath.Join(home, "Documents"), filepath.Join(home, "Downloads")
+	cases := []struct {
+		path, want string // want: the TCC folder, "" for outside
+	}{
+		{"/Users/you/Desktop", desktop},
+		{"/Users/you/Desktop/horus", desktop},
+		{"/Users/you/Desktop/horus/.scratch/outputs/", desktop},
+		{"/Users/you/desktop/horus", desktop},
+		{"/Users/you/Documents/models/vae", docs},
+		{"/Users/you/Downloads/x/../horus", dls},
+		{"/Users/you/DesktopFiles/horus", ""},
+		{"/Users/you/horus", ""},
+		{"/Users/you", ""},
+		{"/Users/public/Desktop/horus", ""},
+		{"/Users/you/Desktop/../horus", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		p := filepath.FromSlash(c.path)
+		got, ok := inTCCFolder("darwin", home, p)
+		if got != c.want || ok != (c.want != "") {
+			t.Errorf("darwin %q: got %q %v, want %q", c.path, got, ok, c.want)
+		}
+		for _, goos := range []string{"windows", "linux"} {
+			if f, ok := inTCCFolder(goos, home, p); ok || f != "" {
+				t.Errorf("%s %q: got %q %v, want outside", goos, c.path, f, ok)
+			}
+		}
+	}
+	if _, ok := inTCCFolder("darwin", "", filepath.FromSlash("/Desktop/x")); ok {
+		t.Error("an empty home folder has no TCC folder")
+	}
+	if _, ok := inTCCFolder("darwin", home, defaultComfyDir("darwin", home)); ok {
+		t.Error("the default install folder of macOS is inside a TCC folder")
+	}
+	p := filepath.Join(desktop, "horus")
+	f, ok := InTCCFolder(home, p)
+	if wf, wok := inTCCFolder(runtime.GOOS, home, p); f != wf || ok != wok {
+		t.Errorf("InTCCFolder = %q %v, want the answer of %s: %q %v", f, ok, runtime.GOOS, wf, wok)
+	}
+}

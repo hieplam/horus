@@ -47,7 +47,7 @@ func NewWorkflow(args []string, out, errOut io.Writer) int {
 // the repo copy, 1 for a conflict or an error, 2 for a flag.
 func SyncWorkflows(args []string, out, errOut io.Writer, installAt func(comfyUIDir string) devtools.Install) int {
 	fs := newFlags("horus sync-workflows", errOut)
-	dir := fs.String("comfyui-dir", "", "the portable folder "+dirHelp)
+	dir := fs.String("comfyui-dir", "", "the ComfyUI install folder "+dirHelp)
 	force := fs.Bool("force", false, "replace a pane copy that differs from the repo copy; the old copy is kept as .bak")
 	wfDir := fs.String("workflows-dir", "", "the workflows folder (default: HORUS_WORKFLOWS_DIR, then <repo>/workflows)")
 	if code, done := parse(fs, args); done {

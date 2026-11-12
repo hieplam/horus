@@ -128,7 +128,9 @@ image. Record the seed when you want to repeat a result.
 
 **What they are.** VRAM is the memory on the graphics card. RAM is the memory
 of the computer. The model must fit in VRAM, or ComfyUI moves parts between
-VRAM and RAM.
+VRAM and RAM. A Mac with Apple Silicon has one memory that the CPU and the GPU
+share. On a Mac, the GPU backend of PyTorch is MPS (Metal Performance Shaders).
+In the Mac test run, ComfyUI used 9.1 GB of the 16 GB, and the Mac swapped.
 
 **If wrong.** A file size is not the peak VRAM use. Activations, text encoders,
 image size, and batch size add to it. When memory is short, runs are slow or
@@ -155,7 +157,9 @@ or the node is missing, the run fails. Quality can also drop a little.
 
 **What they are.** MCP is the Model Context Protocol. It lets an AI agent call
 tools. The comfy MCP server gives an agent tools to control ComfyUI, such as
-`server_info`, `validate_workflow`, and `run_workflow`.
+`server_info`, `validate_workflow`, and `run_workflow`. The file `.mcp.json`
+starts it as `horus comfy-mcp`, which runs the program `comfy-mcp` that
+`horus install-comfy-mcp` installs.
 
 **If wrong.** If the client cannot start the server, it shows
 `CONNECTION_CLOSED`. See [running workflows](running-workflows.md#failure-modes).

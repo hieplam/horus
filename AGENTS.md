@@ -9,7 +9,7 @@ MCP tools and the `horus` program of this repo. The user does not need to know C
 | Task | Read |
 |---|---|
 | Set up or repair a machine | [`docs/setup.md`](docs/setup.md) |
-| `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed, or `horus` is not on the PATH. Run `horus doctor`, then the command that its FAIL line names (`go install ./cmd/horus` for `horus`, [step 0 of setup](docs/setup.md#step-0-get-the-horus-program)). Then ask the user to restart `claude`. |
+| `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed, or `horus` is not on the PATH. `.mcp.json` starts both servers through `horus` (`horus comfy-mcp` and `horus mcp`) on Windows and macOS. Run `horus doctor`, then the command that its FAIL line names (`go install ./cmd/horus` for `horus`, [step 0 of setup](docs/setup.md#step-0-get-the-horus-program)). Then ask the user to restart `claude`. |
 | Set up one workflow on a machine | `horus setup <workflow>` prints the plan and changes nothing. `horus setup <workflow> -yes` runs the plan: ComfyUI first, then the model files. The older names (`check-setup`, `install-comfyui`, `workflow install`) still work. Use `doctor` and `setup`. |
 | Stop the ComfyUI that horus started | `horus stop-comfyui`. It refuses a ComfyUI that a person started. |
 | Make an image with an existing workflow | `workflows/<name>/README.md` |
@@ -91,13 +91,13 @@ cmd/horus/                        wiring: main.go (the command table) and wiring
 internal/cli/                     handler: one file for each command group (flags in, text out)
 internal/mcpserver/               handler: the 5 MCP tools, the envelope, the progress notifications
 internal/generate/                service: make one image
-internal/provision/               service: set up a machine (backend, model files, comfy-mcp, register, the plan of `horus setup`)
+internal/provision/               service: set up a machine (backend, model files, comfy-mcp and `horus comfy-mcp`, register, the plan of `horus setup`)
 internal/doctor/                  service: the checks of `horus doctor`
 internal/devtools/                service: new-workflow and sync-workflows
 internal/comfy/                   adapter: the ComfyUI REST client (comfy/comfytest is the fake ComfyUI for tests)
 internal/download/                adapter: download with resume, size and SHA-256 check; the only code that reads HF_TOKEN
 internal/modelfiles/              adapter: find, check and remove model files, extra_model_paths.yaml
-internal/backend/                 adapter: Install, Start, Stop and Layout of a ComfyUI install (Windows portable build)
+internal/backend/                 adapter: Install, Start, Stop and Layout of a ComfyUI install (the Windows portable build; comfy-cli on macOS; backend/comfyclitest is the fake comfy for tests)
 internal/catalog/, graph/, herr/, settings/, platform/    base: manifests, graph conversion, error codes, settings, processes and OS facts
 internal/archtest/                the test of the design rules
 scripts/                          lint-public.py (a Python check before a pull request)

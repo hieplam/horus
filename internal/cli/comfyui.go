@@ -84,7 +84,7 @@ func StartComfyUI(ctx context.Context, args []string, out, errOut io.Writer, at 
 	var place BackendPlace
 	fs := flag.NewFlagSet("horus start-comfyui", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	fs.StringVar(&place.Dir, "comfyui-dir", "", "the portable folder, with ComfyUI/ and python_embeded/ "+dirHelp)
+	fs.StringVar(&place.Dir, "comfyui-dir", "", "the ComfyUI install folder, with ComfyUI/ in it "+dirHelp)
 	fs.StringVar(&place.ServerURL, "server-url", "", "address that the server must answer on; the port is taken from it (default: HORUS_COMFYUI_URL, then http://127.0.0.1:8188)")
 	timeout := fs.Int("timeout-seconds", 300, "how long to wait for the server; the first start can take a few minutes")
 	if code, done := parse(fs, args); done {
@@ -100,7 +100,7 @@ func StopComfyUI(ctx context.Context, args []string, out, errOut io.Writer, at f
 	var place BackendPlace
 	fs := flag.NewFlagSet("horus stop-comfyui", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	fs.StringVar(&place.Dir, "comfyui-dir", "", "the portable folder "+dirHelp)
+	fs.StringVar(&place.Dir, "comfyui-dir", "", "the ComfyUI install folder "+dirHelp)
 	fs.StringVar(&place.ServerURL, "server-url", "", "the address of the ComfyUI to stop (default: HORUS_COMFYUI_URL, then http://127.0.0.1:8188)")
 	if code, done := parse(fs, args); done {
 		return code

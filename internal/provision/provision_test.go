@@ -282,6 +282,35 @@ func TestInstallStopsWhenTheContextEnds(t *testing.T) {
 	}
 }
 
+// TestInstallMapsTheFolderOfAPresentFile: the model files are already
+// present in a folder outside ComfyUI's own models folder (HORUS_MODELS_DIR
+// of another install). The install downloads nothing, and it still adds
+// that folder to extra_model_paths.yaml, because ComfyUI does not read it
+// yet (#125).
+func TestInstallMapsTheFolderOfAPresentFile(t *testing.T) {
+	dir := workflows(t)
+	files := &otherOwn{newMemFiles()}
+	files.files[filepath.Join(files.root, "vae", "demo-vae.safetensors")] = vaeData
+	files.files[filepath.Join(files.root, "text_encoders", "demo-te.safetensors")] = teData
+	dl := &fakeDownloader{fn: func(context.Context, Fetch, io.Writer) (bool, error) { return true, nil }}
+	res, _ := New(files, dl, fakeComfy{}, files, "").Install(context.Background(), Request{WorkflowsDir: dir, Workflow: "demo"}, Watch{})
+	want := fmt.Sprint([][2]string{{"vae", filepath.Join(files.root, "vae")}, {"text_encoders", filepath.Join(files.root, "text_encoders")}})
+	if got := fmt.Sprint(files.mapped); got != want {
+		t.Errorf("mapped %s, want %s", got, want)
+	}
+	if got := statuses(res); !strings.HasPrefix(got, "PRESENT download vae, PRESENT download text_encoder") {
+		t.Errorf("items %s", got)
+	}
+}
+
+// otherOwn is memFiles with ComfyUI's own models folder in /c, so that the
+// folders in /m are outside ComfyUI.
+type otherOwn struct{ *memFiles }
+
+func (o *otherOwn) Own(folder string) string {
+	return filepath.Join(string(filepath.Separator), "c", folder)
+}
+
 func TestInstallRefusesWithoutComfyUI(t *testing.T) {
 	files := &noComfyUI{newMemFiles()}
 	_, err := New(files, nil, fakeComfy{}, files, "").Install(context.Background(), Request{WorkflowsDir: workflows(t), Workflow: "demo"}, Watch{})

@@ -53,7 +53,7 @@ func RunDoctor(ctx context.Context, name string, args []string, out, errOut io.W
 	fs.StringVar(&place.ServerURL, "server-url", "", "address of the ComfyUI server (default: HORUS_COMFYUI_URL, then http://127.0.0.1:8188)")
 	fs.StringVar(&o.VenvPath, "venv-path", "", "folder of the comfy-mcp venv (default: <home>/.venvs/comfy-mcp)")
 	fs.StringVar(&workflow, "workflow", "", "also check the model files of workflows/<name>/models.json")
-	fs.BoolVar(&quick, "quick", false, "with -workflow: check the size of each file only (the default also checks the SHA-256, and hashing 11 GB takes minutes)")
+	fs.BoolVar(&quick, "quick", false, "with -workflow: check the size of each file only (the default also checks the SHA-256, and it reads every byte of each file)")
 	fs.StringVar(&place.ModelsDir, "models-dir", "", "with -workflow: models folder (default: HORUS_MODELS_DIR)")
 	fs.StringVar(&place.TextEncoderDir, "text-encoder-dir", "", "with -workflow: folder of the text encoder on another drive (default: HORUS_TEXT_ENCODER_DIR)")
 	if code, done := parse(fs, args); done {

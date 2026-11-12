@@ -51,9 +51,9 @@ func (r *rig) check() []Result {
 func text(rs []Result) string {
 	var b strings.Builder
 	for _, r := range rs {
-		word := "FAIL"
-		if r.OK {
-			word = "PASS"
+		word := map[Level]string{Pass: "PASS", Warn: "WARN"}[r.Level]
+		if word == "" {
+			word = "FAIL"
 		}
 		fmt.Fprintf(&b, "%s  %s - %s\n", word, r.Name, r.Detail)
 	}
@@ -288,5 +288,89 @@ func TestCheckChangesNoFile(t *testing.T) {
 	r.check()
 	if after := snap(); after != before {
 		t.Fatalf("the files changed:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+// TestTCCCheckWarnsForEachPathInATCCFolder: the doctor asks the TCC function
+// for each path of the setup (the repo root, the install folder, the models
+// folder, the text encoder folder, the output folder) as an absolute path.
+// Each path inside a TCC folder gives one result of level Warn, after the 7
+// checks. The line names the absolute path, the folder and the fix. A Warn
+// is not a failed check. With no path inside, the doctor gives the 7 results
+// and no Warn.
+func TestTCCCheckWarnsForEachPathInATCCFolder(t *testing.T) {
+	r := newRig(t)
+	desktop := filepath.Join(r.opts.Home, "Desktop")
+	repo := filepath.Join(desktop, "horus")
+	os.MkdirAll(repo, 0o755)
+	os.Rename(filepath.Join(r.opts.RepoRoot, ".mcp.json"), filepath.Join(repo, ".mcp.json"))
+	r.opts.RepoRoot = repo
+	r.opts.ModelsDir = filepath.Join(r.opts.Home, "Documents", "models")
+	r.opts.TextEncoderDir = filepath.Join(r.opts.Home, "te") // outside
+	r.opts.OutputDir = filepath.Join(repo, ".scratch", "outputs")
+	r.install.dir = filepath.Join(r.opts.Home, "Downloads", "comfy")
+	var asked []string
+	r.opts.InTCCFolder = func(p string) (string, bool) {
+		asked = append(asked, p)
+		for _, name := range []string{"Desktop", "Documents", "Downloads"} {
+			f := filepath.Join(r.opts.Home, name)
+			if strings.HasPrefix(p, f+string(filepath.Separator)) {
+				return f, true
+			}
+		}
+		return "", false
+	}
+	rs := r.check()
+	if len(asked) != 5 {
+		t.Errorf("the doctor asked for %d paths, want 5: %q", len(asked), asked)
+	}
+	for _, p := range asked {
+		if !filepath.IsAbs(p) {
+			t.Errorf("the doctor asked for %q, want an absolute path", p)
+		}
+	}
+	want := []struct{ what, path, folder string }{
+		{"the repo root", repo, desktop},
+		{"the install folder", r.install.dir, filepath.Join(r.opts.Home, "Downloads")},
+		{"the models folder", r.opts.ModelsDir, filepath.Join(r.opts.Home, "Documents")},
+		{"the output folder", r.opts.OutputDir, desktop},
+	}
+	if len(rs) != 7+len(want) || Failed(rs) != 0 {
+		t.Fatalf("%d results, %d failed, want %d and 0:\n%s", len(rs), Failed(rs), 7+len(want), text(rs))
+	}
+	for i, w := range want {
+		got := rs[7+i]
+		detail := fmt.Sprintf("%s %s is inside %s, a folder that macOS protects. ComfyUI and comfy-mcp can fail to read it. "+
+			"Fix: move it out of %s, or grant access in System Settings > Privacy & Security.", w.what, w.path, w.folder, w.folder)
+		if got.Level != Warn || got.Name != "macOS privacy folder" || got.Detail != detail {
+			t.Errorf("result %d = %+v, want Warn %q", 8+i, got, detail)
+		}
+	}
+
+	// A relative path is checked as its absolute path.
+	wd, _ := os.Getwd()
+	r.opts.OutputDir = "out"
+	asked = nil
+	r.check()
+	if len(asked) != 5 || asked[4] != filepath.Join(wd, "out") {
+		t.Errorf("relative output folder: asked %q, want the last one %s", asked, filepath.Join(wd, "out"))
+	}
+
+	// No path inside a TCC folder: no Warn.
+	r.opts.InTCCFolder = func(string) (string, bool) { return "", false }
+	if rs := r.check(); len(rs) != 7 || Failed(rs) != 0 {
+		t.Errorf("no TCC path: %d results, %d failed:\n%s", len(rs), Failed(rs), text(rs))
+	}
+}
+
+// TestAWarnIsNotAFailedCheck: Failed counts only the results of level Fail,
+// and the zero value of a level is Fail.
+func TestAWarnIsNotAFailedCheck(t *testing.T) {
+	rs := []Result{{Name: "a", Level: Pass}, {Name: "b", Level: Warn}, {Name: "c", Level: Fail}, {Name: "d"}}
+	if n := Failed(rs); n != 2 {
+		t.Errorf("Failed = %d, want 2 (c and d)", n)
+	}
+	if Failed(rs[:2]) != 0 {
+		t.Error("a Warn counts as failed")
 	}
 }

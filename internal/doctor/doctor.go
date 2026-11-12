@@ -11,13 +11,17 @@
 //     command, and COMFY_BIN when the entry sets it.
 //  6. horus is on the PATH.
 //  7. The horus entry of .mcp.json points at a program that exists.
+//  8. macOS only: a path of the setup is inside a TCC folder (a folder that
+//     macOS protects, platform.InTCCFolder). This check gives one result of
+//     level Warn for each such path, and nothing on another OS.
 //
 // The model check of horus doctor -workflow is not here: it is the check of
 // the setup service, and the handler runs it after these checks.
 //
 // The service changes nothing. It does its input and output through the
 // interfaces below, and it reads files (.mcp.json, the venv) itself. It
-// returns one typed Result for each check; a handler writes the lines.
+// returns one typed Result for each check, with a Level; a handler writes
+// the lines.
 package doctor
 
 import (
@@ -67,12 +71,31 @@ type Options struct {
 	// Getenv reads the variables of ${VAR} and ${VAR:-default} in .mcp.json.
 	// nil means os.Getenv.
 	Getenv func(string) string
+
+	// ModelsDir, TextEncoderDir and OutputDir are folders of the setup for
+	// the TCC check, with RepoRoot and the install folder. Empty means not
+	// checked.
+	ModelsDir, TextEncoderDir, OutputDir string
+	// InTCCFolder tells if an absolute path is inside a TCC folder, and
+	// gives that folder. nil means platform.InTCCFolder in Home.
+	InTCCFolder func(path string) (folder string, ok bool)
 }
+
+// Level is the level of a result.
+type Level int
+
+// The levels. A Warn is not a failed check. The zero value is Fail, so a
+// result that does not set its level does not pass.
+const (
+	Fail Level = iota
+	Pass
+	Warn
+)
 
 // Result is one check.
 type Result struct {
 	Name   string
-	OK     bool
+	Level  Level
 	Detail string
 }
 
@@ -88,11 +111,11 @@ func New(server Server, install Install, programs Programs) *Service {
 	return &Service{server: server, install: install, programs: programs}
 }
 
-// Failed counts the results that did not pass.
+// Failed counts the results of level Fail. A Warn does not count.
 func Failed(rs []Result) int {
 	n := 0
 	for _, r := range rs {
-		if !r.OK {
+		if r.Level == Fail {
 			n++
 		}
 	}
@@ -102,11 +125,18 @@ func Failed(rs []Result) int {
 // Check runs the checks and returns one result for each, in order.
 func (s *Service) Check(ctx context.Context, o Options) []Result {
 	var rs []Result
-	add := func(ok bool, name, detail string) { rs = append(rs, Result{Name: name, OK: ok, Detail: detail}) }
+	add := func(ok bool, name, detail string) {
+		level := Fail
+		if ok {
+			level = Pass
+		}
+		rs = append(rs, Result{Name: name, Level: level, Detail: detail})
+	}
 	look := s.programs.LookPath
 
 	// 1. ComfyUI installed.
-	if dir, ok := s.install.Installed(); ok {
+	dir, installed := s.install.Installed()
+	if installed {
 		add(true, "ComfyUI folder", dir)
 	} else {
 		add(false, "ComfyUI folder", fmt.Sprintf("%s not found in %s. Fix: horus install-comfyui, or pass -comfyui-dir.",
@@ -195,6 +225,45 @@ func (s *Service) Check(ctx context.Context, o Options) []Result {
 		add(false, ".mcp.json horus", fmt.Sprintf("command is '%s' and does not exist. Fix: put horus on the PATH, or edit .mcp.json.", e.Command))
 	}
 
+	// 8. The TCC check.
+	return append(rs, o.tccWarnings(dir)...)
+}
+
+// tccWarnings gives one Warn for each path of the setup that is inside a
+// TCC folder: the repo root, the install folder dir, the models folder, the
+// text encoder folder and the output folder. The line names the absolute
+// path. A path that two settings share gives one line.
+func (o Options) tccWarnings(dir string) []Result {
+	in := o.InTCCFolder
+	if in == nil {
+		in = func(p string) (string, bool) { return platform.InTCCFolder(o.Home, p) }
+	}
+	paths := []struct{ what, path string }{
+		{"the repo root", o.RepoRoot},
+		{"the install folder", dir},
+		{"the models folder", o.ModelsDir},
+		{"the text encoder folder", o.TextEncoderDir},
+		{"the output folder", o.OutputDir},
+	}
+	var rs []Result
+	seen := map[string]bool{}
+	for _, p := range paths {
+		if p.path == "" {
+			continue
+		}
+		abs, err := filepath.Abs(p.path)
+		if err != nil {
+			abs = p.path
+		}
+		folder, ok := in(abs)
+		if !ok || seen[abs] {
+			continue
+		}
+		seen[abs] = true
+		rs = append(rs, Result{Name: "macOS privacy folder", Level: Warn, Detail: fmt.Sprintf(
+			"%s %s is inside %s, a folder that macOS protects. ComfyUI and comfy-mcp can fail to read it. "+
+				"Fix: move it out of %s, or grant access in System Settings > Privacy & Security.", p.what, abs, folder, folder)})
+	}
 	return rs
 }
 

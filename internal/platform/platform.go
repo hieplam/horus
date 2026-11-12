@@ -8,7 +8,8 @@
 //   - FreeSpace gives the free bytes of a folder.
 //   - IsFile tells if a path is a regular file.
 //   - IsRooted, VenvBin, ExeName, PythonCommand and DefaultComfyDir give the
-//     paths and the program names of this OS. They are pure functions.
+//     paths and the program names of this OS. InTCCFolder tells if a path is
+//     in a folder that macOS protects. They are pure functions.
 //   - BlockDelete makes the delete of a file fail, for a test.
 //   - ErrNotSupported is the error of a step that this OS does not have yet.
 //
@@ -124,6 +125,36 @@ func defaultComfyDir(goos, home string) string {
 		return filepath.Join(home, "ComfyUI_windows_portable")
 	}
 	return filepath.Join(home, "horus")
+}
+
+// tccFolders are the folders of the home folder that macOS protects with TCC
+// (Transparency, Consent and Control): a program can read a file in them
+// only after the user grants it access.
+var tccFolders = []string{"Desktop", "Documents", "Downloads"}
+
+// InTCCFolder tells if path is inside a TCC folder of the home folder home
+// (<home>/Desktop, <home>/Documents or <home>/Downloads), and gives that
+// folder. It is true only on macOS. It reads no file: it compares the
+// cleaned paths as text, without case (the default file system of macOS
+// ignores case). The caller gives absolute paths.
+func InTCCFolder(home, path string) (folder string, ok bool) {
+	return inTCCFolder(runtime.GOOS, home, path)
+}
+
+// inTCCFolder is InTCCFolder for the OS goos.
+func inTCCFolder(goos, home, path string) (string, bool) {
+	if goos != "darwin" || home == "" || path == "" {
+		return "", false
+	}
+	p := filepath.Clean(path)
+	for _, name := range tccFolders {
+		f := filepath.Join(home, name)
+		if strings.EqualFold(p, f) ||
+			(len(p) > len(f) && p[len(f)] == filepath.Separator && strings.EqualFold(p[:len(f)], f)) {
+			return f, true
+		}
+	}
+	return "", false
 }
 
 // IsFile reports whether p is a regular file. A folder, and a path that does

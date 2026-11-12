@@ -79,6 +79,12 @@ type Archive struct {
 // portable build reads a.
 func New(p Place, a Archive) Backend { return newFor(runtime.GOOS, p, a) }
 
+// NewFor gives the backend of the OS goos (a value of runtime.GOOS), as New
+// does on that OS. A test of another package uses it to drive the backend of
+// macOS on every OS. Its Install, Start and Stop still run the programs of
+// this machine.
+func NewFor(goos string, p Place, a Archive) Backend { return newFor(goos, p, a) }
+
 // TakesArchive reports if the backend of this OS installs from an archive
 // (the Windows portable build), so that the values of Archive mean something.
 func TakesArchive() bool { return takesArchive(runtime.GOOS) }

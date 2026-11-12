@@ -49,7 +49,7 @@ func RunDoctor(ctx context.Context, name string, args []string, out, errOut io.W
 	var workflow string
 	var quick bool
 	fs := newFlags("horus "+name, errOut)
-	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the portable folder "+dirHelp)
+	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the ComfyUI install folder "+dirHelp)
 	fs.StringVar(&place.ServerURL, "server-url", "", "address of the ComfyUI server (default: HORUS_COMFYUI_URL, then http://127.0.0.1:8188)")
 	fs.StringVar(&o.VenvPath, "venv-path", "", "folder of the comfy-mcp venv (default: <home>/.venvs/comfy-mcp)")
 	fs.StringVar(&workflow, "workflow", "", "also check the model files of workflows/<name>/models.json")

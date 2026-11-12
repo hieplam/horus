@@ -35,7 +35,7 @@ func RunSetup(ctx context.Context, args []string, out, errOut io.Writer, at func
 	var req provision.Request
 	fs := newFlags("horus setup", errOut)
 	fs.BoolVar(&req.Yes, "yes", false, "run the plan: install ComfyUI and download the model files; without it, only print the plan")
-	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the ComfyUI portable folder (default: HORUS_COMFYUI_DIR, then ~/ComfyUI_windows_portable)")
+	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the ComfyUI install folder "+dirHelp)
 	fs.StringVar(&place.ModelsDir, "models-dir", "", "the models folder (default: HORUS_MODELS_DIR, then <comfyui-dir>/ComfyUI/models)")
 	fs.StringVar(&place.TextEncoderDir, "text-encoder-dir", "", "the text encoder folder (default: HORUS_TEXT_ENCODER_DIR)")
 	fs.StringVar(&place.ServerURL, "server-url", "", "the ComfyUI address (default: HORUS_COMFYUI_URL, then http://127.0.0.1:8188)")

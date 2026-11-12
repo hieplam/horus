@@ -86,7 +86,7 @@ func Workflow(ctx context.Context, args []string, out, errOut io.Writer, setupAt
 	fs.BoolVar(&req.Force, "force", false, "remove: also delete a file that another workflow lists")
 	fs.BoolVar(&req.Quick, "quick", false, "check and list: compare the size only, no SHA-256")
 	fs.BoolVar(&jsonOut, "json", false, "list: print JSON; check, install, remove: add the HORUS_JSON line")
-	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the ComfyUI portable folder (default: HORUS_COMFYUI_DIR, then ~/ComfyUI_windows_portable)")
+	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the ComfyUI install folder "+dirHelp)
 	fs.StringVar(&place.ModelsDir, "models-dir", "", "the models folder (default: HORUS_MODELS_DIR, then <comfyui-dir>/ComfyUI/models)")
 	fs.StringVar(&place.TextEncoderDir, "text-encoder-dir", "", "the text encoder folder (default: HORUS_TEXT_ENCODER_DIR)")
 	fs.StringVar(&place.ServerURL, "server-url", "", "the ComfyUI address (default: HORUS_COMFYUI_URL, then http://127.0.0.1:8188)")

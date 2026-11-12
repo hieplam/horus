@@ -430,7 +430,7 @@ Stub check, each a scratch edit that was then reverted with `git checkout`:
 | Number | Before | After | Evidence |
 |---|---|---|---|
 | Commands that answer "not supported" on macOS | 2 (`start-comfyui`, `stop-comfyui`) | 0 | `comfyCLI.Start` runs `comfy launch` and `comfyCLI.Stop` runs `comfy stop` (the 5 pinned tests of T2 in `internal/backend`). Linux still answers "not supported" (`TestOtherOSAnswersNotSupported`). |
-| Go test functions (`go test -list . ./...`) | 227 (after T1) | 237 | 10 new tests, none removed |
+| Go test functions (`go test -list . ./...`) | 233 (after T1 and T3) | 243 | 10 new tests, none removed |
 
 What only the Mac can confirm (task T7), because the tests use the fake comfy:
 

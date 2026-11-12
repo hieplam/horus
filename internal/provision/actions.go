@@ -295,9 +295,9 @@ func leaf(p string) string {
 	return p
 }
 
-// Install downloads and verifies the files of models.json, adds the download
-// folders that are outside ComfyUI's own models folder to
-// extra_model_paths.yaml, then checks (size only). w sees the downloads
+// Install downloads and verifies the files of models.json, adds the folders
+// of the files (downloaded or already present) that are outside ComfyUI's
+// own models folder to extra_model_paths.yaml, then checks (size only). w sees the downloads
 // while they run. When ctx ends, the install stops after the download that
 // runs: its .part file stays for the next install, and the error is the
 // error of ctx.
@@ -323,12 +323,13 @@ func (s *Service) Install(ctx context.Context, req Request, w Watch) (*Result, e
 	failures := 0
 	var targets [][2]string
 	for _, f := range files {
+		// A present file stays where it is, a new one goes to the first
+		// folder. Either folder may be one that ComfyUI does not read yet.
 		dest := s.find(f)
 		if dest == "" {
-			dir := s.files.Dirs(f.Folder)[0]
-			dest = filepath.Join(dir, f.Name)
-			targets = append(targets, [2]string{f.Folder, dir})
+			dest = filepath.Join(s.files.Dirs(f.Folder)[0], f.Name)
 		}
+		targets = append(targets, [2]string{f.Folder, filepath.Dir(dest)})
 		if w.Downloading != nil {
 			w.Downloading(f.Role, dest)
 		}
@@ -365,8 +366,8 @@ func (s *Service) Install(ctx context.Context, req Request, w Watch) (*Result, e
 	return end(res, err, fmt.Sprintf("workflow '%s' is installed and ready", req.Workflow))
 }
 
-// mapFolders adds the download folders that ComfyUI does not read yet to
-// extra_model_paths.yaml.
+// mapFolders adds the folders of the model files that ComfyUI does not read
+// yet to extra_model_paths.yaml.
 func (s *Service) mapFolders(res *Result, targets [][2]string) error {
 	if len(targets) == 0 {
 		return nil
@@ -387,7 +388,7 @@ func (s *Service) mapFolders(res *Result, targets [][2]string) error {
 	return s.files.Map(add)
 }
 
-// mappings decides, for each download folder {folder, dir} in order, if
+// mappings decides, for each folder {folder, dir} of a model file in order, if
 // extra_model_paths.yaml must map it: not a second time, not ComfyUI's own
 // folder (own), and not when the file already maps it (mapped).
 func mappings(targets [][2]string, own map[string]string, mapped map[string][]string) []Mapping {

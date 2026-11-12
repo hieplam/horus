@@ -60,6 +60,16 @@ commands.
 | 2026-11-12 | `TestGenerateStartsComfyUIThroughTheComfyCLIBackend` uses the test seam `seams.goos` of T3: `newImages(url)` is `imagesFor(url, seams{})`, and `imagesFor(url, seams{goos: "darwin"})` gives the image service on the comfy-cli backend (`backend.NewFor` of T3). The rule "goos empty = this OS" is one function, `backendFor`, for the setup service and the image service. No new export. | The pinned test of `cmd/horus` must pass on Windows too (the goal tool runs it on the PC), and `backend.New` gives the portable build there. The test goes through the MCP server, the image service, the ComfyUI adapter and the backend of the wiring. | T2 |
 | 2026-11-12 | The fake comfy of T3 in `cmd/horus/doctor_setup_test.go` (its own `TestMain` and `fakeComfy`) is replaced by `comfyclitest`. `TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps` now wants the record line `... install --m-series --version 0.44.0` followed by `stdin closed`, and counts runs by the line `stdin ...`. | A package has one `TestMain`, and two fakes of comfy were a copy. The test asserts the same command and one run, and now also the closed standard input. | T2 |
 | 2026-11-12 | The summaries of `start-comfyui` and `stop-comfyui` in the command list lose ", Windows only". | It is false after T2. No golden file holds it. | T2 |
+| 2026-11-12 | `horus comfy-mcp` gives comfy-mcp the streams of horus as they are. `platform.Command` gets a field `Stdin`. cmd/horus passes `os.Stdin`, `os.Stdout` and `os.Stderr`, so Go passes the 3 handles to the child, and horus copies no byte. The service is `provision.RunComfyMCP` on its `Programs` interface. The handler is `cli.ComfyMCP`. | The plan step 1. A copy loop in horus is more code, and it can add a byte or hold one back. With the handles of the client, horus cannot write a byte between the bytes of comfy-mcp. | T5 |
+| 2026-11-12 | How comfy-mcp ends: it reads the pipe of the MCP client itself, so it ends when the client closes that pipe or ends. Ctrl+C ends the context, and the context ends comfy-mcp (`exec.CommandContext`). No Job Object with "end on close". The limit that this design accepts: when a client kills `horus` and keeps the pipe open, comfy-mcp runs until the client closes the pipe. | The simplest design that leaves no process in the normal case. Measured on the PC (section T5): after the pipe closes, comfy-mcp and its 2 python processes are gone in less than 1.2 s, also after a kill of `horus`. A Job Object adds Windows code for a case in which the pipe closes anyway. | T5 |
+| 2026-11-12 | `horus comfy-mcp` has the flag `-venv-path` (default `settings.ComfyMCPVenv()`). The arguments after the flags, or after `--`, go to comfy-mcp. | `TestHelpExitsZero` needs exit 0 for `-h` of each command, and `install-comfy-mcp` and `doctor` have the same flag. The test runs the command with a venv in a temporary folder. | T5 |
+| 2026-11-12 | `horus comfy-mcp` sets `COMFY_BIN` only when `COMFY_BIN` is empty and the program `comfy` is next to comfy-mcp. Else it does not set it, and comfy-mcp runs the `comfy` of the PATH. | comfy-mcp 0.10.0 reads `os.environ.get("COMFY_BIN", "comfy")` (`comfy_mcp/server.py:100`). A `COMFY_BIN` that names a missing file breaks comfy-mcp, and the spec says "the comfy next to that program". An empty `COMFY_BIN` gives comfy-mcp an empty program name, so it counts as not set. | T5 |
+| 2026-11-12 | Doctor check 4 (comfy-cli) without `COMFY_BIN` in the entry: the `comfy` next to comfy-mcp, else the `comfy` of the PATH, also for a comfy-mcp of the venv. Before, a comfy-mcp of the venv did not look at the PATH. The FAIL text says "not found next to comfy-mcp or on the PATH". | The check must find the program that `horus comfy-mcp` gives comfy-mcp (decision above). The spec: "comfy-mcp and comfy are in the venv or on the PATH". On the PC nothing changes: its venv holds `comfy.exe`. | T5 |
+| 2026-11-12 | Doctor check 5 (`.mcp.json`): an entry whose command is `horus` must have the arguments `comfy-mcp`, else FAIL. A missing command `horus` gets the fix "put horus on the PATH". The PASS line adds the arguments (`command points at ...\horus.exe comfy-mcp`). An entry with the old Windows paths passes when the files exist. | `horus mcp` in the comfy-mcp entry starts the wrong server, and only the arguments show it. The old entry has no arguments, so its lines do not change (measured in section T5). | T5 |
+| 2026-11-12 | The test of `cmd/horus` runs the test binary as `horus` (`HORUS_TEST_AS_HORUS`, which `TestMain` removes before `run`) and as the fake comfy-mcp (`HORUS_FAKE_COMFY_MCP=<exit code>`), in the one `TestMain` of `doctor_setup_test.go`, before `comfyclitest.Main`. | The pinned test must start `horus comfy-mcp` as a process: the exit code, and the standard output that holds only the bytes of comfy-mcp. Without the removal, the fake started by horus would run as horus too. | T5 |
+| 2026-11-12 | The last Green command of the plan ("On the PC, with the new binary: `horus doctor` ... and `claude mcp list`") ran as: (a) `<scratch>/horus.exe doctor` from the worktree root, with `HORUS_COMFYUI_DIR=D:\ComfyUI_windows_portable` (the value of the `.env` of the main checkout; the worktree has no `.env`); (b) an MCP client of `tests/requirements.txt` that sends `initialize` and `tools/list` to `<scratch>/horus.exe comfy-mcp`. `claude mcp list` with the new entry needs the new `horus` on the PATH, so the verify task T8 (#108) runs it after `go install`. | A task must not replace the installed `horus.exe` (a running `horus mcp` holds it). (a) proves the doctor half of the row, (b) proves that the new entry starts the real comfy MCP server. The command `horus` of the entry resolves to the installed binary, which is enough for the check "the command exists". | T5 |
+| 2026-11-12 | The Phase 1 row `no-python` fails on `main` before T5, for comments that name PowerShell in 4 Go files. Its `.mcp.json` part passes with the new file. Follow-up #117, outside the epic. | T5 changes none of the 4 files. No row of Phase 3 reads `no-python`. | T5 |
+| 2026-11-12 | `docs/setup.md` and `docs/mcp.md` are not changed by T5. The lines of `docs/setup.md` that the new `.mcp.json` makes false (24-25, 156, 160, 253, 255) are named in a comment on #106 (T6). | T6 owns the one setup page and `horus comfy-mcp` in `docs/mcp.md` (plan, T6 steps 1 and 4). | T5 |
 | 2026-11-12 | `TestComfyCLIIsTheBackendOfDarwin` no longer asserts that `Start` and `Stop` answer "not supported". It asserts that they do not: `Start` of an empty folder gives the error of a missing ComfyUI, and `Stop` says "Nothing to stop.". The address is a free port (it was 8190). | The behaviour changed by design (ratchet 2 → 0). The new tests of T2 prove `Start` and `Stop`. | T2 |
 
 ## Baseline
@@ -439,3 +449,124 @@ What only the Mac can confirm (task T7), because the tests use the fake comfy:
 3. The background ComfyUI keeps running after `horus start-comfyui` ends, also when the terminal closes.
 4. The global flag `--json` before `launch` changes nothing else of the launch.
 5. `comfy stop` exits 0 after it stopped the background ComfyUI.
+
+## T5
+
+Red, on `main` at `250302f`, with the binary of `main` from `go build -o <scratch>/red/horus.exe`:
+
+```
+$ git grep -n "USERPROFILE" -- .mcp.json
+.mcp.json:5:      "command": "${USERPROFILE}\\.venvs\\comfy-mcp\\Scripts\\comfy-mcp.exe",
+.mcp.json:8:        "COMFY_BIN": "${USERPROFILE}\\.venvs\\comfy-mcp\\Scripts\\comfy.exe",
+$ <scratch>/red/horus.exe comfy-mcp
+horus: unknown command "comfy-mcp"
+exit 2
+```
+
+Green, on the PC (Windows), after the rebase on `88ea73a` (T2):
+
+```
+$ git grep -n "USERPROFILE" -- .mcp.json
+(no output, exit 1)
+$ go test -count=1 ./internal/cli ./internal/provision ./internal/doctor ./cmd/horus
+ok  	github.com/hieplam/horus/internal/cli
+ok  	github.com/hieplam/horus/internal/provision
+ok  	github.com/hieplam/horus/internal/doctor
+ok  	github.com/hieplam/horus/cmd/horus
+$ python tools/goal_check.py --phase 3 --no-ci --only one-config --server-cmd <scratch>/t5/horus.exe mcp
+PASS  one-config - .mcp.json ok; 2 pinned tests pass; real part not run (needs --real on Windows and on macOS)
+goal: 1 of 1 rows passed
+$ python tests/mcp_contract.py --server-cmd <scratch>/t5/horus.exe mcp
+contract: 30 of 30 passed
+$ python tests/workflow_parity.py --horus <scratch>/t5/horus.exe
+parity: 17 of 17 cases equal
+$ python scripts/lint-public.py
+lint-public: 0 finding(s)
+```
+
+The Phase 1 row that reads `.mcp.json` (`no-python`) checks that the horus entry is `horus mcp`.
+That part holds. The row fails on `main` for another reason (follow-up #117, decision above):
+
+```
+$ python tools/goal_check.py --no-ci --only no-python
+FAIL  no-python - 0 lines left; internal/catalog/workflowdir.go contains powershell; internal/cli/workflow.go contains powershell; internal/cli/workflow_test.go contains powershell; internal/provision/provision_test.go contains powershell
+```
+
+Also green: `gofmt -l .` (no output), `go vet ./...` for windows, darwin/arm64 and linux, `go test ./...`
+(every package `ok`, archtest included). `tests/` and the golden files did not change. The CI job
+`go darwin/arm64` of the pull request is the oracle of the macOS code: its result is in the pull request.
+
+The last Green command, on the PC with the new binary (decision above):
+
+(a) `<scratch>/t5/horus.exe doctor` from the worktree root, with `HORUS_COMFYUI_DIR=D:\ComfyUI_windows_portable`:
+
+```
+PASS  ComfyUI folder - D:\ComfyUI_windows_portable
+PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - %USERPROFILE%\.venvs\comfy-mcp\Scripts\comfy-mcp.exe
+PASS  comfy-cli - %USERPROFILE%\.venvs\comfy-mcp\Scripts\comfy.exe
+PASS  .mcp.json - command points at %USERPROFILE%\go\bin\horus.exe comfy-mcp
+PASS  horus on PATH - %USERPROFILE%\go\bin\horus.exe
+PASS  .mcp.json horus - command points at %USERPROFILE%\go\bin\horus.exe
+All checks passed.
+exit 0
+```
+
+The same binary on the old `.mcp.json` of `main` (a scratch folder with that file and `HORUS_ROOT` set to it):
+
+```
+PASS  .mcp.json - command points at %USERPROFILE%\.venvs\comfy-mcp\Scripts\comfy-mcp.exe, COMFY_BIN at %USERPROFILE%\.venvs\comfy-mcp\Scripts\comfy.exe
+All checks passed.
+exit 0
+```
+
+(b) An MCP client (`mcp` of `tests/requirements.txt`) starts `<scratch>/t5/horus.exe comfy-mcp` and sends
+only `initialize` and `tools/list`:
+
+```
+initialize: server comfy-mcp , protocol 2025-11-25
+tools/list: 39 tools
+first 5: server_info, auth_status, auth_login, run_workflow, generate_image
+```
+
+The end of the child, on the PC. A script starts `horus comfy-mcp`, sends `initialize`, reads the answer,
+and lists the processes under `horus` (`Get-CimInstance Win32_Process`):
+
+```
+A: the client closes the standard input
+  horus pid 23056, answer from server 'comfy-mcp', children: ['comfy-mcp.exe', 'python.exe', 'python.exe']
+  horus exit code 0; children left after the exit: []; all gone after 1.2 s
+B: the client kills horus and keeps the pipe open
+  horus pid 7308, answer from server 'comfy-mcp', children: ['comfy-mcp.exe', 'python.exe', 'python.exe']
+  3 s after the kill: children alive: ['comfy-mcp.exe', 'python.exe', 'python.exe']
+  after the client closes the pipe: all gone after 1.2 s
+```
+
+B is the limit of the design (decision above). That Claude Code closes the pipe of a server that it
+kills is not verified here.
+
+(c) `claude mcp list` with the new entry needs the new `horus` on the PATH. The verify task T8 (#108)
+runs it after `go install` (decision above).
+
+Stub check, each a scratch edit that was then restored with `git checkout`:
+
+```
+  # RunComfyMCP returns 0 at once and starts nothing (`if true { return 0, nil }`):
+--- FAIL: TestComfyMCPPassesTheStreamsComfyBinAndTheExitCode (0.12s)
+    comfymcp_test.go:88: exit 0, want 7 (the exit code of comfy-mcp); stderr:
+    comfymcp_test.go:91: stdout has 0 bytes, want the 262201 bytes of the input; the first bytes: ""
+    comfymcp_test.go:95: stderr lacks "COMFY_BIN=C:\\...\\venv\\Scripts\\comfy.exe\n":
+    comfymcp_test.go:102: COMFY_BIN set: exit 0, stdout "", stderr:
+    comfymcp_test.go:110: no comfy-mcp: exit 0, stdout "", stderr "", want exit 1 and "horus comfy-mcp: comfy-mcp was not found in ..."
+  # the doctor does not read the comfy-mcp entry (check 5 always passes):
+--- FAIL: TestTheMcpJSONOfTheRepoPasses (0.01s)
+--- FAIL: TestMcpJSONExpandsVariablesAndChecksComfyBin (0.01s)
+--- FAIL: TestOneMissingPieceGivesOneFailLine (0.06s)
+    --- FAIL: TestOneMissingPieceGivesOneFailLine/entry_of_.mcp.json_points_at_nothing (0.01s)
+```
+
+| Number | Before | After | Evidence |
+|---|---|---|---|
+| Windows-only paths in `.mcp.json` | 2 | 0 | the search above, and `one-config` of the goal tool |
+| Pinned tests of `one-config` that pass | 1 of 2 | 2 of 2 | `2 pinned tests pass` |
+| Go test functions (`go test -list . ./...`) | 243 (after T2) | 249 | 6 new tests, none removed |

@@ -70,22 +70,22 @@ func TestDefaultComfyDirOfEachOS(t *testing.T) {
 // the home folder and the default install folder are outside. On Windows and
 // Linux no path is inside. InTCCFolder follows the OS of this build.
 func TestInTCCFolder(t *testing.T) {
-	home := filepath.FromSlash("/Users/u")
+	home := filepath.FromSlash("/Users/you")
 	desktop, docs, dls := filepath.Join(home, "Desktop"), filepath.Join(home, "Documents"), filepath.Join(home, "Downloads")
 	cases := []struct {
 		path, want string // want: the TCC folder, "" for outside
 	}{
-		{"/Users/u/Desktop", desktop},
-		{"/Users/u/Desktop/horus", desktop},
-		{"/Users/u/Desktop/horus/.scratch/outputs/", desktop},
-		{"/Users/u/desktop/horus", desktop},
-		{"/Users/u/Documents/models/vae", docs},
-		{"/Users/u/Downloads/x/../horus", dls},
-		{"/Users/u/DesktopFiles/horus", ""},
-		{"/Users/u/horus", ""},
-		{"/Users/u", ""},
-		{"/Users/other/Desktop/horus", ""},
-		{"/Users/u/Desktop/../horus", ""},
+		{"/Users/you/Desktop", desktop},
+		{"/Users/you/Desktop/horus", desktop},
+		{"/Users/you/Desktop/horus/.scratch/outputs/", desktop},
+		{"/Users/you/desktop/horus", desktop},
+		{"/Users/you/Documents/models/vae", docs},
+		{"/Users/you/Downloads/x/../horus", dls},
+		{"/Users/you/DesktopFiles/horus", ""},
+		{"/Users/you/horus", ""},
+		{"/Users/you", ""},
+		{"/Users/public/Desktop/horus", ""},
+		{"/Users/you/Desktop/../horus", ""},
 		{"", ""},
 	}
 	for _, c := range cases {

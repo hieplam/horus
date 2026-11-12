@@ -79,12 +79,12 @@ func TestDoctorLinesAndExitCode(t *testing.T) {
 // is "All checks passed.". A FAIL next to a WARN counts once.
 func TestDoctorWarnLinesKeepExitCodeZero(t *testing.T) {
 	warn := doctor.Result{Name: "macOS privacy folder", Level: doctor.Warn,
-		Detail: "the repo root /Users/u/Desktop/horus is inside /Users/u/Desktop, a folder that macOS protects."}
+		Detail: "the repo root /Users/you/Desktop/horus is inside /Users/you/Desktop, a folder that macOS protects."}
 	f := &fakeDoctor{rs: []doctor.Result{{Name: "ComfyUI folder", Level: doctor.Pass, Detail: "/c"}, warn}}
 	var out, errOut bytes.Buffer
 	code := RunDoctor(context.Background(), "doctor", nil, &out, &errOut, f.at)
 	want := "PASS  ComfyUI folder - /c\n" +
-		"WARN  macOS privacy folder - the repo root /Users/u/Desktop/horus is inside /Users/u/Desktop, a folder that macOS protects.\n" +
+		"WARN  macOS privacy folder - the repo root /Users/you/Desktop/horus is inside /Users/you/Desktop, a folder that macOS protects.\n" +
 		"All checks passed.\n"
 	if code != 0 || out.String() != want {
 		t.Errorf("exit %d, want 0:\n%s\nwant:\n%s", code, out.String(), want)

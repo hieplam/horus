@@ -78,6 +78,11 @@ commands.
 | 2026-11-12 | The macOS prerequisites name `brew install python@3.12 go uv`, the command of the Mac test run (#53). The page does not say that `uv` is needed. | comfy-cli 1.25.0 lists `uv>=0.11.15` in its `Requires-Dist` (the `METADATA` file of the venv on the PC), so the venv has a `uv`. Whether `comfy install` runs with only that `uv` is not proven. #53 is the one run that worked. T7 (#107) runs it. | T6 |
 | 2026-11-12 | The times on the page: Windows 217 s to 470 s (`workflows/it-illustration/manifest.json`, `timing`), macOS 1033 s cold and 469 s warm (#53). | The measured numbers of each machine. | T6 |
 | 2026-11-12 | The page says "Do not clone the repo into `~/horus`". A `horus doctor` check for that case is follow-up #119, outside the epic. | `~/horus` is the default install folder on macOS, and `horus` is the name of the repo, so `git clone` in the home folder makes the same folder. The page now names it, so no goal row waits for #119. | T6 |
+| 2026-11-12 | T7 also took the line `HORUS_MODELS_DIR` out of `.env` (it named `~/horus-lab/ComfyUI/models`). The plan names only `HORUS_COMFYUI_DIR`. | With that line the plan finds the files of `~/horus-lab` and downloads nothing, against the decision "the real run downloads the model files again into `~/horus`". `~/horus-lab` was not changed. | T7 |
+| 2026-11-12 | Step 4 ran `horus doctor -workflow it-illustration` two times: right after the setup (1 FAIL: `ComfyUI server - no answer`), then after `horus start-comfyui`. The Green holds for the second run. | `horus setup -yes` does not start ComfyUI, and the doctor fails when the server does not answer (decision of T0). The goal tool starts it the same way. | T7 |
+| 2026-11-12 | The goal tool ran with `--real-out <scratch>/real-out`. The PNG is in `workflows/it-illustration/examples/mac-conveyor-belt.png`. | The default folder is inside the repo. | T7 |
+| 2026-11-12 | The comfy of the backend was `~/.local/bin/comfy` (comfy-cli 1.25.0 of `uv tool`), found on the PATH before the venv. The doctor line `comfy-cli` names the `comfy` of the venv (also 1.25.0), the one that `horus comfy-mcp` gives comfy-mcp. The T6 sentence "the `comfy` of the venv installs ComfyUI with no `uv` from Homebrew" stays unproven: this Mac has both. | The rule of the plan (PATH, then the venv). The two programs are the same version, so no row changes. | T7 |
+| 2026-11-12 | The 2 manual steps of this run: the token line of `.env` (already there) and `export PATH="$HOME/go/bin:$PATH"` in `~/.zshrc` (`docs/setup.md`, step 0). | The ratchet of `mac-setup` (3 → 2). `HORUS_COMFYUI_DIR` is no longer a step. | T7 |
 | 2026-11-12 | No sentence of the page says that a macOS step was tested with the code of Phase 3. The page gives the numbers of #53 as "the Mac test run". | #53 ran comfy-cli by hand, not `horus install-comfyui`. The real run of `horus` on the Mac is T7 (#107). | T6 |
 | 2026-11-12 | Issue #4 gets the decisions D42 to D53 of Phase 3, the ticked boxes of Phase 3 and a new "Resume here". The old body is saved before the edit, and the edit changes no other part of it (checked with `diff`). | Step 5 of T6. | T6 |
 
@@ -680,3 +685,208 @@ The sentences about macOS that only a real Mac confirms are for T7 (#107):
 | macOS sections in `docs/setup.md` | 0 | 2 (`Windows and macOS: what differs`, `The macOS privacy folders`) | `one-setup-doc` above |
 | Lines of `docs/setup.md` that the new `.mcp.json` made false (comment of T5 on #106) | 5 | 0 | the lines 24-25, 156, 160, 253 and 255 of `main` are gone or rewritten for `horus comfy-mcp` |
 | Go test functions (`go test -list . ./...`) | 249 | 249 | T6 changes no test (`same-behaviour`: 249 Go test functions) |
+
+## T7
+
+On the Mac (Apple M4, 16 GB, macOS 26.5.1), on `main` at `77374a8`, `horus` from `go install
+./cmd/horus`, the goal tool in a Python 3.12 venv of `tests/requirements.txt`. Paths: `~` is the
+home folder, `<scratch>` a scratch folder outside the repo. `~/horus` did not exist before step 1.
+
+Red, before step 2 (so also before step 3), after `~/go/bin` was put on the PATH:
+
+```
+$ horus doctor
+FAIL  ComfyUI folder - ComfyUI/main.py not found in ~/horus. Fix: horus install-comfyui, or pass -comfyui-dir.
+FAIL  ComfyUI server - no answer at http://127.0.0.1:8188. Fix: horus start-comfyui
+FAIL  comfy-mcp environment - comfy-mcp not found in ~/.venvs/comfy-mcp/bin or on the PATH. Fix: horus install-comfy-mcp
+FAIL  comfy-cli - comfy-mcp is missing, so comfy-cli cannot be found. Fix: horus install-comfy-mcp
+PASS  .mcp.json - command points at ~/go/bin/horus comfy-mcp
+PASS  horus on PATH - ~/go/bin/horus
+PASS  .mcp.json horus - command points at ~/go/bin/horus
+WARN  macOS privacy folder - the repo root ~/Desktop/Private/horus is inside ~/Desktop, a folder that macOS protects. ComfyUI and comfy-mcp can fail to read it. Fix: move it out of ~/Desktop, or grant access in System Settings > Privacy & Security.
+WARN  macOS privacy folder - the output folder ~/Desktop/Private/horus/.scratch/outputs is inside ~/Desktop, a folder that macOS protects. ComfyUI and comfy-mcp can fail to read it. Fix: move it out of ~/Desktop, or grant access in System Settings > Privacy & Security.
+4 check(s) failed.
+exit 1
+```
+
+Step 2: `horus install-comfy-mcp` (18 s): `OK: comfy-mcp is installed in ~/.venvs/comfy-mcp`.
+The backend used `~/.local/bin/comfy` (comfy-cli 1.25.0 of `uv tool`, on the PATH), proven by the
+process list after the start:
+
+```
+92657 ~/.local/share/uv/tools/comfy-cli/bin/python ~/.local/bin/comfy --workspace=~/horus/ComfyUI launch -- --listen 127.0.0.1 --port 8188 --enable-manager
+92659 ~/horus/ComfyUI/.venv/bin/python main.py --listen 127.0.0.1 --port 8188 --enable-manager --enable-manager
+```
+
+Step 3, the plan:
+
+```
+$ horus setup it-illustration
+Setup of workflow 'it-illustration':
+MISSING   ComfyUI in ~/horus
+MISSING   diffusion flux3-image-klein-int8-convrot.safetensors (5.83 GB) ~/horus/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors
+MISSING   text_encoder qwen3vl_4b_int8_convrot.safetensors (4.86 GB) ~/horus/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors
+MISSING   vae flux2-vae.safetensors (0.34 GB) ~/horus/ComfyUI/models/vae/flux2-vae.safetensors
+Plan: 4 step(s):
+  1. install ComfyUI in ~/horus
+  2. download diffusion flux3-image-klein-int8-convrot.safetensors (5.83 GB) to ~/horus/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors
+  3. download text_encoder qwen3vl_4b_int8_convrot.safetensors (4.86 GB) to ~/horus/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors
+  4. download vae flux2-vae.safetensors (0.34 GB) to ~/horus/ComfyUI/models/vae/flux2-vae.safetensors
+Nothing changed. Run horus setup it-illustration -yes to run the plan.
+```
+
+Step 3, `horus setup it-illustration -yes`: from 10:36:33Z to 10:43:05Z, `real 391.87` s for the
+install of ComfyUI and the 11 GB download. 331 lines; the lines before the end are the pip log of
+comfy-cli (`comfy install --m-series --version 0.44.0`, torch nightly for MPS). The end:
+
+```
+ComfyUI is installed at: ~/horus/ComfyUI
+OK: ComfyUI v0.44.0 is installed in ~/horus
+Next: horus start-comfyui -comfyui-dir '~/horus'
+License: FLUX Kommunity License (gated: accept it on the repo page first)
+Installing 3 model file(s) for workflow 'it-illustration'.
+-- diffusion -> ~/horus/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors
+Downloading flux3-image-klein-int8-convrot.safetensors (5.43 GiB) ...
+Checking SHA-256 of flux3-image-klein-int8-convrot.safetensors (this takes a while for big files) ...
+OK flux3-image-klein-int8-convrot.safetensors verified: 5827874779 bytes, SHA-256 847d8933548afd93df4af2cac2498e70891bf28d9dae06d695f536992e168fe2
+-- text_encoder -> ~/horus/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors
+Downloading qwen3vl_4b_int8_convrot.safetensors (4.52 GiB) ...
+Checking SHA-256 of qwen3vl_4b_int8_convrot.safetensors (this takes a while for big files) ...
+OK qwen3vl_4b_int8_convrot.safetensors verified: 4858559240 bytes, SHA-256 32de113cbf8282b02cbff0794b637b9d6676da09314a1db5a30bcea9bf4ee01c
+-- vae -> ~/horus/ComfyUI/models/vae/flux2-vae.safetensors
+Downloading flux2-vae.safetensors (0.31 GiB) ...
+Checking SHA-256 of flux2-vae.safetensors (this takes a while for big files) ...
+OK flux2-vae.safetensors verified: 336211292 bytes, SHA-256 868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3
+
+Checking workflow 'it-illustration': 3 model file(s), size only.
+OK        diffusion ~/horus/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors (5827874779 bytes)
+OK        text_encoder ~/horus/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors (4858559240 bytes)
+OK        vae ~/horus/ComfyUI/models/vae/flux2-vae.safetensors (336211292 bytes)
+OK        models.json lists all 3 model file(s) that workflow.json loads
+SKIP      server checks: no answer at http://127.0.0.1:8188 (start ComfyUI with horus start-comfyui)
+OK: this machine is set up for workflow 'it-illustration'.
+real 391.87
+user 53.96
+sys 46.33
+exit=0
+```
+
+`~/horus` after the setup: 12 GB, of which 10 GB are model files.
+
+Step 4 (Green), after `horus start-comfyui` (47 s, `OK: ComfyUI answers at http://127.0.0.1:8188`):
+
+```
+$ horus doctor -workflow it-illustration
+PASS  ComfyUI folder - ~/horus
+PASS  ComfyUI server - answers at http://127.0.0.1:8188 (ComfyUI 0.44.0)
+PASS  comfy-mcp environment - ~/.venvs/comfy-mcp/bin/comfy-mcp
+PASS  comfy-cli - ~/.venvs/comfy-mcp/bin/comfy
+PASS  .mcp.json - command points at ~/go/bin/horus comfy-mcp
+PASS  horus on PATH - ~/go/bin/horus
+PASS  .mcp.json horus - command points at ~/go/bin/horus
+WARN  macOS privacy folder - the repo root ~/Desktop/Private/horus is inside ~/Desktop, a folder that macOS protects. ComfyUI and comfy-mcp can fail to read it. Fix: move it out of ~/Desktop, or grant access in System Settings > Privacy & Security.
+WARN  macOS privacy folder - the output folder ~/Desktop/Private/horus/.scratch/outputs is inside ~/Desktop, a folder that macOS protects. ComfyUI and comfy-mcp can fail to read it. Fix: move it out of ~/Desktop, or grant access in System Settings > Privacy & Security.
+      Checking workflow 'it-illustration': 3 model file(s).
+      OK        diffusion ~/horus/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors (5827874779 bytes, SHA-256 verified)
+      OK        text_encoder ~/horus/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors (4858559240 bytes, SHA-256 verified)
+      OK        vae ~/horus/ComfyUI/models/vae/flux2-vae.safetensors (336211292 bytes, SHA-256 verified)
+      OK        models.json lists all 3 model file(s) that workflow.json loads
+      OK        the server has all 10 node classes of workflow.json
+      OK        the server lists flux3-image-klein-int8-convrot.safetensors
+      OK        the server lists qwen3vl_4b_int8_convrot.safetensors
+      OK        the server lists flux2-vae.safetensors
+      OK: workflow 'it-illustration' is ready.
+PASS  models for 'it-illustration' - all files present and verified (SHA-256 checked)
+All checks passed.
+exit=0
+$ horus setup it-illustration
+Setup of workflow 'it-illustration':
+PRESENT   ComfyUI in ~/horus
+PRESENT   diffusion flux3-image-klein-int8-convrot.safetensors (5.83 GB) ~/horus/ComfyUI/models/diffusion_models/flux3-image-klein-int8-convrot.safetensors
+PRESENT   text_encoder qwen3vl_4b_int8_convrot.safetensors (4.86 GB) ~/horus/ComfyUI/models/text_encoders/qwen3vl_4b_int8_convrot.safetensors
+PRESENT   vae flux2-vae.safetensors (0.34 GB) ~/horus/ComfyUI/models/vae/flux2-vae.safetensors
+Plan: 0 steps. Nothing is missing.
+```
+
+Step 5 (Green), from 10:44:28Z to 10:52:24Z:
+
+```
+$ python tools/goal_check.py --phase 3 --real --real-out <scratch>/real-out --only mac-backend mac-setup mac-image tcc-folders one-config
+PASS  mac-backend - 10 pinned tests pass; CI: 1 jobs green (go darwin/arm64); real: start, stop, and a refusal of a ComfyUI started by hand
+PASS  mac-setup - 3 pinned tests pass; real: horus doctor: 0 FAIL lines; Plan: 0 steps; no HORUS_COMFYUI_DIR
+PASS  mac-image - 1536x1024 <scratch>/real-out/real-image-seed7-20261112-174506.png (seed 7, 434 s); started_backend: true
+PASS  tcc-folders - 4 pinned tests pass; real: horus doctor: exit 0, 0 FAIL lines, a WARN line names ~/Desktop/Private/horus
+PASS  one-config - .mcp.json ok; 2 pinned tests pass; real: horus doctor on darwin: 0 FAIL lines
+goal: 5 of 5 rows passed
+real 476.10
+user 9.28
+sys 6.54
+exit=0
+```
+
+The PNG is `workflows/it-illustration/examples/mac-conveyor-belt.png` (1536x1024). Judged against
+the subject: a mint-green server box on the left and a sky-blue one on the right, sun-yellow
+envelopes, lilac conveyor belts. One gap: each server has its own belt, the subject asks for one
+belt from the left box to the right box. Small marks on the boxes look like text. Both are limits
+of the model (the same kind as in the workflow README), not of horus.
+
+Step 6 (Green):
+
+```
+$ horus stop-comfyui
+Background ComfyUI is stopped. (127.0.0.1:8188)
+{"schema": "envelope/1", "type": "envelope", "ok": true, "command": "stop", "version": "1.25.0", "where": null, "data": {"stopped": true, "host": "127.0.0.1", "port": 8188, "pid": 93437}, "error": null, "changed": true}
+OK: stopped the ComfyUI that horus started at http://127.0.0.1:8188 (process 93437).
+exit 0
+$ comfy --workspace ~/horus/ComfyUI launch --background -- --listen 127.0.0.1 --port 8188
+ComfyUI is successfully launched in the background.
+To see the GUI go to: http://127.0.0.1:8188
+{"schema": "envelope/1", "type": "envelope", "ok": true, "command": "launch", "version": "1.25.0", "where": null, "data": {"background": true, "listen": "127.0.0.1", "port": 8188, "url": "http://127.0.0.1:8188", "pid": 94850}, "error": null, "changed": true}
+$ horus stop-comfyui
+horus stop-comfyui: horus did not start the ComfyUI that answers at http://127.0.0.1:8188 (~/horus/horus-comfyui.state.json holds no ComfyUI that horus started), so it does not stop it. Stop it where it was started.
+exit 1
+$ curl -s -o /dev/null -w "%{http_code}
+" http://127.0.0.1:8188/system_stats
+200
+$ comfy stop
+Background ComfyUI is stopped. (127.0.0.1:8188)
+{"schema": "envelope/1", "type": "envelope", "ok": true, "command": "stop", "version": "1.25.0", "where": null, "data": {"stopped": true, "host": "127.0.0.1", "port": 8188, "pid": 94850}, "error": null, "changed": true}
+exit 0
+$ curl (after comfy stop)
+000
+curl exit 7
+```
+
+The refusal exits 1 and the server still answers (200) after it. `comfy stop` stops it.
+
+Stub check 1: the binary of `51c0fe3` (the parent of T1, `go build -o <scratch>/horus-pre-t1`)
+fails step 3 at the install and creates no folder:
+
+```
+$ horus-pre-t1 setup it-illustration -yes -comfyui-dir <scratch>/stub-dir
+...
+Plan: 4 step(s):
+...
+Running the plan.
+FAIL: not supported on this OS yet
+exit 1
+```
+
+Stub check 2: a ComfyUI started by hand (`comfy --workspace ~/horus/ComfyUI launch --background
+...`), then `generate_image` through `horus mcp` with the subject and seed of the goal tool
+(its `real_call`, 574 s):
+
+```
+ok: True started_backend: False size: (1536, 1024)
+row mac-image would fail: True
+```
+
+Step 7: no defect. Two notes, no issue: the doctor line `comfy-cli` and the backend can name two
+different `comfy` programs (decision above); `comfy launch` passes `--enable-manager` two times
+to `main.py`, which ComfyUI accepts.
+
+| Number | Before | After | Evidence |
+|---|---|---|---|
+| Images through MCP on macOS | 0 | 1 | `mac-image` above, `started_backend: true` |
+| Manual steps of #53 | 3 | 2 | the token and the PATH (decision above); no `HORUS_COMFYUI_DIR` (`mac-setup` above) |
+| Rows of Phase 3 with `--real` on the Mac | 0 of 5 | 5 of 5 | step 5 |

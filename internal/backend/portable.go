@@ -76,10 +76,10 @@ type portable struct {
 	Client         *http.Client
 }
 
-// Layout gives the folders and files of the install.
-func (p *portable) Layout() Layout {
+// layout gives the folders and files of the install.
+func (p *portable) layout() layout {
 	dir := p.dir()
-	return Layout{
+	return layout{
 		Dir:     dir,
 		ComfyUI: comfyUIDir(dir),
 		Python:  filepath.Join(dir, "python_embeded", "python.exe"),
@@ -309,7 +309,7 @@ func (o portable) fetch(ctx context.Context, part string) error {
 
 // Start starts ComfyUI when its server does not answer, then waits for it.
 func (p *portable) Start(ctx context.Context, out io.Writer) error {
-	l := p.Layout()
+	l := p.layout()
 	serverURL := p.serverURL()
 	if !platform.IsFile(l.Python) || !platform.IsFile(filepath.Join(l.ComfyUI, "main.py")) {
 		return &notInstalledError{fmt.Sprintf("ComfyUI was not found in %s. Run horus install-comfyui first, or pass -comfyui-dir.", l.Dir)}

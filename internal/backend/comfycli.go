@@ -49,12 +49,12 @@ type comfyCLI struct {
 	Place
 }
 
-// Layout gives the folders and files of the workspace. comfy writes the log
+// layout gives the folders and files of the workspace. comfy writes the log
 // of a background ComfyUI to user/comfyui_<port>.log.
-func (c *comfyCLI) Layout() Layout {
+func (c *comfyCLI) layout() layout {
 	dir := c.dir()
 	ui := comfyUIDir(dir)
-	l := Layout{Dir: dir, ComfyUI: ui, Python: filepath.Join(ui, ".venv", "bin", "python")}
+	l := layout{Dir: dir, ComfyUI: ui, Python: filepath.Join(ui, ".venv", "bin", "python")}
 	if port, err := portOf(c.serverURL()); err == nil {
 		l.Logs = []string{comfyLog(ui, port)}
 	}

@@ -52,8 +52,8 @@ func describeWorkflow(setup Setup) tool {
 	return tool{
 		name:  "describe_workflow",
 		title: "Describe an image workflow",
-		description: "Everything a caller needs to use one image workflow: the allowed sizes, how to write the subject (rules " +
-			"and example subjects with their images), the license and the install state of each model file. The workflow " +
+		description: "Everything a caller needs to use one image workflow: the allowed sizes, how to write the subject (the " +
+			"rules), the license and the install state of each model file. The workflow " +
 			"has no style of its own. Read subject.rules before the first generate_image with this workflow.",
 		annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: ptr(false)},
 		args: []field{
@@ -67,7 +67,7 @@ func describeWorkflow(setup Setup) tool {
 				f("good_for", tList(tString)),
 				f("not_good_for", tList(tString)),
 				f("output", tDict).d("format, default size, min_side, max_side, multiple_of"),
-				f("subject", tDict).d("min_chars, max_chars, how_to_write, rules, examples (subject, image path, seed)"),
+				f("subject", tDict).d("min_chars, max_chars, how_to_write, rules"),
 				f("timing", tDict).null(),
 				f("typical_seconds", tList(tInt)).null(),
 				f("license", tDict).d("name, url, download_bytes"),

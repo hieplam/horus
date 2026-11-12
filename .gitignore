@@ -14,12 +14,12 @@
 *.part
 *.7z
 
-# Generated images. Only the example images of a workflow are kept.
+# Generated images. Only the result image of a saved prompt is kept.
 *.png
 *.jpg
 *.jpeg
 *.webp
-!workflows/*/examples/*.png
+!prompts/*/*.png
 
 # Go build output
 bin/

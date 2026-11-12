@@ -11,6 +11,8 @@
 // A workflow is style-neutral. horus sends the caller's subject to the model
 // as written. The look, the palette and the design system belong to the
 // caller, so a manifest with "theme" or "caption" (a house style) is refused.
+// A manifest with subject.examples is refused too: callers copy the look of a
+// sample subject into every picture, so a sample subject is a house style.
 //
 // A folder without manifest.json (or with a name that starts with "_") is not
 // offered by the MCP server.
@@ -134,6 +136,9 @@ func checkManifest(name string, m *Object) error {
 	}
 	if len(styled) > 0 {
 		return fmt.Errorf("manifest.json of %s has %s: a workflow must not add a style; the caller owns it", name, strings.Join(styled, ", "))
+	}
+	if subject, err := m.Object("subject"); err == nil && subject != nil && subject.Has("examples") {
+		return fmt.Errorf("manifest.json of %s has subject.examples: a sample subject carries a style that callers copy; the caller owns the look", name)
 	}
 	var got any
 	_ = m.Decode("name", &got)
@@ -320,36 +325,7 @@ func DetailOf(w *Workflow) (Detail, error) {
 	if err != nil || subject == nil {
 		return Detail{}, fmt.Errorf("manifest.json of %s: subject is not an object", w.Name)
 	}
-	var rawExamples []json.RawMessage
-	if subject.Has("examples") {
-		if err := subject.Decode("examples", &rawExamples); err != nil {
-			return Detail{}, fmt.Errorf("manifest.json of %s: subject.examples: %w", w.Name, err)
-		}
-	}
-	examples := []*Object{}
-	for _, raw := range rawExamples {
-		var ex Object
-		if err := json.Unmarshal(raw, &ex); err != nil {
-			return Detail{}, fmt.Errorf("manifest.json of %s: subject.examples: %w", w.Name, err)
-		}
-		var image *string
-		var rel any
-		_ = ex.Decode("image", &rel)
-		if s, ok := rel.(string); ok && s != "" {
-			p := filepath.Join(w.Dir, s)
-			if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
-				image = &p
-			}
-		}
-		if err := ex.Set("image", image); err != nil {
-			return Detail{}, err
-		}
-		examples = append(examples, &ex)
-	}
 	subj := subject.Copy()
-	if err := subj.Set("examples", examples); err != nil {
-		return Detail{}, err
-	}
 	lic, err := w.License()
 	if err != nil {
 		return Detail{}, err

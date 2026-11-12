@@ -73,7 +73,7 @@ horus follows the caption rules in [How to write the caption](../workflows/it-il
 2. **Naming a fill colour for each object matters most.** In our tests, a subject with a named fill colour for each object scored higher on the style check than the same subject without it. The picture also matched the reference style better.
 3. **Weak points.**
    - Exact counts above two are wrong. Example: four cylinders for a request of three.
-   - Some relations are missed. In our trials, about 3 of 7 pictures missed one relation. In the read-replicas example, the arrows reach only one of the three small cylinders.
+   - Some relations are missed. In our trials, about 3 of 7 pictures missed one relation. In the read-replicas picture (`prompts/flux3-klein/read-replicas.png`), the arrows reach only one of the three small cylinders.
    - A word such as "friendly" does not work without a face.
    - The outline colour sometimes drifts to a nearby navy shade.
 4. **Strong points.** Every named main object appeared in all trial pictures. The palette, the background and the line style matched. No readable text appeared. Small barcode-like marks appeared on devices twice.

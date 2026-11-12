@@ -33,7 +33,7 @@ const serverVersion = "0.1.0"
 // serverInstructions is the instructions text that the server gives to a client at the start of a session.
 const serverInstructions = `horus makes images on this machine with local AI models. You do not need to know how.
 1. Call list_workflows. Each workflow is one image model and graph; pick the one whose summary and good_for fit.
-2. Call describe_workflow for that workflow once, and read subject.rules and subject.examples.
+2. Call describe_workflow for that workflow once, and read subject.rules.
    horus adds no style: it sends your subject to the model exactly as written. You own the look,
    the palette, the light and the composition, so write them in the subject.
 3. Call generate_image. It waits until the PNG is on disk (often 3 to 8 minutes, longer on a cold start)

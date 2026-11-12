@@ -129,7 +129,7 @@ def make_sandbox(tmp: Path) -> dict[str, str]:
     wf_root, models_root = tmp / "workflows", tmp / "comfy" / "ComfyUI" / "models"
     src = ROOT / "workflows" / "it-illustration"
     dst = wf_root / "it-illustration"
-    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("examples"))
+    shutil.copytree(src, dst)
     models = json.loads((src / "models.json").read_text(encoding="utf-8"))
     for f in models["files"]:
         data = f"stand-in for {f['repo_path']}".encode()
@@ -205,6 +205,9 @@ async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Pa
 
 
 STYLE_WORDS = ("palette", "pastel", "navy", "flat vector", "house style", "house-style", "dotted grid")
+# The words of the old house style. The manifest can name "palette" or "flat vector" as a choice
+# that the caller makes, so those two are not in this list.
+LOOK_WORDS = ("pastel", "navy", "lilac", "mint green", "mint-green", "sky blue", "sky-blue", "house style", "house-style", "dotted grid")
 
 
 def neutral_checks(c: Checks) -> None:
@@ -217,6 +220,12 @@ def neutral_checks(c: Checks) -> None:
         texts = " ".join(str(v) for n in graph.get("nodes", []) for v in (n.get("widgets_values") or [])).lower()
         words = [w for w in STYLE_WORDS if w in texts]
         c.check(f"{d.name}: the graph holds no style words", not words, str(words))
+        # A sample subject is a style: callers copy its look into every picture.
+        subj = m.get("subject") or {}
+        shown = json.dumps(m).lower()
+        looks = [w for w in LOOK_WORDS if w in shown]
+        c.check(f"{d.name}: the manifest shows callers no sample subject and no look words",
+                "examples" not in subj and not looks, f"examples={'examples' in subj} words={looks}")
 
 
 async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: Checks) -> None:
@@ -245,8 +254,8 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             res = env_of(raw)
             text = raw.content[0].text
             r = res.get("result") or {}
-            c.check("describe_workflow gives subject rules, examples and 3 present files",
-                    res["ok"] and len(r.get("subject", {}).get("rules", [])) >= 3 and r["subject"]["examples"]
+            c.check("describe_workflow gives subject rules, no sample subject and 3 present files",
+                    res["ok"] and len(r.get("subject", {}).get("rules", [])) >= 3 and "examples" not in r["subject"]
                     and [f["state"] for f in r.get("files", [])] == ["present"] * 3, json.dumps(res)[:400])
             listed = (env_of(await s.call_tool("list_workflows", {})).get("result") or {}).get("workflows", [])
             c.check("list_workflows and describe_workflow carry no theme or look",
@@ -384,7 +393,7 @@ def main() -> int:
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
     passed = sum(1 for ok, _, _ in c.rows if ok)
     shipped = sum(1 for d in (ROOT / "workflows").iterdir() if (d / "manifest.json").is_file())
-    total = 28 + 2 * shipped  # 28 server checks, plus 2 style-neutral checks for each shipped workflow
+    total = 28 + 3 * shipped  # 28 server checks, plus 3 style-neutral checks for each shipped workflow
     print(f"contract: {passed} of {total} passed")
     return 0 if passed == total and len(c.rows) == total else 1
 

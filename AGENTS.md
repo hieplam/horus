@@ -103,9 +103,9 @@ internal/archtest/                the test of the design rules
 scripts/                          lint-public.py (a Python check before a pull request)
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), workflow_parity.py, requirements.txt
 tools/                            goal_check.py: the goal check of each phase
-workflows/<name>/                 manifest.json, workflow.json, models.json, README.md, examples/
+workflows/<name>/                 manifest.json, workflow.json, models.json, README.md
 workflows/_template/README.md     template for a new workflow README
-prompts/<family>/<name>.md        one saved prompt each, with its result
+prompts/<family>/<name>.md        one saved prompt each, with its result image <name>.png
 ```
 
 Before you open a pull request, run `python scripts/lint-public.py`. It must

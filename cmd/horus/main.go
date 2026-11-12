@@ -69,6 +69,11 @@ var commands = map[string]command{
 			return cli.InstallComfyMCP(ctx, args, os.Stdout, os.Stderr, platform.Programs{})
 		})
 	}},
+	"comfy-mcp": {"run the comfy MCP server (comfy-mcp) over stdio, for .mcp.json", func(args []string) int {
+		return withSignal(func(ctx context.Context) int {
+			return cli.ComfyMCP(ctx, args, os.Stdin, os.Stdout, os.Stderr, platform.Programs{})
+		})
+	}},
 	"register": {"register horus mcp with Claude Code", func(args []string) int {
 		return withSignal(func(ctx context.Context) int {
 			return cli.Register(ctx, args, os.Stdout, os.Stderr, platform.Programs{})

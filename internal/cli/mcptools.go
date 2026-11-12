@@ -37,6 +37,41 @@ func InstallComfyMCP(ctx context.Context, args []string, out, errOut io.Writer, 
 	return 0
 }
 
+// ComfyMCP is horus comfy-mcp, the command of the comfy-mcp entry of
+// .mcp.json. It runs the comfy MCP server with the streams in, out and
+// errOut, and gives its exit code. It writes nothing to out itself: an MCP
+// client reads out. The arguments after the flags (or after --) go to
+// comfy-mcp.
+func ComfyMCP(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer, programs provision.Programs) int {
+	var r provision.ComfyMCPRun
+	fs := newFlags("horus comfy-mcp", errOut)
+	fs.StringVar(&r.VenvPath, "venv-path", "", "folder of the venv of horus install-comfy-mcp (default: <home>/.venvs/comfy-mcp)")
+	fs.Usage = func() {
+		fmt.Fprintln(errOut, "Usage: horus comfy-mcp [flags] [-- arguments for comfy-mcp]")
+		fmt.Fprintln(errOut, "")
+		fmt.Fprintln(errOut, "Runs the comfy MCP server (comfy-mcp) over stdio, for the comfy-mcp entry of .mcp.json.")
+		fmt.Fprintln(errOut, "It finds comfy-mcp in the venv of horus install-comfy-mcp, then on the PATH.")
+		fmt.Fprintln(errOut, "It sets COMFY_BIN to the comfy next to comfy-mcp when COMFY_BIN is not set.")
+		fmt.Fprintln(errOut, "The exit code is the exit code of comfy-mcp.")
+		fmt.Fprintln(errOut, "")
+		fs.PrintDefaults()
+	}
+	if code, done := parse(fs, args); done {
+		return code
+	}
+	if r.VenvPath == "" {
+		r.VenvPath = settings.ComfyMCPVenv()
+	}
+	r.Args = fs.Args()
+	r.ComfyBinSet = os.Getenv("COMFY_BIN") != ""
+	r.Stdin, r.Stdout, r.Stderr = in, out, errOut
+	code, err := provision.RunComfyMCP(ctx, programs, r)
+	if err != nil {
+		fmt.Fprintln(errOut, "horus comfy-mcp:", err)
+	}
+	return code
+}
+
 // Register is horus register.
 func Register(ctx context.Context, args []string, out, errOut io.Writer, programs provision.Programs) int {
 	fs := newFlags("horus register", errOut)

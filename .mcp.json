@@ -2,13 +2,10 @@
   "mcpServers": {
     "comfy-mcp": {
       "type": "stdio",
-      "command": "${USERPROFILE}\\.venvs\\comfy-mcp\\Scripts\\comfy-mcp.exe",
-      "args": [],
+      "command": "horus",
+      "args": ["comfy-mcp"],
       "env": {
-        "COMFY_BIN": "${USERPROFILE}\\.venvs\\comfy-mcp\\Scripts\\comfy.exe",
-        "COMFY_LOCAL_URL": "${COMFY_LOCAL_URL:-http://127.0.0.1:8188}",
-        "PYTHONUTF8": "1",
-        "PYTHONIOENCODING": "utf-8"
+        "COMFY_LOCAL_URL": "${COMFY_LOCAL_URL:-http://127.0.0.1:8188}"
       }
     },
     "horus": {

@@ -1,5 +1,6 @@
 // The comfy MCP server: install comfy-mcp and comfy-cli in their own Python
-// virtual environment (horus install-comfy-mcp).
+// virtual environment (horus install-comfy-mcp), and run comfy-mcp for the
+// comfy-mcp entry of .mcp.json (horus comfy-mcp).
 //
 // Two packages with pinned versions: comfy-mcp (the MCP server that an agent
 // talks to, AGPL) and comfy-cli (the command-line tool that comfy-mcp calls,
@@ -118,8 +119,56 @@ func InstallComfyMCP(ctx context.Context, programs Programs, o ComfyMCPOptions) 
 		}
 	}
 	fmt.Fprintf(out, "OK: comfy-mcp is installed in %s\n", venv)
-	fmt.Fprintln(out, "Next: connect your agent (docs/setup.md, step 5).")
+	fmt.Fprintln(out, "Next: .mcp.json starts it as `horus comfy-mcp`. Connect your agent (docs/setup.md, step 5).")
 	return nil
+}
+
+// ComfyMCPRun is everything RunComfyMCP needs.
+type ComfyMCPRun struct {
+	// VenvPath is the venv of install-comfy-mcp.
+	VenvPath string
+	// Args are the arguments for comfy-mcp.
+	Args []string
+	// ComfyBinSet tells if COMFY_BIN is set (not empty) in the environment of horus.
+	// A set COMFY_BIN goes to comfy-mcp as it is.
+	ComfyBinSet bool
+	// Stdin, Stdout and Stderr are the streams of comfy-mcp. cmd/horus gives
+	// the streams of horus, so comfy-mcp reads and writes the pipes of the
+	// MCP client itself.
+	Stdin          io.Reader
+	Stdout, Stderr io.Writer
+}
+
+// RunComfyMCP is horus comfy-mcp: it runs the comfy MCP server and returns
+// its exit code. It finds the program comfy-mcp in the venv first, then on
+// the PATH. It adds PYTHONUTF8=1 and PYTHONIOENCODING=utf-8 to the
+// environment, and COMFY_BIN when COMFY_BIN is not set and the program comfy
+// is next to comfy-mcp. Without COMFY_BIN, comfy-mcp runs the comfy of the
+// PATH.
+//
+// The service writes nothing itself: every byte on r.Stdout comes from
+// comfy-mcp. comfy-mcp ends when its standard input closes, so it ends with
+// the MCP client. The end of ctx ends it too. The error is not nil when
+// comfy-mcp is not found or does not start.
+func RunComfyMCP(ctx context.Context, programs Programs, r ComfyMCPRun) (int, error) {
+	prog := platform.VenvBin(r.VenvPath, "comfy-mcp")
+	if !platform.IsFile(prog) {
+		p, err := programs.LookPath("comfy-mcp")
+		if err != nil {
+			return 1, fmt.Errorf("comfy-mcp was not found in %s or on the PATH. Fix: horus install-comfy-mcp", filepath.Dir(prog))
+		}
+		prog = p
+	}
+	env := []string{"PYTHONUTF8=1", "PYTHONIOENCODING=utf-8"}
+	if comfy := filepath.Join(filepath.Dir(prog), platform.ExeName("comfy")); !r.ComfyBinSet && platform.IsFile(comfy) {
+		env = append(env, "COMFY_BIN="+comfy)
+	}
+	code, err := programs.Run(ctx, platform.Command{Path: prog, Args: r.Args, Env: env,
+		Stdin: r.Stdin, Stdout: r.Stdout, Stderr: r.Stderr})
+	if err != nil {
+		return 1, fmt.Errorf("cannot run %s: %w", prog, err)
+	}
+	return code, nil
 }
 
 // exitText is the text of a run that failed: its exit code, or the error

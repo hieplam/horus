@@ -133,8 +133,69 @@ func TestMissingComfyCliFails(t *testing.T) {
 	}
 }
 
-// The repo .mcp.json starts comfy-mcp from a path with ${USERPROFILE} and has
-// COMFY_BIN and ${VAR:-default} in its env. Both must expand.
+// TestTheMcpJSONOfTheRepoPasses: the .mcp.json of this repo starts both
+// servers through horus (`horus comfy-mcp`, `horus mcp`). With the venv and
+// horus on the PATH every check passes, and comfy-cli is the comfy of the
+// venv. Without horus on the PATH, the comfy-mcp entry fails with the fix
+// for horus. An entry `horus mcp` for comfy-mcp fails.
+func TestTheMcpJSONOfTheRepoPasses(t *testing.T) {
+	r := newRig(t)
+	repoCfg, err := os.ReadFile(filepath.Join("..", "..", ".mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(r.opts.RepoRoot, ".mcp.json")
+	os.WriteFile(cfgPath, repoCfg, 0o644)
+	horus, _ := r.look("horus")
+	rs := r.check()
+	if Failed(rs) != 0 || !strings.Contains(text(rs), "PASS  .mcp.json - command points at "+horus+" comfy-mcp\n") ||
+		!strings.Contains(text(rs), "PASS  comfy-cli - "+platform.VenvBin(r.opts.VenvPath, "comfy")+"\n") {
+		t.Fatalf("the .mcp.json of the repo, failed=%d:\n%s", Failed(rs), text(rs))
+	}
+
+	look := r.look
+	r.look = func(n string) (string, error) {
+		if n == "horus" {
+			return "", errors.New("not found")
+		}
+		return look(n)
+	}
+	want := "FAIL  .mcp.json - command is 'horus' and does not exist. Fix: put horus on the PATH, or edit .mcp.json.\n"
+	if rs := r.check(); !strings.Contains(text(rs), want) {
+		t.Fatalf("no horus on the PATH: no line %q in:\n%s", want, text(rs))
+	}
+	r.look = look
+
+	os.WriteFile(cfgPath, []byte(`{"mcpServers":{"comfy-mcp":{"command":"horus","args":["mcp"]},"horus":{"command":"horus","args":["mcp"]}}}`), 0o644)
+	want = "FAIL  .mcp.json - the entry runs `horus mcp`, which is not the comfy MCP server."
+	if rs := r.check(); Failed(rs) != 1 || !strings.Contains(text(rs), want) {
+		t.Fatalf("comfy-mcp entry `horus mcp`: failed=%d, want 1 and %q:\n%s", Failed(rs), want, text(rs))
+	}
+}
+
+// TestComfyOfThePathWhenTheVenvHasNone: horus comfy-mcp sets no COMFY_BIN
+// when the venv has no comfy, so comfy-mcp runs the comfy of the PATH. The
+// check finds the same program.
+func TestComfyOfThePathWhenTheVenvHasNone(t *testing.T) {
+	r := newRig(t)
+	os.Remove(platform.VenvBin(r.opts.VenvPath, "comfy"))
+	other := filepath.Join(t.TempDir(), platform.ExeName("comfy"))
+	os.WriteFile(other, []byte("x"), 0o755)
+	look := r.look
+	r.look = func(n string) (string, error) {
+		if n == "comfy" {
+			return other, nil
+		}
+		return look(n)
+	}
+	if rs := r.check(); Failed(rs) != 0 || !strings.Contains(text(rs), "PASS  comfy-cli - "+other+"\n") {
+		t.Fatalf("failed=%d:\n%s", Failed(rs), text(rs))
+	}
+}
+
+// The repo .mcp.json of Phase 2 starts comfy-mcp from a path with
+// ${USERPROFILE} and has COMFY_BIN and ${VAR:-default} in its env. Both must
+// expand. Other users still have this file: it passes when the files exist.
 func TestMcpJSONExpandsVariablesAndChecksComfyBin(t *testing.T) {
 	r := newRig(t)
 	rel, _ := filepath.Rel(r.opts.Home, venvBin(r.opts.VenvPath))

@@ -194,6 +194,22 @@ func TestClientJobCalls(t *testing.T) {
 	}
 }
 
+// TestJobErrorOfTheMPSOutOfMemoryText: the text of PyTorch when a Mac runs out
+// of memory on MPS ("MPS backend out of memory ...") gives OUT_OF_MEMORY,
+// retryable, action_by caller, and the backend message is kept.
+func TestJobErrorOfTheMPSOutOfMemoryText(t *testing.T) {
+	const text = "MPS backend out of memory (MPS allocated: 9.07 GB, other allocations: 6.50 GB, max allowed: 18.13 GB). " +
+		"Tried to allocate 256.00 MB on private pool. Use PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 to disable upper limit " +
+		"for memory allocations (may cause system failure)."
+	info := jobError("job-1", status(t, execError("RuntimeError", text))).Info()
+	if info.Code != "OUT_OF_MEMORY" || !info.Retryable || info.ActionBy != "caller" {
+		t.Fatalf("got %s retryable=%v action_by=%s", info.Code, info.Retryable, info.ActionBy)
+	}
+	if msg, _ := info.Details["backend_message"].(string); !strings.HasPrefix(msg, "MPS backend out of memory") {
+		t.Fatalf("backend_message = %q", msg)
+	}
+}
+
 // TestHistoryOfAFailedJobIsItsError: History maps a job with status "error"
 // to the horus error of jobError, here OUT_OF_MEMORY. The service
 // internal/generate returns that error as it is.

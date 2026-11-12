@@ -93,6 +93,9 @@ commands.
 | 2026-11-12 | The review of T7 (PR #121) finds no Green without literal output and no line that contradicts a goal row. One note: `gh pr view 121 --json mergedBy` names `hoacao33`, and the spec says that the owner merges by hand. Whether a person merged it with that account is not verified. No issue. | No goal row depends on who pressed merge. The coordinator gets the note. | T8 |
 | 2026-11-12 | The PNG of the PC (seed 7) shows 4 envelopes. The PNG of Phase 2 (T10, seed 7) showed 5. No issue. | `same-behaviour` compares the answers of the contract and parity tests, not pixels. The cause is not verified. | T8 |
 | 2026-11-12 | `changed_contract_files` of the goal tool counts a warning line of `git diff` (`LF will be replaced by CRLF`) as a changed file (stub probe B of `same-behaviour`: "2 changed contract files" for 1 file). No issue. | The warning comes only with a changed file, so it can add to a FAIL but never makes a PASS. No goal row is at risk. | T8 |
+| 2026-11-12 | T9 ran in the main checkout on the branch of its pull request, at `866006e` (the merge of T8), with a clean tree. The goal tool ran with `--real-out <scratch>/real-out`. The PNG of T9 is not added to the repo. | The rows read the files of `main` (the branch adds only this log). `workflows/it-illustration/examples/mac-conveyor-belt.png` of T7 already shows the Mac image. | T9 |
+| 2026-11-12 | The PNG of T9 (seed 7) shows the same picture as the PNG of T7 (seed 7), with the same gap: each box has its own belt. The two files are not equal byte for byte (SHA-256 `56ffb0e5...` and `dbd3bfd3...`). No issue. | `mac-image` asks for a PNG that shows the subject, not for equal bytes. The cause of the byte difference is not verified. | T9 |
+| 2026-11-12 | The plan says that the pull request of T9 waits for the owner's merge. The owner asked the agent to merge it after CI is green. | The owner's request in the session of T9. | Owner |
 
 ## Baseline
 
@@ -1221,3 +1224,111 @@ The table of the spec, before → after, on `main` at `0f9192b`:
 | `same-behaviour` | Go test functions, never below the baseline | 215 | 249 | `go test -list . ./...`, lines `^Test\w+$`: 249; step 2 |
 | all | Rows of the goal tool that pass on the PC | 1 of 8 (baseline) | 7 of 8 without `--real`; `one-config` and the PC part of `same-behaviour` (`backend`, `commands`) pass with `--real` | steps 2 and 3 |
 | all | Probes that pass on a stub | not measured | 0 of 20 (14 runs of the tool, 6 judgements of made-up input) | step 4 |
+
+## T9
+
+On the Mac (Apple M4, 16 GB, macOS 26.5.1), on `main` at `866006e` (the merge of T8, a later
+commit than the one T8 verified), in the main checkout with a clean tree. The goal tool ran in a
+Python 3.12 venv of `tests/requirements.txt`. Paths: `~` is the home folder, `<scratch>` a scratch
+folder outside the repo.
+
+Red: not applicable: this task builds nothing. The stub check below is the Red of the row
+`mac-image`.
+
+### Step 1: the binary and a cold start
+
+```
+$ git pull
+Already up to date.
+$ git rev-parse HEAD
+866006eec6b39cc4597e4ea194453aa271407f17
+$ go install ./cmd/horus
+exit 0
+$ go version -m ~/go/bin/horus
+	build	vcs.revision=866006eec6b39cc4597e4ea194453aa271407f17
+	build	vcs.time=2026-11-12T11:43:01Z
+	build	vcs.modified=false
+$ horus stop-comfyui
+No ComfyUI that horus started runs at http://127.0.0.1:8188. Nothing to stop.
+exit 0
+$ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8188/system_stats
+000
+curl exit 7
+```
+
+No ComfyUI answered before the run, so the image run was cold.
+
+### Step 2: every row with --real (Green)
+
+14:54:47Z to 15:04:08Z:
+
+```
+$ python tools/goal_check.py --phase 3 --real --real-out <scratch>/real-out
+PASS  mac-backend - 10 pinned tests pass; CI: 1 jobs green (go darwin/arm64); real: start, stop, and a refusal of a ComfyUI started by hand
+PASS  mac-setup - 3 pinned tests pass; real: horus doctor: 0 FAIL lines; Plan: 0 steps; no HORUS_COMFYUI_DIR
+PASS  mac-image - 1536x1024 <scratch>/real-out/real-image-seed7-20261112-215525.png (seed 7, 469 s); started_backend: true
+PASS  tcc-folders - 4 pinned tests pass; real: horus doctor: exit 0, 0 FAIL lines, a WARN line names ~/Desktop/Private/horus
+PASS  out-of-memory - 2 pinned tests pass
+PASS  one-config - .mcp.json ok; 2 pinned tests pass; real: horus doctor on darwin: 0 FAIL lines
+PASS  one-setup-doc - 0 lines that the commands contradict; docs/setup.md has a macOS section
+PASS  same-behaviour - contract: local 30 of 30; parity: 17 of 17; go test ./...: ok; archtest: ok, 0 allow list files; 249 Go test functions (baseline 215); 0 changed contract files; CI: 6 jobs green (contract windows-latest, contract macos-latest, workflow-parity windows-latest, workflow-parity macos-latest, go windows/amd64, go darwin/arm64); real: the PC part (Phase 2 rows backend and commands) runs with --real on Windows
+goal: 8 of 8 rows passed
+real 560.86
+user 12.78
+sys 11.21
+exit=0
+```
+
+The cold time of the image: 469 s (start of ComfyUI through the comfy-cli backend, model load and
+render), `started_backend: true`. T7 measured 434 s. The PC part of `same-behaviour` passed on the
+PC in T8 (step 3: `backend` and `commands`).
+
+### Step 3: the PNG
+
+`<scratch>/real-out/real-image-seed7-20261112-215525.png`, 1536x1024, 1856062 bytes, SHA-256
+`56ffb0e585e7168d86700ce99ea9466be36936490050ace1bb0a9b97b1be3064`.
+
+Judged against the subject (`REAL_SUBJECT` of `tools/goal_check.py`): a mint-green server box on
+the left, a sky-blue server box on the right, 4 amber envelopes (2 on each belt) on lilac conveyor
+belts. The same gap as in T7: each box has its own belt, and the subject asks for one belt from the
+left box to the right box. Small marks on the boxes look like text. Both are limits of the model,
+named in the workflow README, not of horus. The picture is the same as the T7 PNG
+(`workflows/it-illustration/examples/mac-conveyor-belt.png`, the same seed); the bytes differ
+(decision above).
+
+After the run, ComfyUI was stopped again:
+
+```
+$ horus stop-comfyui
+Background ComfyUI is stopped. (127.0.0.1:8188)
+OK: stopped the ComfyUI that horus started at http://127.0.0.1:8188 (process 34873).
+exit 0
+$ curl (after the stop)
+000
+curl exit 7
+```
+
+### Stub check: no autostart, ComfyUI stopped
+
+15:04:25Z:
+
+```
+$ HORUS_AUTOSTART=0 python tools/goal_check.py --phase 3 --real --real-out <scratch>/stub-out --only mac-image
+FAIL  mac-image - generate_image failed: BACKEND_UNAVAILABLE: ComfyUI does not answer at http://127.0.0.1:8188, and HORUS_AUTOSTART is off
+goal: 0 of 1 rows passed
+exit 1
+$ curl (after the stub check)
+000
+curl exit 7
+```
+
+The row fails with `BACKEND_UNAVAILABLE`, writes no PNG (`<scratch>/stub-out` holds only the
+stderr log), and nothing started ComfyUI.
+
+### Ratchet
+
+| Row | Ratchet | Before | After | Command |
+|---|---|---|---|---|
+| all | Goal rows that pass on `main`, on the Mac with `--real` | 0 | 8 | step 2: `goal: 8 of 8 rows passed` at `866006e` |
+| `mac-image` | Cold time of the image on the Mac | 434 s (T7) | 469 s | step 2 |
+| `mac-image` | Stub runs that pass | not measured | 0 of 1 | stub check |

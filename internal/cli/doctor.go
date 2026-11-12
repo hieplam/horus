@@ -48,7 +48,7 @@ func RunDoctor(ctx context.Context, name string, args []string, out, errOut io.W
 	var workflow string
 	var quick bool
 	fs := newFlags("horus "+name, errOut)
-	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the portable folder (default: HORUS_COMFYUI_DIR, then <home>/ComfyUI_windows_portable)")
+	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the portable folder "+dirHelp)
 	fs.StringVar(&place.ServerURL, "server-url", "http://127.0.0.1:8188", "address of the ComfyUI server")
 	fs.StringVar(&o.VenvPath, "venv-path", "", "folder of the comfy-mcp venv (default: <home>/.venvs/comfy-mcp)")
 	fs.StringVar(&workflow, "workflow", "", "also check the model files of workflows/<name>/models.json")
@@ -61,7 +61,7 @@ func RunDoctor(ctx context.Context, name string, args []string, out, errOut io.W
 	home, _ := os.UserHomeDir()
 	o.ServerURL, o.RepoRoot, o.Home = place.ServerURL, settings.Root(), home
 	if o.VenvPath == "" {
-		o.VenvPath = filepath.Join(home, ".venvs", "comfy-mcp")
+		o.VenvPath = settings.ComfyMCPVenv()
 	}
 	doc, setup := at(place)
 	rs := doc.Check(ctx, o)

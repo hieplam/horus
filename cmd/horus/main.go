@@ -53,9 +53,9 @@ var commands = map[string]command{
 	"download-model": {"download one model file with size and SHA-256 checks", func(args []string) int {
 		return withSignal(func(ctx context.Context) int { return download.Main(ctx, args, os.Stdout, download.Options{}) })
 	}},
-	"install-comfyui": {"install the ComfyUI portable build, Windows only", func(args []string) int {
+	"install-comfyui": {"install ComfyUI: the portable build on Windows, comfy-cli on macOS", func(args []string) int {
 		return withSignal(func(ctx context.Context) int {
-			return cli.InstallComfyUI(ctx, args, os.Stdout, os.Stderr, backendAt)
+			return cli.InstallComfyUI(ctx, args, os.Stdout, os.Stderr, backendAt, takesArchive)
 		})
 	}},
 	"start-comfyui": {"start ComfyUI and wait for its server, Windows only", func(args []string) int {

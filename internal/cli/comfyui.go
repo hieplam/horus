@@ -13,6 +13,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/hieplam/horus/internal/platform"
@@ -37,19 +39,42 @@ type BackendPlace struct {
 	Timeout     time.Duration // -timeout-seconds
 }
 
-const dirHelp = "(default: HORUS_COMFYUI_DIR, then <home>/ComfyUI_windows_portable)"
+// dirHelp names the default install folder of this OS in a help text.
+var dirHelp = "(default: HORUS_COMFYUI_DIR, then " + filepath.ToSlash(platform.DefaultComfyDir("<home>")) + ")"
 
-// InstallComfyUI is horus install-comfyui.
-func InstallComfyUI(ctx context.Context, args []string, out, errOut io.Writer, at func(BackendPlace) Backend) int {
+// archiveFlags are the flags of install-comfyui that only the backend of the
+// Windows portable build takes.
+var archiveFlags = []string{"archive-path", "seven-zip", "keep-archive"}
+
+// InstallComfyUI is horus install-comfyui. archive tells if the backend of
+// this OS installs from an archive (the Windows portable build). When it does
+// not, the flags of the archive exit 2.
+func InstallComfyUI(ctx context.Context, args []string, out, errOut io.Writer, at func(BackendPlace) Backend, archive bool) int {
 	var place BackendPlace
 	fs := flag.NewFlagSet("horus install-comfyui", flag.ContinueOnError)
 	fs.SetOutput(errOut)
+	only := ""
+	if !archive {
+		only = " (Windows only)"
+	}
 	fs.StringVar(&place.Dir, "install-dir", "", "target folder "+dirHelp)
-	fs.StringVar(&place.ArchivePath, "archive-path", "", "where to keep the downloaded .7z file during the install (default: next to -install-dir)")
-	fs.StringVar(&place.SevenZip, "seven-zip", "", "full path to 7z.exe (default: search PATH, then Program Files\\7-Zip)")
-	fs.BoolVar(&place.KeepArchive, "keep-archive", false, "do not delete the archive after a successful install")
+	fs.StringVar(&place.ArchivePath, "archive-path", "", "where to keep the downloaded .7z file during the install (default: next to -install-dir)"+only)
+	fs.StringVar(&place.SevenZip, "seven-zip", "", "full path to 7z.exe (default: search PATH, then Program Files\\7-Zip)"+only)
+	fs.BoolVar(&place.KeepArchive, "keep-archive", false, "do not delete the archive after a successful install"+only)
 	if code, done := parse(fs, args); done {
 		return code
+	}
+	if !archive {
+		code := 0
+		fs.Visit(func(f *flag.Flag) {
+			if slices.Contains(archiveFlags, f.Name) && code == 0 {
+				fmt.Fprintf(errOut, "horus install-comfyui: -%s is a flag of the Windows portable build: %v\n", f.Name, platform.ErrNotSupported)
+				code = 2
+			}
+		})
+		if code != 0 {
+			return code
+		}
 	}
 	return finish("horus install-comfyui", at(place).Install(ctx, out), errOut)
 }

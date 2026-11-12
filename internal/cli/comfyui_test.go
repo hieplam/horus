@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,8 +38,14 @@ type comfyCommand struct {
 	call string
 }
 
+// installWithArchive is install-comfyui on an OS whose backend takes the
+// archive (Windows).
+func installWithArchive(ctx context.Context, args []string, out, errOut io.Writer, at func(BackendPlace) Backend) int {
+	return InstallComfyUI(ctx, args, out, errOut, at, true)
+}
+
 var comfyCommands = []comfyCommand{
-	{"install-comfyui", InstallComfyUI, "Install"},
+	{"install-comfyui", installWithArchive, "Install"},
 	{"start-comfyui", StartComfyUI, "Start"},
 	{"stop-comfyui", StopComfyUI, "Stop"},
 }
@@ -98,7 +106,7 @@ func TestComfyUIOutputAndExitCodes(t *testing.T) {
 // each field is empty: the backend reads the setting.
 func TestComfyUIFlagsPickThePlace(t *testing.T) {
 	f := &fakeBackend{}
-	InstallComfyUI(context.Background(), []string{"-install-dir", "D1", "-archive-path", "A", "-seven-zip", "Z", "-keep-archive"}, io.Discard, io.Discard, f.at)
+	InstallComfyUI(context.Background(), []string{"-install-dir", "D1", "-archive-path", "A", "-seven-zip", "Z", "-keep-archive"}, io.Discard, io.Discard, f.at, true)
 	if want := (BackendPlace{Dir: "D1", ArchivePath: "A", SevenZip: "Z", KeepArchive: true}); f.place != want {
 		t.Errorf("install: %+v, want %+v", f.place, want)
 	}
@@ -113,5 +121,43 @@ func TestComfyUIFlagsPickThePlace(t *testing.T) {
 	StopComfyUI(context.Background(), []string{"-comfyui-dir", "D3", "-server-url", "http://127.0.0.1:8189"}, io.Discard, io.Discard, f.at)
 	if want := (BackendPlace{Dir: "D3", ServerURL: "http://127.0.0.1:8189"}); f.place != want {
 		t.Errorf("stop: %+v, want %+v", f.place, want)
+	}
+}
+
+// TestInstallComfyUIRefusesTheArchiveFlagsWithoutArchive: when the backend
+// of this OS takes no archive (macOS), -archive-path, -seven-zip and
+// -keep-archive exit 2 with a text that names the flag, and the backend gets
+// no call. -install-dir still works.
+func TestInstallComfyUIRefusesTheArchiveFlagsWithoutArchive(t *testing.T) {
+	for _, args := range [][]string{{"-archive-path", "A"}, {"-seven-zip", "Z"}, {"-keep-archive"}} {
+		f := &fakeBackend{}
+		var out, errOut bytes.Buffer
+		code := InstallComfyUI(context.Background(), append([]string{"-install-dir", "D"}, args...), &out, &errOut, f.at, false)
+		want := "horus install-comfyui: " + args[0] + " is a flag of the Windows portable build: not supported on this OS yet\n"
+		if code != 2 || errOut.String() != want || out.Len() != 0 || len(f.calls) != 0 {
+			t.Errorf("%v: exit %d, stderr %q, stdout %q, calls %v", args, code, errOut.String(), out.String(), f.calls)
+		}
+	}
+	f := &fakeBackend{}
+	if code := InstallComfyUI(context.Background(), []string{"-install-dir", "D"}, io.Discard, io.Discard, f.at, false); code != 0 ||
+		f.place != (BackendPlace{Dir: "D"}) || len(f.calls) != 1 {
+		t.Errorf("-install-dir alone: exit %d, place %+v, calls %v", code, f.place, f.calls)
+	}
+}
+
+// TestComfyUIHelpNamesTheDefaultFolderOfTheOS: the help of the three
+// commands names the default folder of platform.DefaultComfyDir, so macOS
+// shows <home>/horus and Windows <home>/ComfyUI_windows_portable.
+func TestComfyUIHelpNamesTheDefaultFolderOfTheOS(t *testing.T) {
+	want := "then " + filepath.ToSlash(platform.DefaultComfyDir("<home>")) + ")"
+	for _, c := range comfyCommands {
+		var errOut bytes.Buffer
+		c.run(context.Background(), []string{"-h"}, io.Discard, &errOut, (&fakeBackend{}).at)
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("%s -h does not name %q:\n%s", c.name, want, errOut.String())
+		}
+	}
+	if strings.Contains(dirHelp, "ComfyUI_windows_portable") != (filepath.Base(platform.DefaultComfyDir("h")) == "ComfyUI_windows_portable") {
+		t.Errorf("dirHelp %q does not follow the OS", dirHelp)
 	}
 }

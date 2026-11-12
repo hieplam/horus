@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hieplam/horus/internal/platform"
 )
 
 func sandbox(t *testing.T, env string) string {
@@ -117,6 +119,37 @@ func TestRootFindsWorkflowsFolderAboveTheCurrentFolder(t *testing.T) {
 	Reset()
 	if Root() != deep {
 		t.Fatalf("HORUS_ROOT must win: Root = %q", Root())
+	}
+}
+
+// useHome makes home the home folder of this process on every OS.
+func useHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+}
+
+// TestComfyDirDefaultIsTheFolderOfPlatform: without HORUS_COMFYUI_DIR, the
+// install folder is the default folder of this OS from internal/platform
+// (<home>/horus on macOS). The .env file and the environment win over it.
+func TestComfyDirDefaultIsTheFolderOfPlatform(t *testing.T) {
+	sandbox(t, "")
+	home := t.TempDir()
+	useHome(t, home)
+	t.Setenv("HORUS_COMFYUI_DIR", "")
+	if got, want := ComfyDir(), platform.DefaultComfyDir(home); got != want {
+		t.Errorf("ComfyDir = %s, want the folder of platform %s", got, want)
+	}
+	if got := ComfyMCPVenv(); got != filepath.Join(home, ".venvs", "comfy-mcp") {
+		t.Errorf("ComfyMCPVenv = %s", got)
+	}
+	sandbox(t, "HORUS_COMFYUI_DIR=/from/dotenv\n")
+	if got := ComfyDir(); got != "/from/dotenv" {
+		t.Errorf(".env value: ComfyDir = %s", got)
+	}
+	t.Setenv("HORUS_COMFYUI_DIR", "/from/env")
+	if got := ComfyDir(); got != "/from/env" {
+		t.Errorf("environment value: ComfyDir = %s", got)
 	}
 }
 

@@ -28,12 +28,7 @@ func InstallComfyMCP(ctx context.Context, args []string, out, errOut io.Writer, 
 	}
 	o.Stdout, o.Stderr = out, errOut
 	if o.VenvPath == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Fprintln(errOut, "horus install-comfy-mcp:", err)
-			return 1
-		}
-		o.VenvPath = filepath.Join(home, ".venvs", "comfy-mcp")
+		o.VenvPath = settings.ComfyMCPVenv()
 	}
 	if err := provision.InstallComfyMCP(ctx, programs, o); err != nil {
 		fmt.Fprintln(errOut, "horus install-comfy-mcp:", err)

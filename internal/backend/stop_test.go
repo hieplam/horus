@@ -78,7 +78,7 @@ func TestStopEndsTheTreeThatStartStarted(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	p := &Portable{Dir: s.dir, URL: s.url, PollInterval: 20 * time.Millisecond}
+	p := &portable{Place: Place{Dir: s.dir, URL: s.url, PollInterval: 20 * time.Millisecond}}
 	if err := p.Stop(context.Background(), &out); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestStopRefusesAComfyUIThatHorusDidNotStart(t *testing.T) {
 	t.Cleanup(func() { platform.EndTree(tree) })
 	otherURL := freeURL(t)
 
-	p := &Portable{Dir: s.dir, URL: s.url, PollInterval: 20 * time.Millisecond}
+	p := &portable{Place: Place{Dir: s.dir, URL: s.url, PollInterval: 20 * time.Millisecond}}
 	cases := []struct {
 		name  string
 		state *state
@@ -182,7 +182,7 @@ func TestStopWithAStaleState(t *testing.T) {
 	down := freeURL(t)
 	writeState(statePath, state{Tree: tree, PID: ended.Process.Pid, URL: down})
 	var out bytes.Buffer
-	p := &Portable{Dir: dir, URL: down, PollInterval: 20 * time.Millisecond, StopTimeout: 300 * time.Millisecond}
+	p := &portable{Place: Place{Dir: dir, URL: down, PollInterval: 20 * time.Millisecond, StopTimeout: 300 * time.Millisecond}}
 	if err := p.Stop(context.Background(), &out); err != nil {
 		t.Fatalf("nothing answers: %v", err)
 	}

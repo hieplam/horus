@@ -6,9 +6,13 @@
 //  2. The ComfyUI server answers.
 //  3. comfy-mcp is found: in the venv of install-comfy-mcp, or on the PATH.
 //  4. comfy-cli (the program "comfy") is found: where COMFY_BIN of the
-//     comfy-mcp entry points, or else next to comfy-mcp.
+//     comfy-mcp entry points, or else next to comfy-mcp, or else on the
+//     PATH. This is the comfy that horus comfy-mcp gives comfy-mcp.
 //  5. The comfy-mcp entry of .mcp.json points at programs that exist: its
-//     command, and COMFY_BIN when the entry sets it.
+//     command, and COMFY_BIN when the entry sets it. The entry of this repo
+//     is `horus comfy-mcp`, so its command is horus on the PATH. An entry
+//     whose command is horus must have the argument comfy-mcp. An older
+//     entry with the paths of the venv passes when the files exist.
 //  6. horus is on the PATH.
 //  7. The horus entry of .mcp.json points at a program that exists.
 //  8. macOS only: a path of the setup is inside a TCC folder (a folder that
@@ -186,13 +190,15 @@ func (s *Service) Check(ctx context.Context, o Options) []Result {
 	case mcpProg == "":
 		add(false, "comfy-cli", "comfy-mcp is missing, so comfy-cli cannot be found. Fix: horus install-comfy-mcp")
 	default:
+		// horus comfy-mcp sets COMFY_BIN to the comfy next to comfy-mcp.
+		// Without that file, comfy-mcp runs the comfy of the PATH.
 		next := filepath.Join(filepath.Dir(mcpProg), comfyName)
 		if platform.IsFile(next) {
 			add(true, "comfy-cli", next)
-		} else if p, err := look("comfy"); err == nil && !fromVenv {
+		} else if p, err := look("comfy"); err == nil {
 			add(true, "comfy-cli", p)
 		} else {
-			add(false, "comfy-cli", fmt.Sprintf("%s not found next to comfy-mcp. Fix: horus install-comfy-mcp", comfyName))
+			add(false, "comfy-cli", fmt.Sprintf("%s not found next to comfy-mcp or on the PATH. Fix: horus install-comfy-mcp", comfyName))
 		}
 	}
 
@@ -200,9 +206,19 @@ func (s *Service) Check(ctx context.Context, o Options) []Result {
 	if comfyErr != nil {
 		add(false, ".mcp.json", fmt.Sprintf("cannot read comfy-mcp entry in %s : %v", mcpJSON, comfyErr))
 	} else if p, ok := resolve(comfyEntry.Command, look); !ok {
-		add(false, ".mcp.json", fmt.Sprintf("command is '%s' and does not exist. Fix: horus install-comfy-mcp, or edit .mcp.json.", comfyEntry.Command))
+		fix := "horus install-comfy-mcp"
+		if comfyEntry.Command == "horus" {
+			fix = "put horus on the PATH"
+		}
+		add(false, ".mcp.json", fmt.Sprintf("command is '%s' and does not exist. Fix: %s, or edit .mcp.json.", comfyEntry.Command, fix))
+	} else if isHorus(p) && strings.Join(comfyEntry.Args, " ") != "comfy-mcp" {
+		add(false, ".mcp.json", fmt.Sprintf("the entry runs `horus %s`, which is not the comfy MCP server. Fix: edit .mcp.json to run `horus comfy-mcp`.",
+			strings.Join(comfyEntry.Args, " ")))
 	} else {
 		detail := "command points at " + p
+		if len(comfyEntry.Args) > 0 {
+			detail += " " + strings.Join(comfyEntry.Args, " ")
+		}
 		if comfyEntry.ComfyBin != "" {
 			detail += ", COMFY_BIN at " + comfyEntry.ComfyBin
 		}
@@ -271,7 +287,13 @@ func (o Options) tccWarnings(dir string) []Result {
 // ${VAR} and ${VAR:-default} expanded.
 type mcpEntry struct {
 	Command  string
+	Args     []string
 	ComfyBin string // env.COMFY_BIN, empty when the entry does not set it
+}
+
+// isHorus tells if the program p is horus: its name without .exe is horus.
+func isHorus(p string) bool {
+	return strings.TrimSuffix(strings.ToLower(filepath.Base(p)), ".exe") == "horus"
 }
 
 func (o Options) envFunc() func(string) string {
@@ -325,6 +347,7 @@ func readEntry(path, name string, getenv func(string) string) (mcpEntry, error) 
 	var cfg struct {
 		Servers map[string]struct {
 			Command string            `json:"command"`
+			Args    []string          `json:"args"`
 			Env     map[string]string `json:"env"`
 		} `json:"mcpServers"`
 	}
@@ -335,7 +358,11 @@ func readEntry(path, name string, getenv func(string) string) (mcpEntry, error) 
 	if !ok {
 		return mcpEntry{}, fmt.Errorf("no %s entry", name)
 	}
-	return mcpEntry{Command: expand(s.Command, getenv), ComfyBin: expand(s.Env["COMFY_BIN"], getenv)}, nil
+	args := make([]string, len(s.Args))
+	for i, a := range s.Args {
+		args[i] = expand(a, getenv)
+	}
+	return mcpEntry{Command: expand(s.Command, getenv), Args: args, ComfyBin: expand(s.Env["COMFY_BIN"], getenv)}, nil
 }
 
 // resolve finds the program of a command: a path must be a file, a bare name

@@ -167,10 +167,23 @@ func TestSetupWithoutYesChangesNoFile(t *testing.T) {
 	}
 }
 
-// TestMain makes the test binary also the fake comfy (the program of
-// comfy-cli) of the tests: comfyclitest.Main runs it when the environment
-// asks for it.
+// TestMain makes the test binary also three other programs:
+//
+//   - HORUS_TEST_AS_HORUS set: horus itself, for a test that runs a command
+//     as a process (comfymcp_test.go). It removes the variable first, so a
+//     program that horus starts does not run as horus too.
+//   - HORUS_FAKE_COMFY_MCP set to an exit code: the fake comfy-mcp
+//     (fakeComfyMCP, comfymcp_test.go).
+//   - the fake comfy (the program of comfy-cli) of the tests:
+//     comfyclitest.Main runs it when the environment asks for it.
 func TestMain(m *testing.M) {
+	if os.Getenv("HORUS_TEST_AS_HORUS") != "" {
+		os.Unsetenv("HORUS_TEST_AS_HORUS")
+		os.Exit(run(os.Args[1:]))
+	}
+	if code := os.Getenv("HORUS_FAKE_COMFY_MCP"); code != "" {
+		os.Exit(fakeComfyMCP(code))
+	}
 	comfyclitest.Main()
 	os.Exit(m.Run())
 }

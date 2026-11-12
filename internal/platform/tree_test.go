@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,6 +70,12 @@ func TestMain(m *testing.M) {
 		fmt.Println("out " + strings.Join(os.Args[1:], " ") + " " + os.Getenv("HORUS_RUN_EXTRA"))
 		fmt.Fprintln(os.Stderr, "err "+filepath.Base(wd))
 		os.Exit(5)
+	case "echo":
+		// The program of TestRunPassesTheStandardInput.
+		if _, err := io.Copy(os.Stdout, os.Stdin); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 	os.Exit(3)
 }

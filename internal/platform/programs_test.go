@@ -34,3 +34,21 @@ func TestRunGivesTheExitCodeAndTheOutput(t *testing.T) {
 		t.Error("LookPath found a program that does not exist")
 	}
 }
+
+// TestRunPassesTheStandardInput runs the test binary in the role "echo": it
+// copies its standard input to its standard output. A Command without Stdin
+// gives the program no input.
+func TestRunPassesTheStandardInput(t *testing.T) {
+	in := "line one\r\nline two \u00e9\x00\n"
+	var out bytes.Buffer
+	code, err := Programs{}.Run(context.Background(), Command{Path: os.Args[0], Env: []string{helperEnv + "=echo"},
+		Stdin: strings.NewReader(in), Stdout: &out})
+	if err != nil || code != 0 || out.String() != in {
+		t.Fatalf("code %d, err %v, stdout %q, want %q", code, err, out.String(), in)
+	}
+	out.Reset()
+	code, err = Programs{}.Run(context.Background(), Command{Path: os.Args[0], Env: []string{helperEnv + "=echo"}, Stdout: &out})
+	if err != nil || code != 0 || out.Len() != 0 {
+		t.Fatalf("no Stdin: code %d, err %v, stdout %q", code, err, out.String())
+	}
+}

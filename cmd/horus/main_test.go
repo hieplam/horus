@@ -8,7 +8,8 @@ import "testing"
 var portMap = []string{"mcp", "workflow", "download-model", "check-setup", "install-comfyui", "start-comfyui",
 	"install-comfy-mcp", "sync-workflows", "new-workflow", "register", "run-illustration", "errors",
 	"stop-comfyui",    // stop-comfyui: new in Phase 2 (task T7)
-	"doctor", "setup"} // new in Phase 2 (task T8)
+	"doctor", "setup", // new in Phase 2 (task T8)
+	"comfy-mcp"} // new in Phase 3 (task T5)
 
 func TestEveryPortMapRowHasACommand(t *testing.T) {
 	for _, name := range portMap {

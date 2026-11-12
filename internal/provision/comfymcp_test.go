@@ -100,7 +100,7 @@ func TestMakesTheVenvAndInstallsThePinnedVersions(t *testing.T) {
 		}
 	}
 	for _, w := range []string{"Creating the venv at " + r.opts.VenvPath + " ...", "Installing comfy-mcp==0.10.0 and comfy-cli==1.25.0 ...",
-		"OK: comfy-mcp is installed in " + r.opts.VenvPath, "Next: connect your agent (docs/setup.md, step 5)."} {
+		"OK: comfy-mcp is installed in " + r.opts.VenvPath, "Next: .mcp.json starts it as `horus comfy-mcp`. Connect your agent (docs/setup.md, step 5)."} {
 		if !strings.Contains(r.out.String(), w) {
 			t.Errorf("output lacks %q:\n%s", w, r.out)
 		}
@@ -214,5 +214,98 @@ func TestMissingLauncherFails(t *testing.T) {
 	err := r.install()
 	if err == nil || !strings.HasPrefix(err.Error(), "Python 3.12 was not found.") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+// runPrograms is a fake Programs for RunComfyMCP: LookPath finds the names
+// of found, and Run records the command and gives code.
+type runPrograms struct {
+	found map[string]string
+	code  int
+	ran   *[]platform.Command
+}
+
+func (p runPrograms) LookPath(name string) (string, error) {
+	if path, ok := p.found[name]; ok {
+		return path, nil
+	}
+	return "", fmt.Errorf("%s: not found", name)
+}
+
+func (p runPrograms) Run(_ context.Context, c platform.Command) (int, error) {
+	*p.ran = append(*p.ran, c)
+	return p.code, nil
+}
+
+// touch makes an empty file and its folder.
+func touch(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRunComfyMCPFindsTheProgramAndSetsTheEnvironment: the comfy-mcp of the
+// venv comes before the one of the PATH. COMFY_BIN names the comfy next to
+// the program that runs, only when COMFY_BIN is not set and that comfy
+// exists. The streams, the arguments and the exit code pass through.
+func TestRunComfyMCPFindsTheProgramAndSetsTheEnvironment(t *testing.T) {
+	venv := filepath.Join(t.TempDir(), "venv")
+	pathDir := t.TempDir()
+	onPath := filepath.Join(pathDir, platform.ExeName("comfy-mcp"))
+	touch(t, onPath)
+	run := func(set bool) (int, platform.Command, error) {
+		var ran []platform.Command
+		p := runPrograms{found: map[string]string{"comfy-mcp": onPath}, code: 7, ran: &ran}
+		in, out, errOut := strings.NewReader("in"), &bytes.Buffer{}, &bytes.Buffer{}
+		code, err := RunComfyMCP(context.Background(), p, ComfyMCPRun{VenvPath: venv, Args: []string{"-x"}, ComfyBinSet: set,
+			Stdin: in, Stdout: out, Stderr: errOut})
+		if len(ran) != 1 {
+			t.Fatalf("%d runs, want 1", len(ran))
+		}
+		c := ran[0]
+		if c.Stdin != in || c.Stdout != out || c.Stderr != errOut || strings.Join(c.Args, " ") != "-x" {
+			t.Errorf("the streams or the arguments do not pass through: %+v", c)
+		}
+		return code, c, err
+	}
+	env := func(c platform.Command) string { return strings.Join(c.Env, " ") }
+
+	// Only on the PATH, no comfy next to it: no COMFY_BIN.
+	code, c, err := run(false)
+	if err != nil || code != 7 || c.Path != onPath || env(c) != "PYTHONUTF8=1 PYTHONIOENCODING=utf-8" {
+		t.Errorf("PATH: code %d, err %v, path %s, env %q", code, err, c.Path, env(c))
+	}
+	// On the PATH with comfy next to it.
+	comfyOnPath := filepath.Join(pathDir, platform.ExeName("comfy"))
+	touch(t, comfyOnPath)
+	if _, c, _ := run(false); env(c) != "PYTHONUTF8=1 PYTHONIOENCODING=utf-8 COMFY_BIN="+comfyOnPath {
+		t.Errorf("PATH with comfy: env %q", env(c))
+	}
+	// The venv comes first, with its comfy.
+	inVenv, comfyInVenv := platform.VenvBin(venv, "comfy-mcp"), platform.VenvBin(venv, "comfy")
+	touch(t, inVenv)
+	touch(t, comfyInVenv)
+	if _, c, _ := run(false); c.Path != inVenv || env(c) != "PYTHONUTF8=1 PYTHONIOENCODING=utf-8 COMFY_BIN="+comfyInVenv {
+		t.Errorf("venv: path %s, env %q", c.Path, env(c))
+	}
+	// A COMFY_BIN of the caller is not replaced.
+	if _, c, _ := run(true); env(c) != "PYTHONUTF8=1 PYTHONIOENCODING=utf-8" {
+		t.Errorf("COMFY_BIN set: env %q", env(c))
+	}
+}
+
+// TestRunComfyMCPNotFoundNamesTheFix: without comfy-mcp in the venv and on
+// the PATH, nothing runs and the error names horus install-comfy-mcp.
+func TestRunComfyMCPNotFoundNamesTheFix(t *testing.T) {
+	var ran []platform.Command
+	venv := filepath.Join(t.TempDir(), "venv")
+	code, err := RunComfyMCP(context.Background(), runPrograms{ran: &ran}, ComfyMCPRun{VenvPath: venv})
+	if code != 1 || err == nil || len(ran) != 0 ||
+		err.Error() != "comfy-mcp was not found in "+filepath.Dir(platform.VenvBin(venv, "comfy-mcp"))+" or on the PATH. Fix: horus install-comfy-mcp" {
+		t.Fatalf("code %d, err %v, %d runs", code, err, len(ran))
 	}
 }

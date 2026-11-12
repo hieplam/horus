@@ -16,7 +16,12 @@ type Command struct {
 	Dir  string   // the working folder; "" = the folder of this process
 	// Env is added to the environment of this process, as "NAME=value".
 	Env []string
-	// Stdout and Stderr get the output of the program. nil drops it.
+	// Stdin is the standard input of the program. nil gives it no input.
+	// An *os.File (for example os.Stdin) passes its handle to the program
+	// as it is, so the program reads the same pipe as this process.
+	Stdin io.Reader
+	// Stdout and Stderr get the output of the program. nil drops it. An
+	// *os.File passes its handle to the program as it is.
 	Stdout, Stderr io.Writer
 }
 
@@ -38,7 +43,7 @@ func (Programs) Run(ctx context.Context, c Command) (int, error) {
 	if len(c.Env) > 0 {
 		cmd.Env = append(os.Environ(), c.Env...)
 	}
-	cmd.Stdout, cmd.Stderr = c.Stdout, c.Stderr
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = c.Stdin, c.Stdout, c.Stderr
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {

@@ -97,6 +97,7 @@ commands.
 | 2026-11-12 | The PNG of T9 (seed 7) shows the same picture as the PNG of T7 (seed 7), with the same gap: each box has its own belt. The two files are not equal byte for byte (SHA-256 `56ffb0e5...` and `dbd3bfd3...`). No issue. | `mac-image` asks for a PNG that shows the subject, not for equal bytes. The cause of the byte difference is not verified. | T9 |
 | 2026-11-12 | The plan says that the pull request of T9 waits for the owner's merge. The owner asked the agent to merge it after CI is green. | The owner's request in the session of T9. | Owner |
 | 2026-11-13 | The `Backend` interface now has 4 methods (`Install`, `Start`, `Stop`, `Installed`). D37 of #4 listed 5, with `Layout`. `Layout` is no method of it, and its type is `layout`, inside `internal/backend`. | Design rule 2 (deep modules): no caller outside the package used `Layout`. The agent acceptance (T10) found it. Issue #124. | Plan |
+| 2026-11-13 | The owner ordered a rewrite of the history of `main` on 2026-11-13. 7 commits got new ids (table in `## History rewrite of 2026-11-13`). The file content of each commit is the same. The commit ids in the sections above are the old ids. | 5 squash commits from the Mac held a `Co-authored-by` line with a private email address, and this repo is public. Only the message of those commits changed: that line is gone. | Owner |
 
 ## Baseline
 
@@ -1565,3 +1566,29 @@ Stub check: not applicable: the change removes an export.
 
 Ratchet: exported methods of `Backend` that no outside caller uses: 1 -> 0.
 Go test functions: 250 (`go test -list . ./...`), unchanged: the change renames, and deletes no test.
+
+## History rewrite of 2026-11-13
+
+On 2026-11-13 the owner ordered a rewrite of `main`, because 5 commit messages held a private
+email address in a `Co-authored-by` line. The rewrite removed that line and changed nothing
+else: `git diff <old main> <new main>` prints nothing. The 2 commits between them got new ids
+because their parents changed. The merged branch `fix/125-map-present-files` was deleted,
+because its 3 commits had the same address in the author field.
+
+| Old id (in the sections above) | New id on `main` | Commit |
+|---|---|---|
+| `0f9192b` | `21f9b41` | the real run on the Mac (T7) (#121) |
+| `866006e` | `49a781c` | verify on the PC (T8) (#122) |
+| `8cdd194` | `28d875e` | verify on the Mac (T9) (#123) |
+| `a5bc2f5` | `1585e74` | the fix of #125 (#126) |
+| `be04657` | `29e40eb` | the fix of #127 (#128) |
+| `4bda133` | `8d6eacf` | the agent acceptance (T10) (#130) |
+| `229e025` | `c9ab090` | the fix of #124 (#131) |
+
+```
+$ git log main --format='%ae %ce %B' | grep -ci '<the domain of the address>'
+0
+```
+
+Limit: GitHub keeps the old commits under the read-only refs of the pull requests #121 to #131
+(`refs/pull/<n>/head`). Only GitHub Support can remove those.

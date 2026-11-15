@@ -186,3 +186,63 @@ Other contracts of the tool that the later tasks must meet:
 `HORUS_COMFYUI_URL` names port 8189. The row `release` downloads the 3 assets of the newest release into
 `.scratch/release-assets/<tag>` and checks each SHA-256 and `horus version`. The row `register` uses `CODEX_HOME`
 in a scratch folder.
+
+## T1
+
+Task: `horus version`, the one version variable, the release build script, the CI job `release-build`,
+`release.yml` and the release-please config. Issue [#137](https://github.com/hieplam/horus/issues/137).
+
+**Decisions of T1.**
+
+| Decision | Why |
+|---|---|
+| The version variable is `version.Version` in the new base package `internal/version`. The linker flag is `-X github.com/hieplam/horus/internal/version.Version=<version>`. The package is in the layer table of `internal/archtest/layers.go` as `base`. | `cmd/horus` and `internal/mcpserver` both need the version, and the handler layer must not import the wiring layer. A package in `base` is the only place both can import. The constant `serverVersion` is removed. |
+| `TestToolsMatchPython` no longer compares the server version with the `0.1.0` of the Python golden file. It compares the name only. `TestServerInfoVersionIsTheVersionOfTheBuild` checks the version. | The version is now the version of the build (`dev` in a test). The Python server is gone. The test still compares the name and every tool. |
+| `release-please-config.json` has `"release-as": "0.1.0"` for the package `.`, and the manifest holds `"0.0.0"`. | With `bump-patch-for-minor-pre-major` a first `feat` from `0.0.0` gives `0.0.1`, not `0.1.0`. The docs of release-please say that `release-as` pins the next version and that it must be removed after the release. The follow-up issue #150 removes it (see below). |
+| The version keys come from the current docs of release-please (`docs/manifest-releaser.md`, read 2026-11-15): `release-type`, `include-component-in-tag` (`false` gives the tag `v0.1.0`), `bump-minor-pre-major`, `bump-patch-for-minor-pre-major`, `release-as`. The action is `googleapis/release-please-action@v4`. Its outputs are `release_created` and `tag_name`. | The plan says not to trust memory. |
+| `release.yml` job 1 has `contents: write` and `pull-requests: write`. Job 2 has `contents: write`. | The smallest permissions of the spec. The action docs also list `issues: write`. horus has no use for labels on issues, so the file does not give it. See "Run on main" below. |
+
+**Red.** Before the change, on `main` at `594b970`:
+
+```
+$ go run ./cmd/horus version
+horus: unknown command "version"
+(usage text)
+exit status 2
+```
+
+**Green.**
+
+```
+$ go run ./cmd/horus version
+horus dev
+$ go run -ldflags "-X github.com/hieplam/horus/internal/version.Version=1.2.3" ./cmd/horus version
+horus 1.2.3
+$ go test ./cmd/horus ./internal/mcpserver ./internal/archtest
+ok
+$ bash scripts/build-release.sh 0.0.0-ci .scratch/rel && ls .scratch/rel && (cd .scratch/rel && sha256sum -c checksums.txt)
+build-release: 0.0.0-ci
+checksums.txt  horus-darwin-arm64  horus-windows-amd64.exe
+horus-windows-amd64.exe: OK
+horus-darwin-arm64: OK
+$ python tests/mcp_contract.py --server-cmd bin/horus.exe mcp
+contract: 30 of 30 passed
+```
+
+**Ratchet.** `python tools/goal_check.py --phase 4 --no-ci`, rows passed: 1 → 2. The row `release` is now
+`PASS  release - release files ok; 2 pinned tests pass; CI part skipped (--no-ci); real part not run`.
+The plan expected 1 → 1, because it said that `release` passes only with CI. Without CI the row already
+passes its file part and its two pinned tests, so the number is better than the plan. The Go test functions
+went from 250 to 252 (the row `same-behaviour` needs 250 or more).
+
+**Stub check.** A `version` command that prints a fixed text fails the `1.2.3` case of
+`TestVersionPrintsTheVersionOfTheLinkerFlag`, because the test builds the program with the flag and runs it.
+A server that gives a fixed version fails `TestServerInfoVersionIsTheVersionOfTheBuild`, which sets the variable
+to `1.2.3`. A build script that writes an empty `checksums.txt` fails the CI step (3 files, 2 lines, `sha256sum -c`).
+
+**Run on main (the setting of T10).** The action `release-please-action@v4` opens a pull request with the token
+of the workflow. While the repository setting "Allow GitHub Actions to create and approve pull requests" is off,
+GitHub refuses that call, so job `release-please` fails and the run of `release.yml` on `main` is red until T10.
+The docs of the action name the setting and do not describe the failure. The result of the first run on `main`
+after the merge of this pull request is in the comment of #146 and in the report of T1. The red run does not touch
+the jobs of `ci.yml`. The file does not hide it: no `continue-on-error`.

@@ -16,6 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hieplam/horus/internal/settings"
+	"github.com/hieplam/horus/internal/version"
 )
 
 type golden struct {
@@ -90,8 +91,10 @@ func TestToolsMatchPython(t *testing.T) {
 	cs := connect(t, New(&fakeImages{}, nil), nil)
 
 	init := cs.InitializeResult()
-	if init.ServerInfo.Name != g.Server || init.ServerInfo.Version != g.Version {
-		t.Errorf("server info %+v, Python %s %s", init.ServerInfo, g.Server, g.Version)
+	// The version is the version of the build (TestServerInfoVersionIsTheVersionOfTheBuild),
+	// not the 0.1.0 of the Python server.
+	if init.ServerInfo.Name != g.Server {
+		t.Errorf("server info %+v, Python %s", init.ServerInfo, g.Server)
 	}
 	if init.Instructions != g.Instructions {
 		t.Errorf("instructions differ\n got %q\nwant %q", init.Instructions, g.Instructions)
@@ -217,7 +220,7 @@ func TestArgumentErrors(t *testing.T) {
 func TestSDKProgressNotifications(t *testing.T) {
 	useRepoWorkflows(t)
 	got := make(chan string, 16)
-	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: serverVersion}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: version.Version}, nil)
 	s.AddTool(&mcp.Tool{Name: "slow", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			report := reporter(req)
@@ -262,6 +265,22 @@ func TestTitle(t *testing.T) {
 	for in, want := range map[string]string{"ok": "Ok", "out_path": "Out Path", "job_id": "Job Id", "backend_seconds": "Backend Seconds"} {
 		if got := title(in); got != want {
 			t.Errorf("title(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestServerInfoVersionIsTheVersionOfTheBuild checks that the server gives
+// the one version variable of the program in its serverInfo, also after a
+// release build changes that variable.
+func TestServerInfoVersionIsTheVersionOfTheBuild(t *testing.T) {
+	useRepoWorkflows(t)
+	old := version.Version
+	t.Cleanup(func() { version.Version = old })
+	for _, want := range []string{old, "1.2.3"} {
+		version.Version = want
+		cs := connect(t, New(&fakeImages{}, nil), nil)
+		if got := cs.InitializeResult().ServerInfo.Version; got != want {
+			t.Errorf("serverInfo version %q, want %q", got, want)
 		}
 	}
 }

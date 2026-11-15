@@ -420,11 +420,11 @@ func findSevenZip() string {
 	if p, err := exec.LookPath("7z.exe"); err == nil {
 		return p
 	}
-	for _, env := range []string{"ProgramFiles", "ProgramFiles(x86)"} {
-		if base := os.Getenv(env); base != "" {
-			if c := filepath.Join(base, "7-Zip", "7z.exe"); platform.IsFile(c) {
-				return c
-			}
+	// The folders of winget: the PATH of this process can be older than an
+	// install of 7-Zip by horus setup.
+	for _, dir := range sevenZipDirs() {
+		if c := filepath.Join(dir, "7z.exe"); platform.IsFile(c) {
+			return c
 		}
 	}
 	return ""

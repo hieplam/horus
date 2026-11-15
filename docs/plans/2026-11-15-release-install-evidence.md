@@ -266,7 +266,7 @@ the repo root, the user folder (`platform.UserDir`), `.env` and the output folde
 
 ```
 $ horus workflow list
-FAIL: No workflows folder: C:\Users\lamhi\Downloads\repo\horus-wt\T2\bin\workflows
+FAIL: No workflows folder: <worktree>\bin\workflows
 exit 1
 ```
 

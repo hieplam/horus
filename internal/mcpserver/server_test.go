@@ -111,6 +111,7 @@ func TestToolsMatchPython(t *testing.T) {
 	if len(got) != len(g.Tools) || len(got) != 5 {
 		t.Fatalf("Go has %d tools, Python %d, want 5", len(got), len(g.Tools))
 	}
+	addSetupConsent(t, g.Tools)
 	for _, py := range g.Tools {
 		name, _ := py["name"].(string)
 		goTool, ok := got[name].(map[string]any)
@@ -131,6 +132,35 @@ func TestToolsMatchPython(t *testing.T) {
 			}
 		}
 	}
+}
+
+// setupDescription is the text that the description of install_workflow
+// has after the text of Python.
+const setupDescription = " On a machine without ComfyUI, the first call without accept_setup=true returns the error " +
+	"SETUP_CONFIRMATION_REQUIRED with each setup step (a system package, ComfyUI) in details.steps. " +
+	"Ask the user, then call again with accept_setup=true. The setup consent comes before the license consent."
+
+// addSetupConsent puts the one change of Phase 4 into the golden tool list:
+// install_workflow has the argument accept_setup and a description that
+// names it (spec docs/specs/2026-11-15-release-install.md, "Setup through
+// MCP"). The golden file itself does not change.
+func addSetupConsent(t *testing.T, tools []map[string]any) {
+	t.Helper()
+	for _, py := range tools {
+		if py["name"] != "install_workflow" {
+			continue
+		}
+		py["description"] = py["description"].(string) + setupDescription
+		props := py["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		props["accept_setup"] = map[string]any{
+			"default":     false,
+			"description": "True only after the user accepted the setup steps shown in details.steps of SETUP_CONFIRMATION_REQUIRED.",
+			"title":       "Accept Setup",
+			"type":        "boolean",
+		}
+		return
+	}
+	t.Fatal("the golden file has no install_workflow")
 }
 
 func callTool(t *testing.T, cs *mcp.ClientSession, name string, args any) *mcp.CallToolResult {

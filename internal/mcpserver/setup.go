@@ -22,6 +22,11 @@ type Setup interface {
 	Remove(ctx context.Context, req provision.Request) (*provision.Result, error)
 	// PartSize is the bytes of a download so far.
 	PartSize(dest string) int64
+	// Plan reads what this machine needs for a workflow (horus setup). It
+	// changes nothing.
+	Plan(ctx context.Context, req provision.Request) (provision.Plan, error)
+	// RunPlan runs the steps of a plan (horus setup -yes).
+	RunPlan(ctx context.Context, req provision.Request, pl provision.Plan, w provision.Watch) (*provision.Result, error)
 }
 
 // request is the request of one workflow, in the workflows folder of the

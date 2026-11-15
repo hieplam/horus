@@ -41,6 +41,8 @@ var Codes = []Spec{
 	{"WORKFLOW_NOT_INSTALLED", false, "caller", "Call install_workflow for this workflow, then call generate_image again."},
 	{"LICENSE_CONFIRMATION_REQUIRED", false, "human",
 		"Show the license and the download size to the user. When the user agrees, call install_workflow again with accept_license=true."},
+	{"SETUP_CONFIRMATION_REQUIRED", false, "human",
+		"Show each step in details.steps to the user. When the user agrees, call install_workflow again with accept_setup=true."},
 	{"CONFIRMATION_REQUIRED", false, "human",
 		"Show the plan in details.files to the user. When the user agrees, call again with confirm=true."},
 	{"OUTPUT_EXISTS", false, "caller", "Pass another out_path, or pass overwrite=true."},

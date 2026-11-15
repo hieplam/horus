@@ -31,6 +31,7 @@ var layers = map[string]string{
 	"internal/settings":             base,
 	"internal/platform":             base,
 	"internal/version":              base,
+	"workflows":                     base, // the built-in workflows (go:embed)
 	"internal/archtest":             test,
 	"internal/comfy/comfytest":      test,
 	"internal/backend/comfyclitest": test,

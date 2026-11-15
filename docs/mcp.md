@@ -127,8 +127,12 @@ horus register
 - Another harness (Codex, an IDE) needs one stdio server entry: command `horus` (or its full path), argument `mcp`, and `HORUS_ROOT` when it starts outside this repo.
 
 The server finds the repo through `HORUS_ROOT`, then the nearest folder at or
-above the current folder that has a `workflows` folder, then the folder of the
-program. It needs ComfyUI and the setup of [`setup.md`](setup.md). When ComfyUI
+above the current folder that is a horus clone (a folder with
+`workflows/_template/README.md`). Without a clone, the program uses its
+built-in workflows: the build puts the workflow folders into the program, and
+the program copies them to `<user folder>/builtin-workflows`. The user folder
+is `HORUS_HOME`, default `<home>/horus`. It holds `.env` and `outputs/` when
+there is no repo. It needs ComfyUI and the setup of [`setup.md`](setup.md). When ComfyUI
 does not answer, `generate_image` starts it in the same way as `horus start-comfyui`
 (the backend of `internal/backend`, in the process of the server).
 `horus stop-comfyui` stops a ComfyUI that horus started, and no other one. The
@@ -152,7 +156,8 @@ refuses a `manifest.json` that has `theme` or `caption`, and
 `tests/mcp_contract.py` checks that the caption equals the subject.
 
 `out_path` must be absolute and end with `.png`. Without it, the PNG goes to
-`HORUS_OUTPUT_DIR` (default `.scratch/outputs/<workflow>/` in this repo). The
+`HORUS_OUTPUT_DIR` (default `.scratch/outputs/<workflow>/` in this repo, or
+`<user folder>/outputs/<workflow>/` without a repo). The
 server never replaces a file unless `overwrite=true`.
 
 ## The envelope
@@ -249,16 +254,18 @@ The caller never sees `graph`: `describe_workflow` leaves it out.
 ## Settings
 
 Each setting is an environment variable or a line in `.env`. The environment wins.
+`.env` is `<repo root>/.env`, or `<user folder>/.env` when there is no repo root.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `HORUS_ROOT` | the nearest folder at or above the current folder that has `workflows`, then the folder of the program | The repo root, where horus reads `workflows/` and `.env`. Set it when the server starts outside this repo. Only the environment sets it, not `.env`. |
+| `HORUS_ROOT` | the nearest folder at or above the current folder with `workflows/_template/README.md`; none outside a clone | The repo root, where horus reads `workflows/` and `.env`. Set it when the server must use a repo but starts outside it. Only the environment sets it, not `.env`. |
+| `HORUS_HOME` | `<home>/horus` | The user folder: `.env` and `outputs/` without a repo root, and the copy of the built-in workflows. Only the environment sets it, not `.env`. |
 | `HORUS_COMFYUI_URL` | `http://127.0.0.1:8188` | The ComfyUI address. `horus doctor`, `horus start-comfyui` and `horus stop-comfyui` also use it when they get no `-server-url`. |
 | `HORUS_COMFYUI_DIR` | Windows: `%USERPROFILE%\ComfyUI_windows_portable`. macOS: `~/horus`. | The install folder of ComfyUI. ComfyUI itself is in its subfolder `ComfyUI`. |
-| `HORUS_OUTPUT_DIR` | `.scratch/outputs` in this repo | Where a PNG goes when the call has no `out_path`. |
+| `HORUS_OUTPUT_DIR` | `.scratch/outputs` in this repo, else `<user folder>/outputs` | Where a PNG goes when the call has no `out_path`. |
 | `HORUS_AUTOSTART` | `1` | `0`: never start ComfyUI; return `BACKEND_UNAVAILABLE`. |
 | `HORUS_GENERATE_TIMEOUT` | `1800` | Seconds before horus cancels a job and returns `GENERATION_TIMEOUT`. |
-| `HORUS_WORKFLOWS_DIR` | `workflows` in this repo | Another workflows folder (tests use it). |
+| `HORUS_WORKFLOWS_DIR` | `workflows` in this repo, else the copy of the built-in workflows | Another workflows folder (tests use it). It replaces the built-in workflows. `horus workflow`, `horus setup` and `horus doctor -workflow` also use it. |
 | `HORUS_LOG_FILE` | none | Also write the server log to this file. Each call logs its tool name and its `progressToken`. |
 
 Only the code of `internal/download` reads `HF_TOKEN`, and `go test ./internal/archtest`

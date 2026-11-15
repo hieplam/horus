@@ -8,7 +8,7 @@
 //   - Programs finds a program on the PATH and runs it to its end.
 //   - FreeSpace gives the free bytes of a folder.
 //   - IsFile tells if a path is a regular file.
-//   - IsRooted, VenvBin, ExeName, PythonCommand and DefaultComfyDir give the
+//   - IsRooted, VenvBin, ExeName, PythonCommand, DefaultComfyDir and UserDir give the
 //     paths and the program names of this OS. InTCCFolder tells if a path is
 //     in a folder that macOS protects. They are pure functions.
 //   - BlockDelete makes the delete of a file fail, for a test.
@@ -129,6 +129,16 @@ func DefaultComfyDir(home string) string { return defaultComfyDir(runtime.GOOS, 
 func defaultComfyDir(goos, home string) string {
 	if goos == "windows" {
 		return filepath.Join(home, "ComfyUI_windows_portable")
+	}
+	return filepath.Join(home, "horus")
+}
+
+// UserDir gives the user folder of horus: horusHome (the value of HORUS_HOME)
+// when it is not empty, else <home>/horus, on every OS. The user folder holds
+// .env, outputs/ and the copy of the built-in workflows. It reads no file.
+func UserDir(horusHome, home string) string {
+	if horusHome != "" {
+		return horusHome
 	}
 	return filepath.Join(home, "horus")
 }

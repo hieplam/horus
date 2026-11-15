@@ -24,6 +24,15 @@ commands.
 | 2026-11-15 | The `same-behaviour` row of Phase 4 compares only `tests/workflow_parity.py`, `tests/fixtures` and the golden files with the baseline commit. For `tests/mcp_contract.py` it needs each of the 30 baseline check names (`tools/phase4_contract_checks.txt`) to pass. | the T0 agent (standing rule: a plan command that no longer fits) | T5 must add checks to `tests/mcp_contract.py`. A diff of that file would fail the row. The name list proves that no old check goes away, and it is stronger than a count. |
 | 2026-11-15 | The workflow `fresh-machine.yml` (T9) sets `run-name: fresh-machine source=<source> tag=<tag>`. The tool reads the newest run whose title has `source=release`, and it needs the newest tag in that title. | the T0 agent (design gap) | The tool must know the source and the tag of a run. `gh run list` gives the title without more calls. |
 | 2026-11-15 | A real image of Phase 4 runs only when `HORUS_COMFYUI_URL` names port 8189. The tool refuses before it starts the program. | the T0 agent (standing rule of the owner's machine) | The ComfyUI of the owner on port 8188 gets no job. |
+| 2026-11-15 | The program embeds each workflow folder in full, also `examples/` and `recipe.json`. It does not embed `_template`. A new workflow folder must be added to the `go:embed` line of `workflows/embed.go`, and `TestEveryWorkflowFolderIsEmbedded` fails when one is missing. | the T2 agent (plan step 1: record the choice) | `describe_workflow` returns the path of each example image, so the images must be on disk. Only `horus new-workflow` reads `_template`, and it works in a clone. |
+| 2026-11-15 | The stamp file `.horus-stamp` of the copy holds the SHA-256 of the embedded files, not the program version. | the T2 agent (design gap) | T1 owns the version variable. A build without the linker flag is always `dev`, so a version stamp never writes a changed workflow again. A content stamp changes with each change of a file. |
+| 2026-11-15 | `HORUS_ROOT` is the repo root without the clone check. When `HORUS_ROOT` or `HORUS_WORKFLOWS_DIR` names a folder without workflows, `BACKEND_NOT_INSTALLED` stays, and its `next_step` names that setting and the `.env` path. Without both settings, the error comes only when the copy cannot be written, and the `next_step` names `HORUS_HOME`. | the T2 agent (design gap) | The Go tests and the parity test set `HORUS_ROOT` to a sandbox so that no `.env` of a real checkout is read. A clone check on `HORUS_ROOT` would make them read `<home>/horus/.env` of the real home. A setting that the user wrote is not replaced in silence. |
+| 2026-11-15 | `HORUS_HOME` comes only from the environment, not from `.env`. | the T2 agent (design gap) | `.env` can be in the user folder, so `.env` cannot move the user folder. |
+| 2026-11-15 | `horus workflow`, `horus setup` and `horus doctor -workflow` take `settings.WorkflowsDir()` instead of `<repo root>/workflows`. So `HORUS_WORKFLOWS_DIR` now applies to them too. This changes one line of `internal/cli/setup.go` (lane T4). | the T2 agent (plan step 3) | Without a repo root, `<repo root>/workflows` is the relative folder `workflows`, and `horus workflow list` fails. One rule for the folder is simpler. The parity test passes `-workflows-dir`, so its output does not change. |
+| 2026-11-15 | The table of error codes keeps the `next_step` of `HF_TOKEN_INVALID` (the golden file `internal/herr/testdata/errors.golden.json` must not change). The MCP server sets the `next_step` of each `HF_TOKEN_INVALID` answer to a text with the path of `settings.EnvPath()`. `internal/download` reads the token from `settings.EnvPath()`. | the T2 agent (plan step 4, standing rule: no golden file changes) | The text must name the file that the program reads. `internal/download` is not in the file list of T2, but without the change the token of `<user folder>/.env` is never read. |
+| 2026-11-15 | Two tests of the old root rule are replaced by tests of the new rule: `TestRootFallsBackToTheExecutableFolder` by `TestRootWithoutACloneIsEmpty`, and `TestRootFindsWorkflowsFolderAboveTheCurrentFolder` by `TestRootFindsTheCloneAboveTheCurrentFolder` (its sandbox is now a clone). | the T2 agent (the spec changes the rule) | The spec removes the folder of the program as a root and the rule "any folder with `workflows/`". The new tests check the same places with the new rule. No test of another behaviour changed. |
+| 2026-11-15 | The test "two programs write the copy at the same time" starts the test program 4 times at once as child processes, with one empty user folder. | the T2 agent | Separate processes test the same race as two `horus` programs: the temporary folder and the rename. |
+| 2026-11-15 | `tests/mcp_contract.py` and `tests/workflow_parity.py` do not change. | the T2 agent | Both set `HORUS_WORKFLOWS_DIR` to their sandbox (the parity test also sets `HORUS_ROOT`), so the new root rule does not reach them. |
 
 ## Baseline
 
@@ -246,3 +255,60 @@ GitHub refuses that call, so job `release-please` fails and the run of `release.
 The docs of the action name the setting and do not describe the failure. The result of the first run on `main`
 after the merge of this pull request is in the comment of #146 and in the report of T1. The red run does not touch
 the jobs of `ci.yml`. The file does not hide it: no `continue-on-error`.
+
+## T2
+
+Task: [#138](https://github.com/hieplam/horus/issues/138). The program holds the built-in workflows (`workflows/embed.go`,
+`go:embed`) and copies them to `<user folder>/builtin-workflows` (`internal/settings/builtin.go`). The new rule for
+the repo root, the user folder (`platform.UserDir`), `.env` and the output folder is in `internal/settings/settings.go`.
+
+**Red** (before the change, built into the worktree, run from a temporary folder, `HORUS_ROOT` not set):
+
+```
+$ horus workflow list
+FAIL: No workflows folder: <worktree>\bin\workflows
+exit 1
+```
+
+**Green** (the same command, with `USERPROFILE`, `HOME` and `HORUS_HOME` in a scratch folder, so that the copy is not
+written to the real home folder):
+
+```
+$ horus workflow list
+it-illustration
+  Text in, image out. The picture is 1536x1024. The model is FLUX 3 Image Klein (int8 build) running in ComfyUI. This is the first horus example.
+  Models: 3 file(s), 11.02 GB (diffusion, text_encoder, vae). Installed: no (0 of 3 files) (size check).
+
+Install: horus workflow install <name>    Check: horus workflow check <name>
+exit 0
+```
+
+```
+$ go test ./internal/settings ./internal/platform ./internal/catalog ./internal/archtest ./cmd/horus ./workflows
+ok  	github.com/hieplam/horus/internal/settings
+ok  	github.com/hieplam/horus/internal/platform
+ok  	github.com/hieplam/horus/internal/catalog
+ok  	github.com/hieplam/horus/internal/archtest
+ok  	github.com/hieplam/horus/cmd/horus
+ok  	github.com/hieplam/horus/workflows
+$ python tools/goal_check.py --phase 4 --no-ci --only binary-only
+PASS  binary-only - 6 pinned tests pass
+goal: 1 of 1 rows passed
+$ python tests/mcp_contract.py --server-cmd bin/horus.exe mcp
+contract: 30 of 30 passed
+$ python tests/workflow_parity.py
+parity: 17 of 17 cases equal
+$ python scripts/lint-public.py
+lint-public: 0 finding(s)
+```
+
+**Ratchet.** `python tools/goal_check.py --phase 4 --no-ci`: the row `binary-only` goes from FAIL to PASS.
+Rows passed 1 → 2 on the main of T0, and 2 → 3 after the rebase on the main with T1 (`release`, `binary-only`,
+`same-behaviour`). Go test functions 250 → 263 (with T1). The answer "No workflows folder" outside a clone: 1 → 0.
+
+**Stub check.** A `writeCopy` that writes nothing (no embedded workflows on disk) fails
+`TestWorkflowListWithoutAClonePrintsTheBuiltInWorkflows` (exit 1),
+`TestListWorkflowsOfTheMCPServerWithoutAClonePrintsTheBuiltInWorkflows` (`BACKEND_NOT_INSTALLED`) and
+`TestHorusWorkflowsDirReplacesTheBuiltInWorkflows` ("the copy has no it-illustration"). An `IsClone` that accepts
+each folder with `workflows/` fails `TestAFolderWithOnlyAWorkflowsFolderIsNotAClone` ("a folder with only a workflows
+folder must not be a clone").

@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/hieplam/horus/internal/doctor"
 	"github.com/hieplam/horus/internal/provision"
@@ -110,7 +109,7 @@ func or(a, b string) string {
 // indent, then the PASS or FAIL line, and reports if the check passed.
 // quick: the size of each file only, no SHA-256.
 func modelCheck(ctx context.Context, svc Setup, workflow string, quick bool, out io.Writer) bool {
-	req := provision.Request{Workflow: workflow, Quick: quick, WorkflowsDir: filepath.Join(settings.Root(), "workflows")}
+	req := provision.Request{Workflow: workflow, Quick: quick, WorkflowsDir: settings.WorkflowsDir()}
 	res, err := svc.Check(ctx, req)
 	p := &printer{out: out, indent: modelIndent}
 	p.check(res)

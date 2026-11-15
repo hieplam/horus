@@ -13,7 +13,7 @@
 //     header.
 //   - The Hugging Face token comes from the environment variable HF_TOKEN
 //     (horus download-model -token-env-var names another one), or from the
-//     .env file in the repo root. Only this package reads it, and no other
+//     .env file that settings.EnvPath names. Only this package reads it, and no other
 //     package can name the variable: neither the name nor the option that
 //     sets it is exported. It goes only in a header, only over https, and only to the host
 //     huggingface.co or a host that ends with .huggingface.co. A redirect to
@@ -106,7 +106,7 @@ type Options struct {
 
 	// Out gets the progress lines. Default: io.Discard.
 	Out io.Writer
-	// Root is the folder of the .env file. Default: settings.Root().
+	// Root is the folder of the .env file. Default: the file of settings.EnvPath.
 	Root string
 	// Transport sends the requests. Default: http.DefaultTransport. The client
 	// around it always applies the redirect rule of the token.
@@ -408,15 +408,17 @@ func newClient(rt http.RoundTripper) *http.Client {
 }
 
 // readToken reads the token: the environment variable, then the .env file in
-// the repo root. It is the only place in horus that reads HF_TOKEN.
+// root, or the .env file of the settings (settings.EnvPath) when root is "".
+// It is the only place in horus that reads HF_TOKEN.
 func readToken(name, root string) string {
 	if v := os.Getenv(name); v != "" {
 		return v
 	}
-	if root == "" {
-		root = settings.Root()
+	env := settings.EnvPath()
+	if root != "" {
+		env = filepath.Join(root, ".env")
 	}
-	data, err := os.ReadFile(filepath.Join(root, ".env"))
+	data, err := os.ReadFile(env)
 	if err != nil {
 		return ""
 	}

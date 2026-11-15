@@ -7,14 +7,12 @@ import (
 	"github.com/hieplam/horus/internal/settings"
 )
 
-// rootNextStep names the setting to fix when the server cannot find the
-// workflows folder. Issue #40: without it, a server that starts outside the
-// repo with no HORUS_ROOT answered INTERNAL ("a bug in horus").
-const rootNextStep = "horus cannot find the horus repo. Ask the user to run horus register in the horus repo, " +
-	"or to set HORUS_ROOT to the repo folder (the folder with workflows/) in the MCP server config. Then restart the agent."
-
 // workflowsDirError is BACKEND_NOT_INSTALLED when the workflows folder is
-// missing, and nil when it is there.
+// missing, and nil when it is there. Without HORUS_WORKFLOWS_DIR and
+// HORUS_ROOT the folder is the copy of the built-in workflows, so this error
+// comes only from a setting that names a folder that does not exist. Issue
+// #40: the next_step names the setting to fix, not INTERNAL ("a bug in
+// horus").
 func workflowsDirError() *herr.Error {
 	dir := settings.WorkflowsDir()
 	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
@@ -24,6 +22,23 @@ func workflowsDirError() *herr.Error {
 		"workflows_dir": dir,
 		"horus_root":    os.Getenv("HORUS_ROOT"),
 	})
-	e.NextStep = rootNextStep
+	e.NextStep = rootNextStep(dir)
 	return e
+}
+
+// rootNextStep names the setting that points to the folder dir that does
+// not exist, and where the setting is.
+func rootNextStep(dir string) string {
+	setting := "HORUS_ROOT"
+	switch {
+	case settings.Get("HORUS_WORKFLOWS_DIR", "") != "":
+		setting = "HORUS_WORKFLOWS_DIR"
+	case settings.Root() == "":
+		return "horus could not write the copy of its built-in workflows to " + dir +
+			". Ask the user to make the user folder of horus writable, or to set HORUS_HOME to a folder that can be written. Then restart the agent."
+	}
+	return "The setting " + setting + " names a folder without workflows (" + dir + "). " +
+		"Ask the user to fix or remove HORUS_WORKFLOWS_DIR and HORUS_ROOT in the MCP server config or in " +
+		settings.EnvPath() + ". Without both, horus uses its built-in workflows. " +
+		"To use a horus repo, run horus register in the repo. Then restart the agent."
 }

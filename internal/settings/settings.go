@@ -1,13 +1,22 @@
 // Package settings holds the settings of horus.
 //
 // Each setting comes from, in this order: the environment variable, the .env
-// file in the repo root, the default. An empty value counts as not set. The
-// .env file can hold HF_TOKEN. This package never returns or logs that token:
-// only the download code reads it.
+// file (EnvPath), the default. An empty value counts as not set. The .env
+// file can hold HF_TOKEN. This package never returns or logs that token: only
+// the download code reads it.
 //
-// The repo root (the rule of the spec): HORUS_ROOT, then the nearest folder at
-// or above the current folder that has a workflows/ folder, then the folder of
-// the executable.
+// The rules of the spec (docs/specs/2026-11-15-release-install.md, "A machine
+// with only the program"):
+//
+//   - The repo root is HORUS_ROOT, then the nearest folder at or above the
+//     current folder that is a horus clone: a folder with
+//     workflows/_template/README.md. Without both, there is no repo root.
+//   - The user folder is HORUS_HOME, then <home>/horus (platform.UserDir).
+//   - .env is <repo root>/.env, or <user folder>/.env without a repo root.
+//   - The workflows folder is HORUS_WORKFLOWS_DIR, then <repo root>/workflows,
+//     then the copy of the built-in workflows in <user folder>/builtin-workflows.
+//   - The output folder is HORUS_OUTPUT_DIR, then <repo root>/.scratch/outputs,
+//     then <user folder>/outputs.
 package settings
 
 import (
@@ -25,18 +34,22 @@ import (
 
 var (
 	mu       sync.Mutex
+	rootDone bool // root holds the result of findRoot
 	root     string
 	envCache map[string]string
+	copyDir  string // the copy of the built-in workflows, after it was checked
 )
 
-// Reset forgets the cached repo root and .env values. Tests use it.
+// Reset forgets the cached repo root, the .env values and the checked copy
+// of the built-in workflows. Tests use it.
 func Reset() {
 	mu.Lock()
 	defer mu.Unlock()
-	root, envCache = "", nil
+	rootDone, root, envCache, copyDir = false, "", nil, ""
 }
 
-// Root is the repo root.
+// Root is the repo root, or "" when there is no repo root (a machine with
+// only the program).
 func Root() string {
 	mu.Lock()
 	defer mu.Unlock()
@@ -44,8 +57,8 @@ func Root() string {
 }
 
 func rootLocked() string {
-	if root == "" {
-		root = findRoot()
+	if !rootDone {
+		root, rootDone = findRoot(), true
 	}
 	return root
 }
@@ -54,25 +67,50 @@ func findRoot() string {
 	if r := os.Getenv("HORUS_ROOT"); r != "" {
 		return r
 	}
-	if wd, err := os.Getwd(); err == nil {
-		for dir := wd; ; {
-			if fi, err := os.Stat(filepath.Join(dir, "workflows")); err == nil && fi.IsDir() {
-				return dir
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
-		}
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
 	}
-	if exe, err := os.Executable(); err == nil {
-		if real, err := filepath.EvalSymlinks(exe); err == nil {
-			exe = real
+	for dir := wd; ; {
+		if IsClone(dir) {
+			return dir
 		}
-		return filepath.Dir(exe)
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
 	}
-	return "."
+}
+
+// IsClone tells if dir is a horus clone: it has workflows/_template/README.md.
+// A folder that only has a workflows folder is not a clone.
+func IsClone(dir string) bool {
+	return platform.IsFile(filepath.Join(dir, "workflows", "_template", "README.md"))
+}
+
+// UserDir is the user folder of horus: HORUS_HOME, then <home>/horus. Only
+// the environment sets HORUS_HOME, because the .env file can be in the user
+// folder.
+func UserDir() string {
+	home, _ := os.UserHomeDir()
+	return platform.UserDir(os.Getenv("HORUS_HOME"), home)
+}
+
+// EnvPath is the path of the .env file that horus reads: <repo root>/.env,
+// or <user folder>/.env when there is no repo root. The file can be absent.
+func EnvPath() string {
+	mu.Lock()
+	r := rootLocked()
+	mu.Unlock()
+	return envPathFor(r)
+}
+
+func envPathFor(root string) string {
+	if root != "" {
+		return filepath.Join(root, ".env")
+	}
+	return filepath.Join(UserDir(), ".env")
 }
 
 // ParseEnv reads the lines of a .env file: it skips empty
@@ -101,7 +139,7 @@ func envFile() map[string]string {
 	defer mu.Unlock()
 	if envCache == nil {
 		envCache = map[string]string{}
-		if data, err := os.ReadFile(filepath.Join(rootLocked(), ".env")); err == nil {
+		if data, err := os.ReadFile(envPathFor(rootLocked())); err == nil {
 			envCache = ParseEnv(data)
 		}
 	}
@@ -143,14 +181,30 @@ func ComfyMCPVenv() string {
 	return filepath.Join(home, ".venvs", "comfy-mcp")
 }
 
-// WorkflowsDir is the folder of the workflows.
+// WorkflowsDir is the folder of the workflows: HORUS_WORKFLOWS_DIR, then
+// <repo root>/workflows, then the copy of the built-in workflows. The first
+// call without both settings writes the copy when it is absent or old.
 func WorkflowsDir() string {
-	return Get("HORUS_WORKFLOWS_DIR", filepath.Join(Root(), "workflows"))
+	if v := Get("HORUS_WORKFLOWS_DIR", ""); v != "" {
+		return v
+	}
+	if r := Root(); r != "" {
+		return filepath.Join(r, "workflows")
+	}
+	return BuiltinWorkflowsDir()
 }
 
-// OutputDir is where a PNG goes when a call has no out_path.
+// OutputDir is where a PNG goes when a call has no out_path:
+// HORUS_OUTPUT_DIR, then <repo root>/.scratch/outputs, then
+// <user folder>/outputs.
 func OutputDir() string {
-	return Get("HORUS_OUTPUT_DIR", filepath.Join(Root(), ".scratch", "outputs"))
+	if v := Get("HORUS_OUTPUT_DIR", ""); v != "" {
+		return v
+	}
+	if r := Root(); r != "" {
+		return filepath.Join(r, ".scratch", "outputs")
+	}
+	return filepath.Join(UserDir(), "outputs")
 }
 
 // Autostart reports if horus starts ComfyUI when it does not answer.

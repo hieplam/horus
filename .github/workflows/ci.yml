@@ -183,6 +183,8 @@ jobs:
           if ($code -eq 0) { throw 'the script accepted a wrong SHA-256' }
           if ((Test-Path $env:HORUS_INSTALL_DIR) -and (Get-ChildItem $env:HORUS_INSTALL_DIR)) { throw 'the folder is not empty' }
           Write-Host 'the folder is empty'
+          # The step must not end with the exit code of the script that failed on purpose.
+          exit 0
 
       - name: Windows, a second run updates the program
         if: runner.os == 'Windows'
@@ -217,7 +219,8 @@ jobs:
           HORUS_INSTALL_BASE_URL: http://127.0.0.1:8081
           SHELL: /bin/zsh
         run: |
-          cat install.sh | sh
+          # The runner has ~/.local/bin on its PATH. A clean PATH makes the script write the profile.
+          cat install.sh | env PATH=/usr/bin:/bin:/usr/sbin:/sbin sh
           echo "--- the profile:"
           cat "$HOME/.zprofile"
 
@@ -255,6 +258,6 @@ jobs:
           HORUS_INSTALL_BASE_URL: http://127.0.0.1:8081
           SHELL: /bin/zsh
         run: |
-          cat install.sh | sh
+          cat install.sh | env PATH=/usr/bin:/bin:/usr/sbin:/sbin sh
           test "$(grep -c 'added by the horus installer' "$HOME/.zprofile")" -eq 1
           "$HOME/.local/bin/horus" version

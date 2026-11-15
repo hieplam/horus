@@ -2,3 +2,5 @@
 *.go text eol=lf
 go.mod text eol=lf
 go.sum text eol=lf
+# A shell script with CRLF fails in sh.
+*.sh text eol=lf

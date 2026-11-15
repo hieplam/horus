@@ -105,3 +105,156 @@ jobs:
           name: release-assets
           path: release-assets/
           if-no-files-found: error
+
+  install:
+    # tools/goal_check.py reads the jobs "install windows-latest" and "install macos-latest".
+    # The job runs the install script by the pipe of the install line. A local server
+    # (python -m http.server) gives the release files of job release-build, so the test
+    # reaches no real release.
+    name: install ${{ matrix.os }}
+    needs: release-build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release-assets
+
+      - name: Windows, serve the release files
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $good = Join-Path $env:RUNNER_TEMP 'release-assets'
+          $bad = Join-Path $env:RUNNER_TEMP 'release-bad'
+          New-Item -ItemType Directory -Path $bad | Out-Null
+          Copy-Item "$good\*" $bad
+          # One character of each checksum is wrong in the folder "release-bad".
+          (Get-Content "$good\checksums.txt") | ForEach-Object { 'f' + $_.Substring(1) } | Set-Content -Encoding ascii "$bad\checksums.txt"
+          Start-Process python -ArgumentList '-m','http.server','8081','--bind','127.0.0.1' -WorkingDirectory $good -WindowStyle Hidden
+          Start-Process python -ArgumentList '-m','http.server','8082','--bind','127.0.0.1' -WorkingDirectory $bad -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8081/checksums.txt | Out-Null
+          Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8082/checksums.txt | Out-Null
+
+      - name: Windows, install by the pipe of the install line
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          HORUS_INSTALL_BASE_URL: http://127.0.0.1:8081
+        run: |
+          powershell -NoProfile -Command "Get-Content -Raw install.ps1 | iex"
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 exit code $LASTEXITCODE" }
+
+      - name: Windows, a new shell finds horus on the PATH
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # A new shell starts with the PATH of the registry, not with the PATH of this step.
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          Set-Location $env:RUNNER_TEMP
+          Write-Host "folder: $(Get-Location)"
+          (Get-Command horus).Source
+          $v = horus version
+          $v
+          if ($v -ne 'horus 0.0.0-ci') { throw "wrong version: $v" }
+          $list = horus workflow list
+          $list
+          if (-not ($list | Select-String 'it-illustration')) { throw 'horus workflow list has no it-illustration' }
+
+      - name: Windows, a wrong checksum installs nothing
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          HORUS_INSTALL_BASE_URL: http://127.0.0.1:8082
+          HORUS_INSTALL_NO_PATH: "1"
+        run: |
+          $env:HORUS_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'bad-install'
+          powershell -NoProfile -Command "Get-Content -Raw install.ps1 | iex"
+          $code = $LASTEXITCODE
+          Write-Host "exit code: $code"
+          if ($code -eq 0) { throw 'the script accepted a wrong SHA-256' }
+          if ((Test-Path $env:HORUS_INSTALL_DIR) -and (Get-ChildItem $env:HORUS_INSTALL_DIR)) { throw 'the folder is not empty' }
+          Write-Host 'the folder is empty'
+
+      - name: Windows, a second run updates the program
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          HORUS_INSTALL_BASE_URL: http://127.0.0.1:8081
+        run: |
+          powershell -NoProfile -Command "Get-Content -Raw install.ps1 | iex"
+          if ($LASTEXITCODE -ne 0) { throw "second run: exit code $LASTEXITCODE" }
+          $n = ([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ -like '*Programs\horus' }).Count
+          if ($n -ne 1) { throw "the PATH has $n entries of horus" }
+          & (Join-Path $env:LOCALAPPDATA 'Programs\horus\horus.exe') version
+
+      - name: macOS, serve the release files
+        if: runner.os == 'macOS'
+        run: |
+          good="$RUNNER_TEMP/release-assets"
+          bad="$RUNNER_TEMP/release-bad"
+          mkdir "$bad"
+          cp "$good"/* "$bad"/
+          # One character of each checksum is wrong in the folder "release-bad".
+          sed 's/^./f/' "$good/checksums.txt" > "$bad/checksums.txt"
+          (cd "$good" && nohup python -m http.server 8081 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          (cd "$bad" && nohup python -m http.server 8082 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          sleep 3
+          curl -fsS http://127.0.0.1:8081/checksums.txt >/dev/null
+          curl -fsS http://127.0.0.1:8082/checksums.txt >/dev/null
+
+      - name: macOS, install by the pipe of the install line
+        if: runner.os == 'macOS'
+        env:
+          HORUS_INSTALL_BASE_URL: http://127.0.0.1:8081
+          SHELL: /bin/zsh
+        run: |
+          cat install.sh | sh
+          echo "--- the profile:"
+          cat "$HOME/.zprofile"
+
+      - name: macOS, a new shell finds horus on the PATH
+        if: runner.os == 'macOS'
+        run: |
+          # "env -i" gives a shell with no PATH of this step. "zsh -l" reads ~/.zprofile.
+          cd "$RUNNER_TEMP"
+          pwd
+          env -i HOME="$HOME" /bin/zsh -l -c 'command -v horus; horus version' | tee new-shell.log
+          grep -qx 'horus 0.0.0-ci' new-shell.log
+          env -i HOME="$HOME" /bin/zsh -l -c 'horus workflow list' | tee list.log
+          grep -q it-illustration list.log
+
+      - name: macOS, a wrong checksum installs nothing
+        if: runner.os == 'macOS'
+        env:
+          HORUS_INSTALL_BASE_URL: http://127.0.0.1:8082
+          HORUS_INSTALL_NO_PATH: "1"
+        run: |
+          export HORUS_INSTALL_DIR="$RUNNER_TEMP/bad-install"
+          if cat install.sh | sh; then
+            echo "the script accepted a wrong SHA-256"
+            exit 1
+          fi
+          if [ -d "$HORUS_INSTALL_DIR" ] && [ -n "$(ls -A "$HORUS_INSTALL_DIR")" ]; then
+            echo "the folder is not empty"
+            exit 1
+          fi
+          echo "the folder is empty"
+
+      - name: macOS, a second run updates the program
+        if: runner.os == 'macOS'
+        env:
+          HORUS_INSTALL_BASE_URL: http://127.0.0.1:8081
+          SHELL: /bin/zsh
+        run: |
+          cat install.sh | sh
+          test "$(grep -c 'added by the horus installer' "$HOME/.zprofile")" -eq 1
+          "$HOME/.local/bin/horus" version

@@ -449,3 +449,58 @@ not merged yet.) Clients that `horus register` serves: 1 → 2. Contract test: `
 **Stub check.** A `register` that ignores `-client` runs `claude` and never gives the fake `codex` its arguments:
 `TestRegisterClientCodexRunsCodex` (cli, `/bin/claude` is not the fake of `codex`) and
 `TestRegisterCodexRunsMCPAddWithTheArgumentsOfTheSpec` fail.
+
+## T3
+
+Files: `install.sh`, `install.ps1`, the job `install` of `.github/workflows/ci.yml`. `scripts/lint-public.py` needed no change.
+
+### What each script changes on the machine (for task T7, `horus uninstall`)
+
+Windows (`install.ps1`):
+
+| Item | Value |
+|---|---|
+| Program file | `%LOCALAPPDATA%\Programs\horus\horus.exe` (or `HORUS_INSTALL_DIR\horus.exe`). While an update runs, `horus.exe.old` exists for a moment. |
+| PATH entry | The registry value `Path` of the key `HKCU\Environment` (type `REG_SZ` or `REG_EXPAND_SZ`, as it was). The script appends one entry at the end, separated by `;`: the install folder, with no trailing backslash. Written with `[Environment]::SetEnvironmentVariable('Path', ..., 'User')`. |
+| When | Only when the install folder is not already an entry (compared without case and without a trailing backslash), and `HORUS_INSTALL_NO_PATH` is not `1`. |
+| Uninstall | Remove only the entry that equals the install folder from that value. Keep every other entry. The program file is the running `horus.exe` itself, so it needs the rename trick that the installer uses. |
+
+macOS (`install.sh`):
+
+| Item | Value |
+|---|---|
+| Program file | `$HOME/.local/bin/horus` (or `$HORUS_INSTALL_DIR/horus`). |
+| Profile file | `$HOME/.zprofile` when the basename of `$SHELL` is `zsh` (also when `SHELL` is not set), `$HOME/.bash_profile` for `bash`, `$HOME/.profile` for any other shell. |
+| Profile line | One line, preceded by one empty line. The line is exactly `export PATH="<install folder>:$PATH" # added by the horus installer`. The marker text is `# added by the horus installer` (the end of the line). |
+| When | Only when the install folder is not on `$PATH` of the script, the profile has no line with the marker, and `HORUS_INSTALL_NO_PATH` is not `1`. |
+| Uninstall | Remove each line that contains the marker `# added by the horus installer` from the three profile files above. Keep every other line. The empty line before it may stay. |
+
+Both scripts change nothing else. They write a temporary folder and delete it at the end. They print no environment variable.
+
+### Decisions
+
+| Date | Decision | Who | Why |
+|---|---|---|---|
+| 2026-11-15 | The profile of zsh is `.zprofile`, not `.zshrc`. | the T3 agent (design gap: the spec says "the shell profile") | The Terminal app of macOS starts a login shell, and a login shell reads `.zprofile`. The CI step starts `zsh -l` to test it. |
+| 2026-11-15 | The CI step "a new shell" on Windows sets `$env:Path` from the registry (Machine and User values) before it runs `horus`. | the T3 agent | A child process of the runner inherits the PATH of the runner, not the registry. Reading the registry is what a new terminal does. A script that does not write the registry fails this step. |
+| 2026-11-15 | `install.ps1` never calls `exit`. It throws on a failure. | the T3 agent | `iex` runs the script in the session of the user, and `exit` would close that window. A throw in `powershell -Command` gives exit code 1. |
+| 2026-11-15 | The script downloads to a temporary folder and creates the install folder only after the SHA-256 matches. | the T3 agent | The plan needs an empty folder (or no folder) after a wrong checksum. |
+
+### Local run on the PC (the CI jobs run the same steps on the runners)
+
+The release assets came from `bash scripts/build-release.sh 0.0.0-ci`. The scripts ran with `HORUS_INSTALL_DIR` in a scratch folder under `.scratch` and `HORUS_INSTALL_NO_PATH=1` on Windows. A fake `uname` made `install.sh` run in Git Bash with a scratch `HOME`.
+
+```
+install.ps1 (pipe, base URL = local server):   Installed ...\inst1\horus.exe        exit=0
+horus version                                  horus 0.0.0-ci
+horus workflow list (run from %TEMP%)          it-illustration ...
+wrong checksums.txt                            install.ps1: the SHA-256 of the download is not the SHA-256 in checksums.txt. Nothing is installed.
+                                               expected: f4ff27... actual: 04ff27...   exit=1, install folder not created
+second run on the first folder                 exit=0 (update)
+install.sh (fake uname, scratch HOME, pipe)    Installed .../.local/bin/horus, profile .zprofile got one line with the marker, exit=0
+install.sh second run                          exit=0, the marker is in the profile 1 time
+install.sh wrong checksums.txt                 "Nothing is installed.", exit=1, folder not created
+install.sh on MINGW64 x86_64 (no shim)         "this script supports macOS on Apple silicon (Darwin arm64) only ..." exit=1
+python tools/goal_check.py --phase 4 --no-ci --only install-line
+PASS  install-line - install scripts ok; CI part skipped (--no-ci); real part not run (needs --real ...)
+```

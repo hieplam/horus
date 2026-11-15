@@ -88,6 +88,9 @@ var commands = map[string]command{
 	"run-illustration": {"make one image without MCP", func(args []string) int {
 		return cli.RunIllustration(args, os.Stdout, os.Stderr, imagesAt)
 	}},
+	"version": {"print the version of this program", func(args []string) int {
+		return cli.Version(args, os.Stdout, os.Stderr)
+	}},
 	"errors": {"print the table of error codes (-json for JSON)", func(args []string) int {
 		return cli.Errors(args, os.Stdout, os.Stderr)
 	}},

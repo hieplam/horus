@@ -25,10 +25,8 @@ import (
 
 	"github.com/hieplam/horus/internal/generate"
 	"github.com/hieplam/horus/internal/settings"
+	"github.com/hieplam/horus/internal/version"
 )
-
-// serverVersion is the server version.
-const serverVersion = "0.1.0"
 
 // serverInstructions is the instructions text that the server gives to a client at the start of a session.
 const serverInstructions = `horus makes images on this machine with local AI models. You do not need to know how.
@@ -117,7 +115,7 @@ func pyNone(v any) any {
 // the image backend, through images. They set up the model files of a
 // workflow through setup.
 func New(images Images, setup Setup) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: serverVersion}, &mcp.ServerOptions{Instructions: serverInstructions})
+	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: version.Version}, &mcp.ServerOptions{Instructions: serverInstructions})
 	for _, t := range tools(images, setup) {
 		s.AddTool(t.definition(), t.handler())
 	}

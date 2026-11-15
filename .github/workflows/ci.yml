@@ -81,3 +81,27 @@ jobs:
         run: |
           python tests/workflow_parity.py --horus "bin/horus${{ runner.os == 'Windows' && '.exe' || '' }}" | tee parity.log
           grep -q "parity: 17 of 17 cases equal" parity.log
+
+  release-build:
+    # The same build script as the release job, with no upload. tools/goal_check.py reads this job name.
+    name: release-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build the release assets with the version 0.0.0-ci
+        run: bash scripts/build-release.sh 0.0.0-ci release-assets
+      - name: The folder has exactly 3 files and the checksums are right
+        working-directory: release-assets
+        run: |
+          test "$(ls | wc -l)" -eq 3
+          ls horus-windows-amd64.exe horus-darwin-arm64 checksums.txt
+          test "$(wc -l < checksums.txt)" -eq 2
+          sha256sum -c checksums.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets/
+          if-no-files-found: error

@@ -30,6 +30,7 @@ var layers = map[string]string{
 	"internal/herr":                 base,
 	"internal/settings":             base,
 	"internal/platform":             base,
+	"internal/version":              base,
 	"internal/archtest":             test,
 	"internal/comfy/comfytest":      test,
 	"internal/backend/comfyclitest": test,

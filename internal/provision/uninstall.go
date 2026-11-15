@@ -229,8 +229,17 @@ func planUninstall(f UninstallFacts) []UninstallItem {
 			it.Why = "a ComfyUI answers, and horus did not start it. Stop it where it was started, then run horus uninstall again."
 		default:
 			it.Remove = true
+			it.Why = "everything in it goes, also a file that a person put there (for example in ComfyUI/output). " +
+				"A link or a junction in it goes as a link, and its target stays."
 			if f.ComfyStarted {
-				it.Why = "horus first stops the ComfyUI that it started"
+				it.Why = "horus first stops the ComfyUI that it started. " + it.Why
+			}
+			// A KEEP model file in this folder goes with the folder: its
+			// line must say so.
+			for i := range out {
+				if out[i].Part == PartModels && !out[i].Remove && inFolder(f.ComfyFolder, out[i].Path) {
+					out[i].Why += ". It is in the ComfyUI install folder, so it goes with that folder"
+				}
 			}
 		}
 		add(it)
@@ -278,6 +287,13 @@ func planUninstall(f UninstallFacts) []UninstallItem {
 			Why: "the last item. A system package (7-Zip, Python) stays."})
 	}
 	return out
+}
+
+// inFolder reports if the path p is in the folder dir, compared as text
+// without case. It is a pure function.
+func inFolder(dir, p string) bool {
+	rel, err := filepath.Rel(strings.ToLower(dir), strings.ToLower(p))
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func hasRemove(items []UninstallItem, part string) bool {

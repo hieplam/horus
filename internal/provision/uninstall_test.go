@@ -516,3 +516,31 @@ func TestUninstallKeepsAModelFileOfAnotherSize(t *testing.T) {
 		t.Error("the file of another size was deleted, or the listed file stayed")
 	}
 }
+
+// TestUninstallPlanSaysThatAKeptFileInTheComfyUIFolderGoesWithIt: the pure
+// plan. A model file of another size is a KEEP item, but when it is in a
+// ComfyUI folder that goes, its line says that it goes with the folder.
+func TestUninstallPlanSaysThatAKeptFileInTheComfyUIFolderGoesWithIt(t *testing.T) {
+	comfy := filepath.Join(string(filepath.Separator), "c", "ComfyUI_windows_portable")
+	inside := filepath.Join(comfy, "ComfyUI", "models", "vae", "v.safetensors")
+	outside := filepath.Join(string(filepath.Separator), "m", "te.safetensors")
+	f := UninstallFacts{Parts: UninstallRequest{}.parts(), ComfyFolder: comfy, ComfyExists: true, ComfyRecord: true,
+		Models: []ModelFact{
+			{Workflow: "w", Item: Item{Status: StatusRefused, File: "v.safetensors", Path: inside, Detail: "another size"}},
+			{Workflow: "w", Item: Item{Status: StatusRefused, File: "te.safetensors", Path: outside, Detail: "another size"}},
+		}}
+	items := planUninstall(f)
+	if items[0].Remove || !strings.HasSuffix(items[0].Why, "so it goes with that folder") {
+		t.Errorf("the file in the folder: %+v", items[0])
+	}
+	if items[1].Why != "another size" {
+		t.Errorf("the file outside the folder: %+v", items[1])
+	}
+	if !items[2].Remove || items[2].Part != PartComfyUI || !strings.Contains(items[2].Why, "its target stays") {
+		t.Errorf("the ComfyUI folder: %+v", items[2])
+	}
+	f.ComfyRecord = false
+	if items := planUninstall(f); items[0].Why != "another size" {
+		t.Errorf("a kept ComfyUI folder: the file line says %q", items[0].Why)
+	}
+}

@@ -131,7 +131,7 @@ func Workflow(ctx context.Context, args []string, out, errOut io.Writer, setupAt
 		req.Workflow = pos[1]
 	}
 	if req.WorkflowsDir == "" {
-		req.WorkflowsDir = filepath.Join(settings.Root(), "workflows")
+		req.WorkflowsDir = settings.WorkflowsDir()
 	}
 	p := &printer{out: out, json: jsonOut}
 	svc := setupAt(place)

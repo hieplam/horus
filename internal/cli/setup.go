@@ -15,7 +15,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"path/filepath"
 
 	"github.com/hieplam/horus/internal/provision"
 	"github.com/hieplam/horus/internal/settings"
@@ -68,7 +67,7 @@ func RunSetup(ctx context.Context, args []string, out, errOut io.Writer, at func
 	}
 	req.Workflow = pos[0]
 	if req.WorkflowsDir == "" {
-		req.WorkflowsDir = filepath.Join(settings.Root(), "workflows")
+		req.WorkflowsDir = settings.WorkflowsDir()
 	}
 	p := &printer{out: out}
 	svc := at(place)

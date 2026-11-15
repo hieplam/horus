@@ -64,6 +64,18 @@ func TestDefaultComfyDirOfEachOS(t *testing.T) {
 	}
 }
 
+// TestUserDirIsHorusHomeThenTheHorusFolderOfTheHome: HORUS_HOME wins, else
+// the user folder is <home>/horus on every OS.
+func TestUserDirIsHorusHomeThenTheHorusFolderOfTheHome(t *testing.T) {
+	home := filepath.Join("h", "user")
+	if got, want := UserDir("", home), filepath.Join(home, "horus"); got != want {
+		t.Errorf("UserDir without HORUS_HOME = %s, want %s", got, want)
+	}
+	if got, want := UserDir(filepath.Join("x", "mine"), home), filepath.Join("x", "mine"); got != want {
+		t.Errorf("UserDir with HORUS_HOME = %s, want %s", got, want)
+	}
+}
+
 // TestInTCCFolder: on macOS a path is inside a TCC folder when it is
 // <home>/Desktop, <home>/Documents or <home>/Downloads, or a path under one
 // of them, in any case. A folder with the same start of name, a path outside

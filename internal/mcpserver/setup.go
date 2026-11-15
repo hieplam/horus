@@ -77,7 +77,9 @@ func downloadError(item provision.Item, w *catalog.Workflow) error {
 	}
 	switch kind {
 	case provision.DownloadUnauthorized:
-		return herr.New("HF_TOKEN_INVALID", "Hugging Face refused the token (HTTP 401)", facts())
+		e := herr.New("HF_TOKEN_INVALID", "Hugging Face refused the token (HTTP 401)", facts())
+		e.NextStep = tokenNextStep()
+		return e
 	case provision.DownloadForbidden:
 		lic, err := w.License()
 		if err != nil {
@@ -92,6 +94,14 @@ func downloadError(item provision.Item, w *catalog.Workflow) error {
 		return herr.New("FILE_CONFLICT", "a different file with the same name is on disk", facts())
 	}
 	return herr.New("DOWNLOAD_FAILED", "the download did not finish", facts())
+}
+
+// tokenNextStep is the next_step of HF_TOKEN_INVALID. It names the .env
+// file that this program reads, because a machine with only the program has
+// no horus repo.
+func tokenNextStep() string {
+	return "The Hugging Face token is missing or wrong. Ask the user to put a valid Read token in HF_TOKEN in the file " +
+		settings.EnvPath() + ", then call again."
 }
 
 // checkError maps the items of a failed check to its error code, or nil.

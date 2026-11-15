@@ -2,9 +2,12 @@
 package settings
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hieplam/horus/internal/platform"
@@ -96,11 +99,21 @@ func TestDefaultsUseRepoRoot(t *testing.T) {
 	}
 }
 
-func TestRootFindsWorkflowsFolderAboveTheCurrentFolder(t *testing.T) {
-	top := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(top, "workflows"), 0o755); err != nil {
+// makeClone makes dir a horus clone: it has workflows/_template/README.md.
+func makeClone(t *testing.T, dir string) {
+	t.Helper()
+	tpl := filepath.Join(dir, "workflows", "_template")
+	if err := os.MkdirAll(tpl, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(tpl, "README.md"), []byte("# template\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRootFindsTheCloneAboveTheCurrentFolder(t *testing.T) {
+	top := t.TempDir()
+	makeClone(t, top)
 	deep := filepath.Join(top, "a", "b")
 	if err := os.MkdirAll(deep, 0o755); err != nil {
 		t.Fatal(err)
@@ -153,19 +166,261 @@ func TestComfyDirDefaultIsTheFolderOfPlatform(t *testing.T) {
 	}
 }
 
-func TestRootFallsBackToTheExecutableFolder(t *testing.T) {
-	t.Chdir(t.TempDir()) // no workflows/ at or above a fresh temp folder
-	t.Setenv("HORUS_ROOT", "")
+// noClone makes this process a machine with only the program: a new home
+// folder, HORUS_HOME and HORUS_ROOT not set, and a current folder outside a
+// clone. It returns the home folder.
+func noClone(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	useHome(t, home)
+	for _, k := range []string{"HORUS_HOME", "HORUS_ROOT", "HORUS_WORKFLOWS_DIR", "HORUS_OUTPUT_DIR", "HORUS_COMFYUI_URL"} {
+		t.Setenv(k, "")
+	}
+	cwd := filepath.Join(home, "somewhere")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
 	Reset()
 	t.Cleanup(Reset)
-	exe, _ := os.Executable()
-	if real, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = real
+	if r := Root(); r != "" && !strings.HasPrefix(r, home) {
+		t.Skipf("the temp folder is inside a horus clone (%s)", r)
 	}
-	// A temp folder may sit below a folder with workflows/ on some machines; then that folder wins.
-	if got := Root(); got != filepath.Dir(exe) {
-		if _, err := os.Stat(filepath.Join(got, "workflows")); err != nil {
-			t.Fatalf("Root = %q, want the executable folder %q", got, filepath.Dir(exe))
+	return home
+}
+
+// TestRootWithoutACloneIsEmpty: the old rule took the folder of the
+// executable as the repo root. The new rule has no repo root outside a clone.
+func TestRootWithoutACloneIsEmpty(t *testing.T) {
+	noClone(t)
+	if got := Root(); got != "" {
+		t.Fatalf("Root = %q, want no repo root", got)
+	}
+}
+
+// TestAFolderWithOnlyAWorkflowsFolderIsNotAClone: a folder with a workflows
+// folder but no workflows/_template/README.md is not the repo root, so the
+// workflows folder is the copy of the built-in workflows. With the template
+// README it is a clone.
+func TestAFolderWithOnlyAWorkflowsFolderIsNotAClone(t *testing.T) {
+	home := noClone(t)
+	top := filepath.Join(home, "project")
+	if err := os.MkdirAll(filepath.Join(top, "workflows", "mine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deep := filepath.Join(top, "a")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(deep)
+	Reset()
+	if IsClone(top) {
+		t.Fatal("IsClone: a folder with only a workflows folder must not be a clone")
+	}
+	if got := Root(); got != "" {
+		t.Fatalf("Root = %q, want no repo root", got)
+	}
+	want := filepath.Join(home, "horus", "builtin-workflows")
+	if got := WorkflowsDir(); got != want {
+		t.Fatalf("WorkflowsDir = %q, want the copy of the built-in workflows %q", got, want)
+	}
+	makeClone(t, top)
+	Reset()
+	if !IsClone(top) {
+		t.Fatal("IsClone: a folder with workflows/_template/README.md is a clone")
+	}
+	got, _ := filepath.EvalSymlinks(Root())
+	wantRoot, _ := filepath.EvalSymlinks(top)
+	if got != wantRoot {
+		t.Fatalf("Root = %q, want the clone %q", got, wantRoot)
+	}
+}
+
+// TestEnvFileOfTheUserFolderGivesASetting: without a repo root, horus reads
+// <user folder>/.env. The environment still wins.
+func TestEnvFileOfTheUserFolderGivesASetting(t *testing.T) {
+	home := noClone(t)
+	user := filepath.Join(home, "horus")
+	if err := os.MkdirAll(user, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := filepath.Join(user, ".env")
+	if err := os.WriteFile(env, []byte("HORUS_COMFYUI_URL=http://from-user-env:3/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	Reset()
+	if got := EnvPath(); got != env {
+		t.Errorf("EnvPath = %q, want %q", got, env)
+	}
+	if got := ComfyURL(); got != "http://from-user-env:3" {
+		t.Errorf("ComfyURL = %q, want the value of %s", got, env)
+	}
+	t.Setenv("HORUS_COMFYUI_URL", "http://from-env:4")
+	if got := ComfyURL(); got != "http://from-env:4" {
+		t.Errorf("the environment must win: ComfyURL = %q", got)
+	}
+	// HORUS_HOME moves the user folder, and its .env.
+	other := filepath.Join(home, "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, ".env"), []byte("HORUS_AUTOSTART=no\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HORUS_HOME", other)
+	Reset()
+	if UserDir() != other || EnvPath() != filepath.Join(other, ".env") || Autostart() {
+		t.Errorf("HORUS_HOME: UserDir %q, EnvPath %q, Autostart %v", UserDir(), EnvPath(), Autostart())
+	}
+}
+
+// TestOutputDirWithoutACloneIsTheOutputsFolderOfTheUserFolder: without a
+// repo root and without HORUS_OUTPUT_DIR, an image goes to
+// <user folder>/outputs.
+func TestOutputDirWithoutACloneIsTheOutputsFolderOfTheUserFolder(t *testing.T) {
+	home := noClone(t)
+	if got, want := OutputDir(), filepath.Join(home, "horus", "outputs"); got != want {
+		t.Errorf("OutputDir = %q, want %q", got, want)
+	}
+	t.Setenv("HORUS_OUTPUT_DIR", filepath.Join(home, "mine"))
+	if got := OutputDir(); got != filepath.Join(home, "mine") {
+		t.Errorf("HORUS_OUTPUT_DIR must win: OutputDir = %q", got)
+	}
+}
+
+// TestHorusWorkflowsDirReplacesTheBuiltInWorkflows: without a clone the
+// workflows folder is the copy of the built-in workflows, with
+// it-illustration. HORUS_WORKFLOWS_DIR replaces it (and no copy is written),
+// and so does a clone.
+func TestHorusWorkflowsDirReplacesTheBuiltInWorkflows(t *testing.T) {
+	home := noClone(t)
+	copyOf := filepath.Join(home, "horus", "builtin-workflows")
+
+	mine := filepath.Join(home, "mine")
+	t.Setenv("HORUS_WORKFLOWS_DIR", mine)
+	if got := WorkflowsDir(); got != mine {
+		t.Fatalf("WorkflowsDir = %q, want HORUS_WORKFLOWS_DIR %q", got, mine)
+	}
+	if _, err := os.Stat(copyOf); !os.IsNotExist(err) {
+		t.Fatalf("HORUS_WORKFLOWS_DIR is set, but horus wrote the copy: %v", err)
+	}
+
+	t.Setenv("HORUS_WORKFLOWS_DIR", "")
+	Reset()
+	if got := WorkflowsDir(); got != copyOf {
+		t.Fatalf("WorkflowsDir = %q, want the copy %q", got, copyOf)
+	}
+	if !platform.IsFile(filepath.Join(copyOf, "it-illustration", "manifest.json")) ||
+		!platform.IsFile(filepath.Join(copyOf, "it-illustration", "workflow.json")) ||
+		!platform.IsFile(filepath.Join(copyOf, "it-illustration", "models.json")) {
+		t.Fatalf("the copy has no it-illustration with its manifest, graph and model list")
+	}
+	if _, err := os.Stat(filepath.Join(copyOf, "_template")); !os.IsNotExist(err) {
+		t.Errorf("the copy has _template: %v", err)
+	}
+
+	clone := filepath.Join(home, "clone")
+	makeClone(t, clone)
+	t.Chdir(clone)
+	Reset()
+	got, _ := filepath.EvalSymlinks(WorkflowsDir())
+	want, _ := filepath.EvalSymlinks(filepath.Join(clone, "workflows"))
+	if got != want {
+		t.Fatalf("in a clone WorkflowsDir = %q, want %q", got, want)
+	}
+}
+
+// TestAStampOfAnotherVersionMakesTheProgramWriteTheCopyAgain: a copy whose
+// stamp file names another version is replaced. A copy with the right stamp
+// is kept as it is.
+func TestAStampOfAnotherVersionMakesTheProgramWriteTheCopyAgain(t *testing.T) {
+	home := noClone(t)
+	dir := filepath.Join(home, "horus", "builtin-workflows")
+	if err := os.MkdirAll(filepath.Join(dir, "gone"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, stampFile), []byte("another-version\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := BuiltinWorkflowsDir(); got != dir {
+		t.Fatalf("BuiltinWorkflowsDir = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "gone")); !os.IsNotExist(err) {
+		t.Errorf("the old copy is still there: %v", err)
+	}
+	if s := readStamp(dir); s == "another-version" || s == "" {
+		t.Errorf("stamp = %q, want the stamp of this program", s)
+	}
+	if !platform.IsFile(filepath.Join(dir, "it-illustration", "manifest.json")) {
+		t.Fatal("the new copy has no it-illustration/manifest.json")
+	}
+
+	// The right stamp: the copy is not written again.
+	mark := filepath.Join(dir, "it-illustration", "mark")
+	if err := os.WriteFile(mark, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	Reset()
+	BuiltinWorkflowsDir()
+	if !platform.IsFile(mark) {
+		t.Error("a copy with the right stamp was written again")
+	}
+	left, _ := filepath.Glob(filepath.Join(home, "horus", "builtin-workflows.tmp-*"))
+	if len(left) != 0 {
+		t.Errorf("temporary folders are left: %v", left)
+	}
+}
+
+// TestTwoProgramsThatWriteTheCopyAtTheSameTimeBothListTheWorkflow starts the
+// test program 4 times at once, with one empty user folder. Each one gets
+// the workflows folder and lists it. Each must list it-illustration.
+func TestTwoProgramsThatWriteTheCopyAtTheSameTimeBothListTheWorkflow(t *testing.T) {
+	if os.Getenv("HORUS_TEST_LIST_COPY") == "1" {
+		return // the child part runs in TestHelperListTheCopy
+	}
+	home := noClone(t)
+	const n = 4
+	outs := make([][]byte, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cmd := exec.Command(os.Args[0], "-test.run=^TestHelperListTheCopy$", "-test.count=1")
+			cmd.Env = append(os.Environ(), "HORUS_TEST_LIST_COPY=1", "HORUS_HOME="+filepath.Join(home, "horus"))
+			outs[i], errs[i] = cmd.CombinedOutput()
+		}()
+	}
+	wg.Wait()
+	for i := range n {
+		if errs[i] != nil || !strings.Contains(string(outs[i]), "LISTED it-illustration") {
+			t.Errorf("program %d: %v\n%s", i+1, errs[i], outs[i])
+		}
+	}
+	left, _ := filepath.Glob(filepath.Join(home, "horus", "builtin-workflows.*"))
+	if len(left) != 0 {
+		t.Errorf("temporary folders are left: %v", left)
+	}
+}
+
+// TestHelperListTheCopy is the child of the test above. It does nothing in
+// a normal run.
+func TestHelperListTheCopy(t *testing.T) {
+	if os.Getenv("HORUS_TEST_LIST_COPY") != "1" {
+		return
+	}
+	t.Setenv("HORUS_ROOT", "")
+	t.Setenv("HORUS_WORKFLOWS_DIR", "")
+	Reset()
+	dir := WorkflowsDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() && platform.IsFile(filepath.Join(dir, e.Name(), "manifest.json")) {
+			fmt.Println("LISTED", e.Name())
 		}
 	}
 }

@@ -254,7 +254,8 @@ func TestInstallMapsEachStatusToItsCode(t *testing.T) {
 	}{
 		{"401", []provision.Item{item("PRESENT", "download", ""), failedItem(provision.DownloadUnauthorized, "Attempt 1 of 4 did not finish (the server returned error: 401) | FAIL: x")}, "", nil, "HF_TOKEN_INVALID",
 			func(e *herr.Error) bool {
-				return e.Details["file"] == "x.safetensors" && e.Details["path"] == "/m/x.safetensors" && strings.Contains(e.Details["detail"].(string), "error: 401")
+				return e.Details["file"] == "x.safetensors" && e.Details["path"] == "/m/x.safetensors" && strings.Contains(e.Details["detail"].(string), "error: 401") &&
+					strings.Contains(e.Info().NextStep, settings.EnvPath()) && !strings.Contains(e.Info().NextStep, "horus repo")
 			}},
 		{"403", []provision.Item{failedItem(provision.DownloadForbidden, "the server returned error: 403")}, "", nil, "LICENSE_NOT_ACCEPTED",
 			func(e *herr.Error) bool {

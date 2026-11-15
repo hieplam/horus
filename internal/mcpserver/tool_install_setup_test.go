@@ -43,7 +43,7 @@ func (l *setupLog) all() []string {
 
 // emptyMachine is a machine without ComfyUI. The package manager winget is
 // on the PATH (when manager is true), and 7-Zip is not installed: winget
-// puts 7z.exe into pkgDir.
+// puts 7z (7z.exe on Windows) into pkgDir.
 type emptyMachine struct {
 	log     *setupLog
 	comfy   string // the install folder of ComfyUI
@@ -69,7 +69,7 @@ func (p fakeMachinePrograms) Run(_ context.Context, c platform.Command) (int, er
 	p.m.log.add("run " + filepath.Base(c.Path) + " " + strings.Join(c.Args, " "))
 	if filepath.Base(c.Path) == filepath.Base(p.m.winget) && slices.Equal(c.Args, wingetArgs) {
 		os.MkdirAll(p.m.pkgDir, 0o755)
-		os.WriteFile(filepath.Join(p.m.pkgDir, "7z.exe"), []byte("fake"), 0o755)
+		os.WriteFile(filepath.Join(p.m.pkgDir, platform.ExeName("7z")), []byte("fake"), 0o755)
 	}
 	return 0, nil
 }
@@ -259,7 +259,7 @@ func TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps(t *testing.T) {
 	if l := m.log.all(); len(l) != 5 || !slices.Equal(l[:2], want) || !strings.HasPrefix(l[2], "download ") {
 		t.Fatalf("the steps ran in this order: %v, want %v, then 3 downloads", l, want)
 	}
-	if !platform.IsFile(filepath.Join(m.comfy, "ComfyUI", "main.py")) || !platform.IsFile(filepath.Join(m.pkgDir, "7z.exe")) {
+	if !platform.IsFile(filepath.Join(m.comfy, "ComfyUI", "main.py")) || !platform.IsFile(filepath.Join(m.pkgDir, platform.ExeName("7z"))) {
 		t.Errorf("the install folder or 7-Zip is missing")
 	}
 	mu.Lock()
@@ -302,7 +302,7 @@ func TestInstallWorkflowWithoutAPackageManagerAnswersBackendNotInstalled(t *test
 // BACKEND_NOT_INSTALLED with the step, and the next steps do not run.
 func TestInstallWorkflowNamesTheSetupStepThatFailed(t *testing.T) {
 	m, svc := newEmptyMachine(t, true)
-	m.pkgDir = filepath.Join(m.root, "elsewhere") // winget puts 7z.exe where the plan does not look
+	m.pkgDir = filepath.Join(m.root, "elsewhere") // winget puts 7z where the plan does not look
 	cs := connect(t, New(&fakeImages{}, svc), nil)
 	code, d, e := errorOf(t, envelopeOf(t, callTool(t, cs, "install_workflow",
 		map[string]any{"workflow": "it-illustration", "accept_setup": true, "accept_license": true})))

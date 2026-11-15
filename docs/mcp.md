@@ -149,12 +149,14 @@ after `horus mcp` ends. `horus stop-comfyui` stops it.
 
 ## Install and connect
 
+Install the program with the install line of the [README](../README.md#install-horus) or of [step 0 of `setup.md`](setup.md#step-0-install-the-horus-program). Then run:
+
 ```
-go install ./cmd/horus
 horus register
 ```
 
-- `go install` builds the program `horus` into the Go bin folder (`%USERPROFILE%\go\bin` on Windows, `$HOME/go/bin` on macOS and Linux). That folder must be on the PATH: see step 0 of [`setup.md`](setup.md#step-0-get-the-horus-program). After a `git pull`, run `go install ./cmd/horus` again.
+- `horus register -client codex` registers the server with Codex instead of Claude Code.
+- A developer of this repo builds the program with `go install ./cmd/horus`. The Go bin folder must be on the PATH: see [`setup.md`](setup.md#for-developers-build-from-a-clone). After a `git pull`, run `go install ./cmd/horus` again.
 - In this repo, `.mcp.json` names the server as the command `horus` with the argument `mcp`, so an agent here finds it without `horus register`.
 - The same `.mcp.json` starts the comfy MCP server as `horus comfy-mcp`, on Windows and on macOS. `horus comfy-mcp` runs the program `comfy-mcp` of the venv of `horus install-comfy-mcp` (`<home>/.venvs/comfy-mcp`), else the `comfy-mcp` of the PATH, over the same standard input and output. It sets `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`, and `COMFY_BIN` to the `comfy` next to comfy-mcp when that program exists and `COMFY_BIN` is not set. Its exit code is the exit code of comfy-mcp. When it finds no comfy-mcp, it writes `comfy-mcp was not found in ... Fix: horus install-comfy-mcp` to the standard error and exits 1.
 - `horus register` adds the server `horus` to Claude Code. It runs `claude mcp add --scope user horus -e HORUS_ROOT=<repo root> -- <path of horus> mcp`. Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
@@ -321,8 +323,8 @@ py -3.12 -m venv .scratch\test-venv
 ```
 
 On macOS and Linux, use `python3.12 -m venv .scratch/test-venv` and
-`.scratch/test-venv/bin/python`. Then, with `horus` on the PATH (step 0 of
-[`setup.md`](setup.md#step-0-get-the-horus-program)):
+`.scratch/test-venv/bin/python`. Then, with `horus` on the PATH (see
+[`setup.md`](setup.md#for-developers-build-from-a-clone)):
 
 ```
 .scratch\test-venv\Scripts\python tests\mcp_contract.py

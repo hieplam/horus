@@ -58,6 +58,7 @@ commands.
 | 2026-11-15 | The user folder itself goes when it is empty after the run. A state file `horus-comfyui.state.json` in the user folder (macOS) stays when it names a ComfyUI that horus started and that the run does not remove. | the T7 agent (design gap) | An empty folder is no data of the user. Without the state file, `horus stop-comfyui` cannot stop that ComfyUI. |
 | 2026-11-15 | The line of the ComfyUI folder says that everything in it goes, also a file that a person put there, and a KEEP model file in that folder says that it goes with the folder. | the T7 agent (found by the manual run on the sandbox) | The spec deletes the whole install folder with a record. The plan must not say KEEP for a file that the run deletes. |
 | 2026-11-15 | `internal/backend.Backend` gets `Folder()` and `Running(ctx)`. `internal/provision` declares the interfaces `ComfyInstall` and `Installer` that the uninstall needs, and `cmd/horus` gives it the backend and the functions of `internal/platform` (`installerOS`). | the T7 agent (design rules 4 and 5) | The service declares what it needs. A test gives it fakes, so no test reaches the real PATH or the real program. |
+| 2026-11-15 | The code blocks of README sections 1 and 2 hold only fixed commands. The commands with `-yes` and `horus register` are in section 4, outside the check of the row `readme`. | the T8 agent (design gap) | The row needs each command of those sections in `fresh-machine.yml`. A fresh runner has no HF token and no Claude Code, so T9 cannot run a download or a register. |
 
 ## Baseline
 
@@ -755,3 +756,65 @@ install macos-latest    a new shell does not find horus
 **Ratchet.** `python tools/goal_check.py --phase 4 --no-ci`: `goal: 6 of 8 rows passed` on `main` at `2b2c54f` →
 `goal: 7 of 8 rows passed` with this change (the row `uninstall` passes, `readme` waits for T8 and T9). The plan says
 5 → 6, because it counts before T3 and T6. Commands that undo a horus install: 0 → 1. Go test functions: 290 → 310.
+
+## T8
+
+Task: [#144](https://github.com/hieplam/horus/issues/144). Files: `README.md`, `docs/setup.md`, `docs/mcp.md`,
+`docs/running-workflows.md` (one anchor), `AGENTS.md`, `ROADMAP.md`.
+
+**What changed.**
+
+- `README.md` section 1 is "Install horus": the line for Windows (`install.ps1`) and for macOS (`install.sh`), where the
+  program goes, the settings `HORUS_VERSION`, `HORUS_INSTALL_DIR` and `HORUS_INSTALL_NO_PATH`, and the manual steps
+  (download the asset and `checksums.txt`, compare the SHA-256, put the program on the PATH) for both systems. Section 2
+  is "Check the install and see the plan" (`horus version`, `horus setup it-illustration`). Later sections explain
+  `-yes`, `-with-packages`, the token in the `.env` of the user folder, `horus register [-client codex]` and
+  `horus uninstall` (plan first, `-yes` removes; model files also when a person downloaded them; ComfyUI folder and venv
+  only with `horus-install.json`; `.env` and `outputs/` stay). The steps with a clone and `go install` are in the section
+  "Work on this repo (developers)".
+- `docs/setup.md`: step 0 is the install line. The clone and `go install` moved to "For developers: build from a clone".
+  The prerequisites no longer ask a user for Go. New text for `-with-packages`, the user folder, the `.env` without a
+  clone, `horus register -client` and a closing section "Uninstall" (a table of the parts).
+- `docs/mcp.md`, `docs/running-workflows.md`, `AGENTS.md`: the anchors moved (`#step-0-install-the-horus-program`,
+  `#for-developers-build-from-a-clone`), `horus register -client codex`, rows for the install line, `-with-packages`,
+  `register -client` and `uninstall` in `AGENTS.md`, and layout lines for `install.*`, the release files,
+  `scripts/build-release.sh` and `workflows/embed.go`.
+- `ROADMAP.md`: the release and the install line are under "Now". Phase 5 (`horus serve`) stays under "Later", with the
+  reason (the Go MCP SDK v1.8.0 has no MCP tasks).
+- Every command of the docs: `horus <command> -h` exits 0 for each of 18 commands (version, setup, register, uninstall,
+  doctor, workflow, install-comfy-mcp, install-comfyui, start-comfyui, stop-comfyui, sync-workflows, run-illustration, mcp,
+  comfy-mcp, errors, check-setup, new-workflow, download-model). Every relative link and anchor of the 6 changed files
+  resolves.
+- The text is written for the state after release 0.1.0. Until the owner publishes it (T10), the install line has no
+  asset to download. No sentence says otherwise.
+
+**Decisions.** The code blocks of README sections 1 and 2 hold only fixed commands (no `<placeholder>`, no prompt
+character), because the row `readme` needs each of them in `fresh-machine.yml` (T9). The commands with `-yes` are in
+section 4 or later, outside that check. The manual steps are in section 1, so T9 must run them or the tool reports them.
+
+**Red** (on `main` at `aade064`, built into the worktree):
+
+```
+$ python tools/goal_check.py --phase 4 --no-ci --only readme --server-cmd <worktree>/bin/horus.exe mcp
+FAIL  readme - 3 problems: the install line of install.sh is not in section 1 or 2; the install line of install.ps1 is not in section 1 or 2; missing: .github/workflows/fresh-machine.yml
+goal: 0 of 1 rows passed
+```
+
+**Green** (with this change):
+
+```
+$ python tools/goal_check.py --phase 4 --no-ci --only readme --server-cmd <worktree>/bin/horus.exe mcp
+FAIL  readme - 1 problems: missing: .github/workflows/fresh-machine.yml
+goal: 0 of 1 rows passed
+$ python scripts/lint-public.py
+lint-public: 0 finding(s)
+```
+
+The one problem left is the file of T9. `gofmt -l .` prints nothing and `go test ./...` passes. In an empty home folder and
+outside a clone, `horus setup it-illustration` printed the plan of 4 steps and `Nothing changed.`
+
+**Stub check.** The same README with sections 1 and 2 moved to the end gives:
+`the install line of install.sh is not in section 1 or 2; the install line of install.ps1 is not in section 1 or 2`.
+
+**Ratchet.** The place of the install steps in the README: section 3 (the clone and `go install` steps) with no install
+line → section 1 (both install lines and the manual steps).

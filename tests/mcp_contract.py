@@ -171,6 +171,11 @@ def env_of(res) -> dict:
     return res.structured_content or json.loads(res.content[0].text)
 
 
+def without_seconds(env: dict) -> dict:
+    """The envelope without result.seconds, which changes from call to call."""
+    return {**env, "result": {k: v for k, v in (env.get("result") or {}).items() if k != "seconds"}}
+
+
 def resolve_program(program: str) -> str:
     """A path that exists becomes an absolute path; a bare name is looked up on the PATH.
     A program that is not found stays as written, so the run fails."""
@@ -191,6 +196,7 @@ async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Pa
     params = StdioServerParameters(command=server_cmd[0], args=server_cmd[1:], env=env)
     with open(tmp / "server.stderr.log", "w", encoding="utf-8") as errlog:
         await session_checks(params, errlog, sandbox, tmp, c)
+    await setup_checks(server_cmd, env, tmp, c)
 
     neutral_checks(c)
 
@@ -318,11 +324,19 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             c.check("install of an installed style -> ok, already_installed",
                     res["ok"] and res["result"]["already_installed"] is True, json.dumps(res)[:300])
 
+            installed = res
             res = env_of(await s.call_tool("install_workflow", {"workflow": "absent-style"}))
             e = res.get("error") or {}
             c.check("install without accept_license -> LICENSE_CONFIRMATION_REQUIRED, action_by=human, with size",
                     e.get("code") == "LICENSE_CONFIRMATION_REQUIRED" and e["action_by"] == "human" and e["details"].get("download_bytes", 0) > 0,
                     json.dumps(res)[:300])
+
+            # The setup consent changes nothing on a machine where ComfyUI is installed.
+            again = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration", "accept_setup": True}))
+            lic = env_of(await s.call_tool("install_workflow", {"workflow": "absent-style", "accept_setup": True}))
+            c.check("a machine with ComfyUI: accept_setup=true changes no answer of install_workflow",
+                    without_seconds(again) == without_seconds(installed) and again["ok"] and lic == res,
+                    json.dumps(again)[:200] + " " + json.dumps(lic)[:200])
 
             model_files = list(Path(sandbox["models"]).rglob("*.safetensors"))
             states_of = lambda files: sorted(f["state"] for f in files)  # noqa: E731
@@ -360,6 +374,111 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
                     e.get("code") == "BACKEND_UNAVAILABLE" and e["action_by"] == "human", json.dumps(res)[:300])
 
 
+# The system package that the install of ComfyUI needs (spec docs/specs/2026-11-15-release-install.md,
+# "The setup plan"): its name, its package manager, the arguments of the manager and its program.
+PACKAGE = (("7-Zip", "winget", ["install", "--id", "7zip.7zip", "-e", "--accept-source-agreements", "--accept-package-agreements"], "7z")
+           if os.name == "nt" else ("Python 3.12", "brew", ["install", "python@3.12"], "python3.12"))
+
+
+def fake_program(bindir: Path, name: str, record: Path) -> Path:
+    """A fake program: it appends its arguments to record and exits 0. It installs nothing."""
+    bindir.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        path = bindir / f"{name}.cmd"
+        path.write_text(f'@echo off\r\necho %*>>"{record}"\r\nexit /b 0\r\n', encoding="utf-8", newline="")
+    else:
+        path = bindir / name
+        path.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{record}'\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+    return path
+
+
+def tree(root: Path) -> list[str]:
+    """The path and the SHA-256 of each file under root."""
+    return sorted(f"{p} {hashlib.sha256(p.read_bytes()).hexdigest()}" for p in root.rglob("*") if p.is_file())
+
+
+async def setup_checks(server_cmd: list[str], base_env: dict[str, str], tmp: Path, c: Checks) -> None:
+    """install_workflow on a machine without ComfyUI. The PATH holds only a folder of fake programs and the
+    folders of the OS, so no real package manager runs. HTTP_PROXY and HTTPS_PROXY name a closed port, so no
+    download can leave the machine. The model files of it-illustration are present; ComfyUI is not."""
+    bare = tmp / "bare"
+    sandbox = make_sandbox(bare)
+    home, comfy, record = bare / "home", bare / "no-comfyui", bare / "package-manager.args"
+    home.mkdir()
+    system = [str(Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32")] if os.name == "nt" else ["/usr/bin", "/bin"]
+    name, manager, manager_args, program = PACKAGE
+
+    def params_with(bindir: Path) -> StdioServerParameters:
+        bindir.mkdir(parents=True, exist_ok=True)
+        env = {**base_env, "HORUS_WORKFLOWS_DIR": sandbox["workflows"], "HORUS_MODELS_DIR": sandbox["models"],
+               "HORUS_TEXT_ENCODER_DIR": str(Path(sandbox["models"]) / "text_encoders"), "HORUS_COMFYUI_DIR": str(comfy),
+               "HORUS_ROOT": str(bare), "HORUS_HOME": str(home / "horus"), "HOME": str(home), "USERPROFILE": str(home),
+               "ProgramFiles": str(home / "Program Files"), "ProgramFiles(x86)": str(home / "Program Files (x86)"),
+               "PATH": os.pathsep.join([str(bindir), *system]),
+               "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
+        return StdioServerParameters(command=server_cmd[0], args=server_cmd[1:], env=env)
+
+    # No package manager: the package step is a step for a person.
+    with open(tmp / "server-no-manager.stderr.log", "w", encoding="utf-8") as errlog:
+        async with stdio_client(params_with(bare / "bin-empty"), errlog=errlog) as (read, write):
+            async with ClientSession(read, write) as s:
+                await s.initialize()
+                before = tree(bare)
+                res = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration", "accept_setup": True, "accept_license": True}))
+                e = res.get("error") or {}
+                c.check(f"no ComfyUI and no package manager -> BACKEND_NOT_INSTALLED naming {name}; nothing changed",
+                        e.get("code") == "BACKEND_NOT_INSTALLED" and e.get("action_by") == "human" and name in e.get("next_step", "")
+                        and tree(bare) == before, json.dumps(res)[:400])
+
+    # A fake package manager on the PATH. It installs nothing, so the plan stops after its step.
+    fake_program(bare / "bin-fake", manager, record)
+    with open(tmp / "server-no-comfyui.stderr.log", "w", encoding="utf-8") as errlog:
+        async with stdio_client(params_with(bare / "bin-fake"), errlog=errlog) as (read, write):
+            async with ClientSession(read, write) as s:
+                await s.initialize()
+                before = tree(bare)
+                res = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration"}))
+                e = res.get("error") or {}
+                steps = (e.get("details") or {}).get("steps") or []
+                kinds = [st.get("kind") for st in steps]
+                pkg = steps[0] if steps else {}
+                command = pkg.get("command") or [""]
+                c.check("no ComfyUI -> SETUP_CONFIRMATION_REQUIRED, action_by=human, with details.steps",
+                        e.get("code") == "SETUP_CONFIRMATION_REQUIRED" and e.get("action_by") == "human" and e.get("retryable") is False
+                        and kinds[:1] == ["package"] and kinds[-1:] == ["backend"] and pkg.get("name") == name
+                        and Path(command[0]).stem == manager and command[1:] == manager_args
+                        and next((st.get("dir") for st in steps if st.get("kind") == "backend"), None) == str(comfy),
+                        json.dumps(res)[:500])
+
+                res = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration", "accept_license": True}))
+                c.check("no change on disk before the setup consent, also with accept_license=true",
+                        (res.get("error") or {}).get("code") == "SETUP_CONFIRMATION_REQUIRED" and tree(bare) == before
+                        and not record.exists() and not comfy.exists(), json.dumps(res)[:300])
+
+                res = env_of(await s.call_tool("install_workflow", {"workflow": "absent-style", "accept_setup": True}))
+                c.check("accept_setup=true without accept_license -> LICENSE_CONFIRMATION_REQUIRED; nothing changed",
+                        (res.get("error") or {}).get("code") == "LICENSE_CONFIRMATION_REQUIRED" and tree(bare) == before
+                        and not record.exists(), json.dumps(res)[:300])
+
+                progress: list[str] = []
+
+                async def on_progress(p, total, message):
+                    progress.append(message or "")
+
+                res = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration", "accept_setup": True},
+                                               progress_callback=on_progress))
+                e = res.get("error") or {}
+                ran = record.read_text(encoding="utf-8").split() if record.exists() else []
+                c.check(f"accept_setup=true runs {manager} with the arguments of the spec, then stops: {program} not found",
+                        ran == manager_args and e.get("code") == "BACKEND_NOT_INSTALLED"
+                        and ((e.get("details") or {}).get("step") or {}).get("kind") == "package"
+                        and f"{program} was not found" in e.get("message", "") and not comfy.exists(),
+                        json.dumps(res)[:400] + f" ran={ran}")
+                c.check("install_workflow sends a progress message that names the setup step",
+                        any(m.startswith("setup step 1 of ") and name in m for m in progress), str(progress))
+
+
 HTTPD: ThreadingHTTPServer
 
 
@@ -384,7 +503,7 @@ def main() -> int:
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
     passed = sum(1 for ok, _, _ in c.rows if ok)
     shipped = sum(1 for d in (ROOT / "workflows").iterdir() if (d / "manifest.json").is_file())
-    total = 28 + 2 * shipped  # 28 server checks, plus 2 style-neutral checks for each shipped workflow
+    total = 35 + 2 * shipped  # 35 server checks, plus 2 style-neutral checks for each shipped workflow
     print(f"contract: {passed} of {total} passed")
     return 0 if passed == total and len(c.rows) == total else 1
 

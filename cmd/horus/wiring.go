@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"time"
 
 	"github.com/hieplam/horus/internal/backend"
@@ -68,6 +69,9 @@ type seams struct {
 	now      func() time.Time  // the time in the name of a backup of extra_model_paths.yaml
 	goos     string            // the OS whose backend installs and starts ComfyUI; "" means this OS
 	install  provision.Backend // the ComfyUI install of horus setup; nil means the backend of goos
+	// installer is the PATH entry and the program file of horus uninstall;
+	// nil means the functions of internal/platform.
+	installer provision.Installer
 }
 
 // newSetup makes the setup service on the model files, the downloader, the
@@ -89,6 +93,43 @@ func setupAt(place cli.SetupPlace) cli.Setup { return newSetup(place, seams{}) }
 
 // setupStepsAt is the setup service for the flags of horus setup.
 func setupStepsAt(place cli.SetupPlace) cli.SetupSteps { return newSetup(place, seams{}) }
+
+// newUninstall makes the setup service of place with the parts of horus
+// uninstall: the backend of goos (its folder, its server and its stop), the
+// OS (the PATH entry and the program file) and the programs claude and
+// codex.
+func newUninstall(place cli.SetupPlace, s seams) *provision.Service {
+	var osPart provision.Installer = installerOS{}
+	if s.installer != nil {
+		osPart = s.installer
+	}
+	comfyInstall := backendFor(s.goos, backend.Place{Dir: place.ComfyUIDir, URL: place.ServerURL}, backend.Archive{})
+	return newSetup(place, s).WithUninstall(provision.UninstallSystem{Comfy: comfyInstall, OS: osPart, Programs: platform.Programs{}})
+}
+
+// uninstallAt is the service for the flags of horus uninstall.
+func uninstallAt(place cli.SetupPlace) cli.Uninstaller { return newUninstall(place, seams{}) }
+
+// installerOS gives the uninstall the functions of internal/platform for
+// the PATH entry of the install scripts and the file of this program.
+type installerOS struct{}
+
+func (installerOS) Program() (string, error) { return os.Executable() }
+
+func (installerOS) PathEntry(program string) ([]string, error) {
+	home, _ := os.UserHomeDir()
+	return platform.PathEntry(program, home)
+}
+
+func (installerOS) RemovePathEntry(program string) error {
+	home, _ := os.UserHomeDir()
+	return platform.RemovePathEntry(program, home)
+}
+
+func (installerOS) RemoveProgram() error {
+	_, err := platform.RemoveSelf()
+	return err
+}
 
 // downloader gives internal/provision the downloader of internal/download.
 // The service cannot name the types of an adapter, so this glue copies the

@@ -221,18 +221,9 @@ func inside(root, p string) bool {
 // the spec).
 func planInside(t *testing.T, root string, u *Uninstall) {
 	t.Helper()
-	f := u.Facts
-	for _, p := range []string{f.ComfyFolder, f.VenvPath, f.UserDir, f.Program, f.StateFile} {
-		if p != "" && !inside(root, p) {
+	for _, p := range u.Paths() {
+		if !inside(root, p) {
 			t.Fatalf("the plan names %s, outside the sandbox %s", p, root)
-		}
-	}
-	for _, it := range u.Items {
-		if !inside(root, it.Path) {
-			t.Fatalf("the plan item %q names %s, outside the sandbox %s", it.What, it.Path, root)
-		}
-		if len(it.Command) > 0 && !inside(root, it.Command[0]) {
-			t.Fatalf("the plan item %q runs %s, outside the sandbox %s", it.What, it.Command[0], root)
 		}
 	}
 }

@@ -172,6 +172,26 @@ func (u *Uninstall) Removes() int {
 	return n
 }
 
+// Paths gives every path that the plan names: the folders and files of the
+// facts, the path of each item, and the program of each command. The tests
+// check that each one is in their sandbox before they run the plan.
+func (u *Uninstall) Paths() []string {
+	f := u.Facts
+	var out []string
+	for _, p := range []string{f.ComfyFolder, f.VenvPath, f.UserDir, f.Program, f.StateFile} {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	for _, it := range u.Items {
+		out = append(out, it.Path)
+		if len(it.Command) > 0 {
+			out = append(out, it.Command[0])
+		}
+	}
+	return out
+}
+
 // The reasons of a KEEP item.
 const (
 	whyUserData = "data of the user"

@@ -33,6 +33,12 @@ commands.
 | 2026-11-15 | Two tests of the old root rule are replaced by tests of the new rule: `TestRootFallsBackToTheExecutableFolder` by `TestRootWithoutACloneIsEmpty`, and `TestRootFindsWorkflowsFolderAboveTheCurrentFolder` by `TestRootFindsTheCloneAboveTheCurrentFolder` (its sandbox is now a clone). | the T2 agent (the spec changes the rule) | The spec removes the folder of the program as a root and the rule "any folder with `workflows/`". The new tests check the same places with the new rule. No test of another behaviour changed. |
 | 2026-11-15 | The test "two programs write the copy at the same time" starts the test program 4 times at once as child processes, with one empty user folder. | the T2 agent | Separate processes test the same race as two `horus` programs: the temporary folder and the rename. |
 | 2026-11-15 | `tests/mcp_contract.py` and `tests/workflow_parity.py` do not change. | the T2 agent | Both set `HORUS_WORKFLOWS_DIR` to their sandbox (the parity test also sets `HORUS_ROOT`), so the new root rule does not reach them. |
+| 2026-11-15 | The package step and the comfy-cli step are in a plan only when ComfyUI is not installed. This also holds for the Python 3.12 step of macOS. | the T4 agent (design gap) | The spec says that a machine with ComfyUI gets the plan of today. A Python step without a comfy-cli step and a ComfyUI step installs a package that no step uses. |
+| 2026-11-15 | The package of each OS is plain data: `platform.Package`, given by `backend.SetupNeeds(goos)`. The service gets it with `Service.WithSystem`, and `provision.New` does not change. A service without a system plans as in Phase 3. | the T4 agent (design rules 1 and 4) | The backend knows what its install needs. The service uses no `runtime.GOOS` (archtest). No caller of `provision.New` changes. |
+| 2026-11-15 | horus finds `winget` and `brew` only on the PATH. After a package step, it looks for the program in the folders of the package: `%ProgramFiles%\7-Zip`, and the folder of `brew` (the bin folder of Homebrew). No path of Homebrew is written in the code. | the T4 agent (design gap) | A test on `macos-latest` sets the PATH and so can never find the real `brew` of the runner. |
+| 2026-11-15 | The test of `-yes -with-packages` for Windows replaces the install of the portable build with a fake (the seam `install` of `cmd/horus`). The fake also needs `7z` in the 7-Zip folder of `%ProgramFiles%`. The macOS case runs the real comfy-cli backend with the fake `brew`, a fake `python3.12` and the fake `comfy`. | the T4 agent (standing rule: a plan command that no longer fits) | The portable install downloads 1.9 GB. The test of `findSevenZip` proves that the real install finds `7z.exe` in that folder. |
+| 2026-11-15 | `TestSetupWithoutYesChangesNoFile` now sets its system: Windows, with a fake `7z` on the PATH. Its checks did not change. | the T4 agent (standing rule: no test is made weaker) | Without that, the test reads the real PATH. On `macos-latest` the plan then has a comfy-cli step, and the step count of the test is wrong. |
+| 2026-11-15 | The refusal is the pure method `Plan.Refusal(withPackages)`. `RunPlan` calls it first, and `horus setup` calls it before it prints "Running the plan.". | the T4 agent (design rule 3) | T5 (`install_workflow`) needs the same check before it changes anything. |
 
 ## Baseline
 
@@ -312,3 +318,67 @@ Rows passed 1 → 2 on the main of T0, and 2 → 3 after the rebase on the main 
 `TestHorusWorkflowsDirReplacesTheBuiltInWorkflows` ("the copy has no it-illustration"). An `IsClone` that accepts
 each folder with `workflows/` fails `TestAFolderWithOnlyAWorkflowsFolderIsNotAClone` ("a folder with only a workflows
 folder must not be a clone").
+
+## T4
+
+Task: [#140](https://github.com/hieplam/horus/issues/140). Files: `internal/provision/setup.go`,
+`internal/provision/packages_test.go`, `internal/cli/setup.go`, `internal/backend/needs.go`,
+`internal/backend/needs_test.go`, `internal/backend/portable.go`, `internal/platform/package.go`,
+`cmd/horus/wiring.go`, `cmd/horus/setup_packages_test.go`, `cmd/horus/doctor_setup_test.go`.
+
+**What changed.** `horus setup <workflow>` now plans the steps of the spec in this order: the package
+(7-Zip with `winget` on Windows, Python 3.12 with `brew` on macOS), comfy-cli (macOS), ComfyUI, then the model files.
+`-yes` with a package step and without `-with-packages` changes nothing and exits 1. Its text names the
+package, the command, and the two ways to go on. Without a package manager, the step is a step for a person, and
+`-yes` exits 1. Each `Step` has its kind, `Name` (what it installs), `Command` (a package step) and `Dir`. T5 needs
+these fields for `details.steps`.
+
+**Red** (before the change, on `594b970`):
+
+```
+$ go test ./internal/provision ./cmd/horus -run 'Package|WithPackages' -v
+testing: warning: no tests to run
+PASS
+ok  	github.com/hieplam/horus/internal/provision	1.274s [no tests to run]
+testing: warning: no tests to run
+PASS
+ok  	github.com/hieplam/horus/cmd/horus	0.238s [no tests to run]
+```
+
+**Green** (on the PC):
+
+```
+$ go test -count=1 ./internal/provision ./internal/cli ./internal/backend ./cmd/horus
+ok  	github.com/hieplam/horus/internal/provision	13.842s
+ok  	github.com/hieplam/horus/internal/cli	3.169s
+ok  	github.com/hieplam/horus/internal/backend	47.478s
+ok  	github.com/hieplam/horus/cmd/horus	10.095s
+$ python tests/mcp_contract.py --server-cmd bin/horus.exe mcp
+contract: 30 of 30 passed
+$ python tests/workflow_parity.py
+parity: 17 of 17 cases equal
+$ python scripts/lint-public.py
+lint-public: 0 finding(s)
+```
+
+`gofmt -l .` prints nothing. `GOOS=darwin GOARCH=arm64 go vet ./...` passes. The CI job `go darwin/arm64` of the
+pull request runs the same tests on `macos-latest`.
+
+**Stub check.**
+
+- A plan without the package step (the condition of the package step made false) fails the order test:
+  `packages_test.go:121: steps: backend, file diffusion, file text_encoder, file vae` (Windows) and
+  `steps: comfy-cli, backend, ...` (macOS).
+- A `-yes` that runs the package step without `-with-packages` (the refusal made false) leaves a line in the
+  argument file of the fake `winget`, and the refusal test fails:
+  `setup_packages_test.go:227: the package manager ran: "install --id 7zip.7zip -e --accept-source-agreements --accept-package-agreements\n"`.
+
+**Ratchet.** The pinned tests of `full-setup` that pass, in the detail of the goal tool: 0 → 5 (the 5 tests of the
+command). Before, the detail named all 7 pins. After, it names only the 2 pins of T5 and the count of error codes:
+
+```
+$ python tools/goal_check.py --phase 4 --no-ci --only full-setup --server-cmd <worktree>/bin/horus.exe mcp
+FAIL  full-setup - no passing test: TestInstallWorkflowWithoutAcceptSetupAnswersSetupConfirmationRequired (not in internal/mcpserver, T5); TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps (not in internal/mcpserver, T5); horus errors -json lists 21 codes, needs 22
+```
+
+Go test functions: 250 → 265.

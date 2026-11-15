@@ -113,6 +113,7 @@ type Service struct {
 	comfy     ComfyUI
 	backend   Backend
 	serverURL string
+	sys       System // the programs and the needs of the backend (WithSystem)
 }
 
 // New makes the service. serverURL is the address of comfy, for the text of
@@ -137,6 +138,7 @@ type Request struct {
 	Quick        bool     // check: the size only, no SHA-256
 	Yes          bool     // remove: delete the files; false = only the plan
 	Force        bool     // remove: also delete a file that another workflow lists
+	WithPackages bool     // setup: a person approved the package steps of the plan
 }
 
 // Watch sees an install while it runs. Each field can be nil.
@@ -149,6 +151,8 @@ type Watch struct {
 	Out io.Writer
 	// Failed: the download of the file failed.
 	Failed func(err error)
+	// Step: RunPlan starts a step that is not a download.
+	Step func(st Step)
 }
 
 // ErrNoComfyUI is in the chain of the error of an install that found no

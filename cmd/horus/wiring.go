@@ -64,9 +64,10 @@ func installAt(dir string) devtools.Install { return newBackend(cli.BackendPlace
 // seams are the test seams of the setup service and the image service. The zero value is the real
 // behaviour.
 type seams struct {
-	download download.Options // the base options of each download
-	now      func() time.Time // the time in the name of a backup of extra_model_paths.yaml
-	goos     string           // the OS whose backend installs and starts ComfyUI; "" means this OS
+	download download.Options  // the base options of each download
+	now      func() time.Time  // the time in the name of a backup of extra_model_paths.yaml
+	goos     string            // the OS whose backend installs and starts ComfyUI; "" means this OS
+	install  provision.Backend // the ComfyUI install of horus setup; nil means the backend of goos
 }
 
 // newSetup makes the setup service on the model files, the downloader, the
@@ -74,8 +75,13 @@ type seams struct {
 // setting, read at each call.
 func newSetup(place cli.SetupPlace, s seams) *provision.Service {
 	files := &modelfiles.Store{ComfyUIDir: place.ComfyUIDir, ModelsDir: place.ModelsDir, TextEncoderDir: place.TextEncoderDir, Now: s.now}
-	install := backendFor(s.goos, backend.Place{Dir: place.ComfyUIDir, URL: place.ServerURL}, backend.Archive{})
-	return provision.New(files, downloader{s.download}, comfy.New(place.ServerURL), install, place.ServerURL)
+	var install provision.Backend = backendFor(s.goos, backend.Place{Dir: place.ComfyUIDir, URL: place.ServerURL}, backend.Archive{})
+	if s.install != nil {
+		install = s.install
+	}
+	needs := backend.SetupNeeds(s.goos)
+	return provision.New(files, downloader{s.download}, comfy.New(place.ServerURL), install, place.ServerURL).
+		WithSystem(provision.System{Programs: platform.Programs{}, Package: needs.Package, ComfyCLI: needs.ComfyCLI})
 }
 
 // setupAt is the setup service for the flags of horus workflow.

@@ -818,3 +818,63 @@ outside a clone, `horus setup it-illustration` printed the plan of 4 steps and `
 
 **Ratchet.** The place of the install steps in the README: section 3 (the clone and `go install` steps) with no install
 line → section 1 (both install lines and the manual steps).
+
+## T9
+
+Task: [#145](https://github.com/hieplam/horus/issues/145). File: `.github/workflows/fresh-machine.yml`.
+
+**What changed.** The workflow `fresh-machine` has the run name `fresh-machine source=<source> tag=<tag>`. It runs by
+`workflow_dispatch` (inputs `source` and `tag`), when a release is published (source `release`), and on a pull request
+that changes its own file. The job `assets` builds the release files with `scripts/build-release.sh` (source `build`).
+The job `fresh` runs on `windows-latest` and `macos-latest`: the install line (the local server for `build`, the README
+line word for word for `release`), then in a new shell outside the checkout `horus version`, `horus workflow list`,
+`horus doctor`, `horus setup it-illustration`, the real ComfyUI install, the plan again, `horus uninstall` and
+`horus uninstall -yes`, then shell checks. The job `by hand` runs the manual install steps of the README against the real
+release (source `release` only). The workflow reads no secret and downloads no model file.
+
+**Decisions.** The `pull_request` trigger with a path filter on the workflow file stays: it tests the file before each
+merge, and the filter keeps the long ComfyUI install rare. macOS uses `actions/setup-python` 3.12 for `python3.12`, and
+the new shell gets that folder, Homebrew and the system folders in its PATH. The manual install commands of the README are
+in the job `by hand`, because the row `readme` needs every command of sections 1 and 2 in the file.
+
+**Red.** `gh workflow list` on `main` at `c04f0ea` names no `fresh-machine`, and
+`python tools/goal_check.py --phase 4 --no-ci --only readme` printed
+`FAIL  readme - 1 problems: missing: .github/workflows/fresh-machine.yml`.
+
+**Green.** Run 43693609174 (pull request #162, title `fresh-machine source=build tag=none`): `assets`, `fresh windows-latest`
+(3 m 45 s) and `fresh macos-latest` (3 m 13 s) are green. Plan before and after the install:
+
+```
+windows  Plan: 4 step(s):  1. install ComfyUI in C:\Users\runneradmin\ComfyUI_windows_portable  2-4. download (3 model files)
+windows  OK: ComfyUI v0.44.0 is installed in C:\Users\runneradmin\ComfyUI_windows_portable
+windows  PRESENT   ComfyUI in ...   Plan: 3 step(s): (3 model file downloads)
+windows  the plan has 3 steps, each one a model file download. No model file is downloaded by this workflow.
+macos    Plan: 5 step(s):  1. install comfy-cli ...  2. install ComfyUI in /Users/runner/horus  3-5. download
+macos    OK: comfy-mcp is installed in /Users/runner/.venvs/comfy-mcp
+macos    OK: ComfyUI v0.44.0 is installed in /Users/runner/horus
+macos    Plan: 3 step(s): (3 model file downloads)
+macos    the plan has 3 steps, each one a model file download. No model file is downloaded by this workflow.
+```
+
+After `horus uninstall -yes`:
+
+```
+windows  OK: 4 REMOVE item(s) are gone.   the program file is gone
+windows  the ComfyUI folder is gone: C:\Users\runneradmin\ComfyUI_windows_portable
+windows  a new shell does not find horus
+macos    OK: 5 REMOVE item(s) are gone.
+macos    the ComfyUI folder is gone: /Users/runner/horus
+macos    the venv of comfy-mcp is gone
+macos    a new shell does not find horus
+```
+
+`horus doctor` printed FAIL lines before the install (no ComfyUI folder, no server, no `.mcp.json` on a machine with no
+clone). The log keeps them. `python tools/goal_check.py --phase 4 --no-ci`: `goal: 8 of 8 rows passed`
+(`readme` now passes). The `--real` parts and the source `release` run wait for T10 and T11.
+
+**Stub check.** A workflow that skips the ComfyUI install leaves the step `install ComfyUI` in the plan after the
+install, so the check "the plan has a step that is not a model file step" throws (the plan before the install shows that
+line). An uninstall that keeps the ComfyUI folder fails the check "the ComfyUI folder is still there". A workflow with no
+file fails the row `readme`.
+
+**Ratchet.** Goal rows passed (`--no-ci`): 7 of 8 on `main` at `c04f0ea` → 8 of 8.

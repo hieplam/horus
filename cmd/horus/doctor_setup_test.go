@@ -132,6 +132,14 @@ func (s *sandbox) runSetup(t *testing.T, sm seams, args ...string) (int, string)
 func TestSetupWithoutYesChangesNoFile(t *testing.T) {
 	s := newSandbox(t)
 	sm := s.seams(1 << 50)
+	// The system of the plan: Windows with 7-Zip on the PATH, so the plan of
+	// a machine without ComfyUI has no package step on every OS.
+	sm.goos = "windows"
+	bin := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(bin, platform.ExeName("7z")), nil, 0o755))
+	t.Setenv("PATH", bin)
+	t.Setenv("ProgramFiles", t.TempDir())
+	t.Setenv("ProgramFiles(x86)", "")
 	before := snapshot(t, s.root)
 	code, out := s.runSetup(t, sm, "demo")
 	if code != 0 || !strings.Contains(out, "Plan: 2 step(s):\n") || !strings.Contains(out, "PRESENT   ComfyUI in "+s.comfy) ||
@@ -167,13 +175,15 @@ func TestSetupWithoutYesChangesNoFile(t *testing.T) {
 	}
 }
 
-// TestMain makes the test binary also three other programs:
+// TestMain makes the test binary also other programs:
 //
 //   - HORUS_TEST_AS_HORUS set: horus itself, for a test that runs a command
 //     as a process (comfymcp_test.go). It removes the variable first, so a
 //     program that horus starts does not run as horus too.
 //   - HORUS_FAKE_COMFY_MCP set to an exit code: the fake comfy-mcp
 //     (fakeComfyMCP, comfymcp_test.go).
+//   - a copy named winget, brew, python3.12 or python: the fake package
+//     manager or the fake Python (fakeProgram, setup_packages_test.go).
 //   - the fake comfy (the program of comfy-cli) of the tests:
 //     comfyclitest.Main runs it when the environment asks for it.
 func TestMain(m *testing.M) {
@@ -183,6 +193,9 @@ func TestMain(m *testing.M) {
 	}
 	if code := os.Getenv("HORUS_FAKE_COMFY_MCP"); code != "" {
 		os.Exit(fakeComfyMCP(code))
+	}
+	if code, ok := fakeProgram(); ok {
+		os.Exit(code)
 	}
 	comfyclitest.Main()
 	os.Exit(m.Run())

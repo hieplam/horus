@@ -1,7 +1,8 @@
 // Package provision is the service that sets up a machine: the model files
 // of a workflow (list, check, install and remove), the plan of horus setup
 // (setup.go), the comfy MCP
-// server (comfymcp.go) and the MCP registration (register.go). The commands
+// server (comfymcp.go), the MCP registration (register.go) and the uninstall
+// (uninstall.go). The commands
 // (internal/cli) and the MCP tools (internal/mcpserver) call it in their own
 // process.
 //
@@ -113,7 +114,8 @@ type Service struct {
 	comfy     ComfyUI
 	backend   Backend
 	serverURL string
-	sys       System // the programs and the needs of the backend (WithSystem)
+	sys       System          // the programs and the needs of the backend (WithSystem)
+	un        UninstallSystem // the ComfyUI install, the OS and the programs of horus uninstall (WithUninstall)
 }
 
 // New makes the service. serverURL is the address of comfy, for the text of

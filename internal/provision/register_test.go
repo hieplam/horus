@@ -24,8 +24,15 @@ func fakeClaudeMain(rec string) int {
 		f.WriteString("dir " + wd + "\nargs " + strings.Join(os.Args[1:], " ") + "\n")
 		f.Close()
 	}
+	// "mcp remove" leaves a file next to the record, so that the next
+	// "mcp get" of the same client exits 1 (uninstall_test.go).
+	removed := rec + "." + strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe") + ".removed"
+	if len(os.Args) > 2 && os.Args[2] == "remove" {
+		os.WriteFile(removed, nil, 0o644)
+		return 0
+	}
 	if len(os.Args) > 2 && os.Args[2] == "get" {
-		if os.Getenv("HORUS_FAKE_KNOWN") != "" {
+		if os.Getenv("HORUS_FAKE_KNOWN") != "" && !platform.IsFile(removed) {
 			return 0
 		}
 		return 1

@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/hieplam/horus/internal/platform"
 )
 
 // fake7z records its arguments, then makes the layout of the real archive.
@@ -314,5 +316,50 @@ func TestPinnedValues(t *testing.T) {
 	}
 	if d.ArchiveURL != "https://github.com/Comfy-Org/ComfyUI/releases/download/v0.44.0/ComfyUI_windows_portable_nvidia_cu126.7z" {
 		t.Errorf("URL = %s", d.ArchiveURL)
+	}
+}
+
+// TestInstallWritesTheInstallRecord: the portable build writes the install
+// record into the install folder, and comfy-cli into the workspace
+// <dir>/ComfyUI. Folder names that folder. A skip of an install that horus
+// did not make writes no record.
+func TestInstallWritesTheInstallRecord(t *testing.T) {
+	r := newInstallRig(t, archiveBytes)
+	if err := r.p.Install(context.Background(), r.out); err != nil {
+		t.Fatal(err)
+	}
+	if r.p.Folder() != r.p.Dir {
+		t.Errorf("portable: Folder = %s, want %s", r.p.Folder(), r.p.Dir)
+	}
+	if !platform.HasInstallRecord(r.p.Dir, platform.RecordComfyUI) {
+		t.Error("portable: no install record in the install folder")
+	}
+
+	skip := newInstallRig(t, archiveBytes)
+	main := filepath.Join(skip.p.Dir, "ComfyUI", "main.py")
+	os.MkdirAll(filepath.Dir(main), 0o755)
+	os.WriteFile(main, []byte("x"), 0o644)
+	if err := skip.p.Install(context.Background(), skip.out); err != nil {
+		t.Fatal(err)
+	}
+	if platform.IsFile(filepath.Join(skip.p.Dir, platform.InstallRecordName)) {
+		t.Error("portable: a skip wrote an install record into a folder that horus did not make")
+	}
+
+	t.Setenv("HORUS_FAKE_7Z", "") // the test binary is now the fake comfy, not the fake 7z
+	c := newComfyRig(t)
+	c.putComfy(t, c.bin)
+	if err := c.c.Install(context.Background(), c.out); err != nil {
+		t.Fatalf("comfy-cli: %v\n%s", err, c.out)
+	}
+	ui := filepath.Join(c.dir, "ComfyUI")
+	if c.c.Folder() != ui {
+		t.Errorf("comfy-cli: Folder = %s, want %s", c.c.Folder(), ui)
+	}
+	if !platform.HasInstallRecord(ui, platform.RecordComfyUI) {
+		t.Error("comfy-cli: no install record in the workspace")
+	}
+	if platform.IsFile(filepath.Join(c.dir, platform.InstallRecordName)) {
+		t.Error("comfy-cli: the install record is in the install folder (the user folder on macOS)")
 	}
 }

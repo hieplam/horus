@@ -64,6 +64,16 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		os.Exit(0)
+	case "removeself":
+		// The program of TestTheProgramFileRemovesItself: a copy of the test
+		// binary in a temporary folder deletes its own file, then ends.
+		self, err := RemoveSelf()
+		fmt.Println(self)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "RemoveSelf:", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	case "run":
 		// The program of TestRunGivesTheExitCodeAndTheOutput.
 		wd, _ := os.Getwd()

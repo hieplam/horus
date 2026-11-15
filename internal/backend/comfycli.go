@@ -65,6 +65,10 @@ func (c *comfyCLI) layout() layout {
 // the port.
 func comfyLog(ui, port string) string { return filepath.Join(ui, "user", "comfyui_"+port+".log") }
 
+// Folder gives the workspace <dir>/ComfyUI: comfy makes it, and Install
+// writes the install record into it.
+func (c *comfyCLI) Folder() string { return comfyUIDir(c.absDir()) }
+
 // Install installs ComfyUI with comfy. It returns nil after a skip.
 func (c *comfyCLI) Install(ctx context.Context, out io.Writer) error {
 	dir, err := filepath.Abs(c.dir())
@@ -95,6 +99,12 @@ func (c *comfyCLI) Install(ctx context.Context, out io.Writer) error {
 	}
 	if !isInstalled(dir) {
 		return fmt.Errorf("comfy install ended, but %s is not a file.", filepath.Join(comfyUIDir(dir), "main.py"))
+	}
+	// The install record goes into the workspace that comfy made, not into
+	// the install folder: on macOS the install folder is the user folder of
+	// horus, with .env and outputs/.
+	if err := platform.WriteInstallRecord(comfyUIDir(dir), platform.RecordComfyUI); err != nil {
+		return fmt.Errorf("ComfyUI is installed in %s, but the install record was not written: %w", comfyUIDir(dir), err)
 	}
 	sayInstalled(out, dir)
 	return nil

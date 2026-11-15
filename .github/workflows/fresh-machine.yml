@@ -1,0 +1,439 @@
+name: fresh-machine
+
+# The fresh-machine run: a runner that has only an operating system gets horus through the
+# install line, then follows the commands of README.md and docs/setup.md, then removes
+# everything with horus uninstall -yes.
+#
+#   source: build    the job builds the release files (scripts/build-release.sh) and serves them
+#                    from a local server, so no real release is needed.
+#   source: release  the job runs the install line of the README word for word against the
+#                    newest real release. A published release starts this source by itself.
+#
+# The run reads no secret, sets no HF_TOKEN and downloads no model file. The real install of
+# ComfyUI (about 2 GB on Windows, PyTorch on macOS) runs, because the plan of
+# horus setup it-illustration must have only model file steps after it.
+#
+# The run-name is read by tools/goal_check.py: fresh-machine source=<source> tag=<tag>.
+# A run by hand for a release gives the tag (for example v0.1.0) in the input "tag".
+
+run-name: fresh-machine source=${{ github.event_name == 'release' && 'release' || inputs.source || 'build' }} tag=${{ github.event.release.tag_name || inputs.tag || 'none' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "build: serve files built from this commit. release: the install line of the README against the real release."
+        type: choice
+        options: [build, release]
+        default: build
+      tag:
+        description: "For source release: the tag of the release that is tested, for example v0.1.0. It goes into the run name."
+        type: string
+        default: ""
+  release:
+    types: [published]
+  pull_request:
+    # The workflow tests itself when its own file changes. A path filter keeps the run rare,
+    # because the real install of ComfyUI takes a long time.
+    paths:
+      - .github/workflows/fresh-machine.yml
+
+permissions:
+  contents: read
+
+jobs:
+  assets:
+    name: assets
+    if: github.event_name != 'release' && inputs.source != 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build the release files with the version 0.0.0-fresh
+        run: bash scripts/build-release.sh 0.0.0-fresh release-assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets/
+          if-no-files-found: error
+
+  fresh:
+    name: fresh ${{ matrix.os }}
+    needs: assets
+    # The job "assets" is skipped when the source is release.
+    if: ${{ !cancelled() && (needs.assets.result == 'success' || needs.assets.result == 'skipped') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    continue-on-error: false
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    env:
+      SOURCE: ${{ github.event_name == 'release' && 'release' || inputs.source || 'build' }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag || '' }}
+    steps:
+      # ---- the machine -------------------------------------------------------------------
+      - uses: actions/checkout@v4
+        if: env.SOURCE == 'build'
+      - uses: actions/download-artifact@v4
+        if: env.SOURCE == 'build'
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release-assets
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Disk space before the install
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
+
+      - name: Disk space before the install
+        if: runner.os == 'macOS'
+        run: df -h /
+
+      # ---- the install line ----------------------------------------------------------------
+      - name: Windows, serve the build files
+        if: runner.os == 'Windows' && env.SOURCE == 'build'
+        shell: powershell
+        run: |
+          $good = Join-Path $env:RUNNER_TEMP 'release-assets'
+          Start-Process python -ArgumentList '-m','http.server','8081','--bind','127.0.0.1' -WorkingDirectory $good -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8081/checksums.txt | Out-Null
+
+      - name: Windows, install with the build files
+        if: runner.os == 'Windows' && env.SOURCE == 'build'
+        shell: powershell
+        env:
+          HORUS_INSTALL_BASE_URL: http://127.0.0.1:8081
+        run: |
+          powershell -NoProfile -Command "Get-Content -Raw install.ps1 | iex"
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 exit code $LASTEXITCODE" }
+
+      - name: Windows, install with the install line of the README
+        if: runner.os == 'Windows' && env.SOURCE == 'release'
+        shell: powershell
+        run: |
+          irm https://raw.githubusercontent.com/hieplam/horus/main/install.ps1 | iex
+
+      - name: macOS, serve the build files
+        if: runner.os == 'macOS' && env.SOURCE == 'build'
+        run: |
+          (cd "$RUNNER_TEMP/release-assets" && nohup python -m http.server 8081 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          sleep 3
+          curl -fsS http://127.0.0.1:8081/checksums.txt >/dev/null
+
+      - name: macOS, install with the build files
+        if: runner.os == 'macOS' && env.SOURCE == 'build'
+        env:
+          HORUS_INSTALL_BASE_URL: http://127.0.0.1:8081
+          SHELL: /bin/zsh
+        run: |
+          # The runner has ~/.local/bin on its PATH. A clean PATH makes the script write the profile.
+          cat install.sh | env PATH=/usr/bin:/bin:/usr/sbin:/sbin sh
+          echo "--- the profile:"
+          cat "$HOME/.zprofile"
+
+      - name: macOS, install with the install line of the README
+        if: runner.os == 'macOS' && env.SOURCE == 'release'
+        env:
+          SHELL: /bin/zsh
+        run: |
+          # A clean PATH makes the script write the profile. The line is the line of the README.
+          env PATH=/usr/bin:/bin:/usr/sbin:/sbin sh -c 'curl -fsSL https://raw.githubusercontent.com/hieplam/horus/main/install.sh | sh'
+          echo "--- the profile:"
+          cat "$HOME/.zprofile"
+
+      - name: macOS, record the PATH of a new shell
+        if: runner.os == 'macOS'
+        run: |
+          # A new shell of a person has the system folders, Homebrew, Python 3.12 and the profile.
+          # "env -i" removes the PATH of this step. "zsh -l" reads ~/.zprofile.
+          py="$(dirname "$(command -v python3.12)")"
+          echo "NEWSHELL_PATH=$py:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" >> "$GITHUB_ENV"
+
+      # ---- the commands of the README, in a new shell outside the checkout --------------------
+      - name: Windows, horus version, horus workflow list, horus doctor, the plan before the install
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # A new shell starts with the PATH of the registry, not with the PATH of this step.
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          $dir = Join-Path $env:RUNNER_TEMP 'newshell'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Set-Location $dir
+          Write-Host "folder: $(Get-Location)"
+          if ((Get-Location).Path.StartsWith($env:GITHUB_WORKSPACE)) { throw 'the step runs inside the checkout' }
+          (Get-Command horus).Source
+          $v = horus version
+          $v
+          if ($LASTEXITCODE -ne 0) { throw "horus version: exit code $LASTEXITCODE" }
+          if ($env:SOURCE -eq 'build' -and $v -ne 'horus 0.0.0-fresh') { throw "wrong version: $v" }
+          if ($env:TAG -and $v -ne ('horus ' + $env:TAG.TrimStart('v'))) { throw "the version $v is not the tag $env:TAG" }
+          if ($v -notmatch '^horus [0-9]') { throw "wrong version line: $v" }
+          $list = horus workflow list
+          $list
+          if ($LASTEXITCODE -ne 0) { throw "horus workflow list: exit code $LASTEXITCODE" }
+          if (-not ($list | Select-String 'it-illustration')) { throw 'horus workflow list has no it-illustration' }
+          Write-Host '--- horus doctor (FAIL lines are expected: ComfyUI is not installed yet)'
+          horus doctor
+          Write-Host "horus doctor: exit code $LASTEXITCODE"
+          $global:LASTEXITCODE = 0
+          Write-Host '--- the plan before the install'
+          $plan = (horus setup it-illustration) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "horus setup it-illustration: exit code $LASTEXITCODE" }
+          Write-Host $plan
+          if ($plan -notmatch '(?m)^\s+\d+\. install ComfyUI') { throw 'the plan before the install has no ComfyUI step' }
+          $m = [regex]::Match($plan, '(?m)^MISSING\s+ComfyUI in (.+?)\s*$')
+          if (-not $m.Success) { throw 'the plan does not say where ComfyUI goes' }
+          "COMFY_DIR=$($m.Groups[1].Value)" | Out-File -Append -Encoding ascii $env:GITHUB_ENV
+          Write-Host "ComfyUI folder: $($m.Groups[1].Value)"
+
+      - name: macOS, horus version, horus workflow list, horus doctor, the plan before the install
+        if: runner.os == 'macOS'
+        run: |
+          nz() { env -i HOME="$HOME" PATH="$NEWSHELL_PATH" /bin/zsh -l -c "$1"; }
+          mkdir -p "$RUNNER_TEMP/newshell" && cd "$RUNNER_TEMP/newshell"
+          echo "folder: $(pwd)"
+          case "$(pwd)" in "$GITHUB_WORKSPACE"*) echo "the step runs inside the checkout"; exit 1 ;; esac
+          nz 'command -v horus'
+          v="$(nz 'horus version')"
+          echo "$v"
+          if [ "$SOURCE" = build ]; then test "$v" = "horus 0.0.0-fresh"; fi
+          if [ -n "$TAG" ]; then test "$v" = "horus ${TAG#v}"; fi
+          echo "$v" | grep -Eq '^horus [0-9]'
+          list="$(nz 'horus workflow list')"
+          echo "$list"
+          echo "$list" | grep -q it-illustration
+          echo '--- horus doctor (FAIL lines are expected: ComfyUI is not installed yet)'
+          nz 'horus doctor' || echo "horus doctor: exit code $?"
+          echo '--- the plan before the install'
+          plan="$(nz 'horus setup it-illustration')"
+          echo "$plan"
+          echo "$plan" | grep -Eq '^ +[0-9]+\. install ComfyUI'
+          dir="$(echo "$plan" | sed -n 's/^MISSING  *ComfyUI in //p' | head -n 1)"
+          test -n "$dir"
+          echo "COMFY_DIR=$dir" >> "$GITHUB_ENV"
+          echo "ComfyUI folder: $dir"
+
+      # ---- the real install of ComfyUI -----------------------------------------------------
+      - name: macOS, horus install-comfy-mcp
+        if: runner.os == 'macOS'
+        working-directory: ${{ runner.temp }}/newshell
+        run: |
+          nz() { env -i HOME="$HOME" PATH="$NEWSHELL_PATH" /bin/zsh -l -c "$1"; }
+          nz 'horus install-comfy-mcp'
+
+      - name: Windows, horus install-comfyui
+        if: runner.os == 'Windows'
+        shell: powershell
+        working-directory: ${{ runner.temp }}\newshell
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          horus install-comfyui
+          if ($LASTEXITCODE -ne 0) { throw "horus install-comfyui: exit code $LASTEXITCODE" }
+
+      - name: macOS, horus install-comfyui
+        if: runner.os == 'macOS'
+        working-directory: ${{ runner.temp }}/newshell
+        run: |
+          nz() { env -i HOME="$HOME" PATH="$NEWSHELL_PATH" /bin/zsh -l -c "$1"; }
+          nz 'horus install-comfyui'
+
+      - name: Disk space after the install
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
+
+      - name: Disk space after the install
+        if: runner.os == 'macOS'
+        run: df -h /
+
+      - name: Windows, the plan after the install has only model file steps
+        if: runner.os == 'Windows'
+        shell: powershell
+        working-directory: ${{ runner.temp }}\newshell
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          $plan = (horus setup it-illustration) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "horus setup it-illustration: exit code $LASTEXITCODE" }
+          Write-Host $plan
+          if ($plan -notmatch '(?m)^PRESENT\s+ComfyUI in ') { throw 'the plan does not show ComfyUI as PRESENT' }
+          $steps = @($plan -split "`n" | Where-Object { $_ -match '^\s+\d+\. ' })
+          if ($steps.Count -eq 0) { throw 'the plan has no step: the model files are not missing?' }
+          $other = @($steps | Where-Object { $_ -notmatch '^\s+\d+\. download ' })
+          if ($other.Count -ne 0) { throw "the plan has a step that is not a model file step: $other" }
+          Write-Host "the plan has $($steps.Count) steps, each one a model file download. No model file is downloaded by this workflow."
+          Write-Host '--- horus doctor'
+          horus doctor
+          Write-Host "horus doctor: exit code $LASTEXITCODE"
+          $global:LASTEXITCODE = 0
+
+      - name: macOS, the plan after the install has only model file steps
+        if: runner.os == 'macOS'
+        working-directory: ${{ runner.temp }}/newshell
+        run: |
+          nz() { env -i HOME="$HOME" PATH="$NEWSHELL_PATH" /bin/zsh -l -c "$1"; }
+          plan="$(nz 'horus setup it-illustration')"
+          echo "$plan"
+          echo "$plan" | grep -Eq '^PRESENT +ComfyUI in '
+          steps="$(echo "$plan" | grep -E '^ +[0-9]+\. ' || true)"
+          test -n "$steps"
+          other="$(echo "$steps" | grep -Ev '^ +[0-9]+\. download ' || true)"
+          if [ -n "$other" ]; then echo "the plan has a step that is not a model file step: $other"; exit 1; fi
+          echo "the plan has $(echo "$steps" | wc -l | tr -d ' ') steps, each one a model file download. No model file is downloaded by this workflow."
+          echo '--- horus doctor'
+          nz 'horus doctor' || echo "horus doctor: exit code $?"
+
+      # ---- the uninstall ----------------------------------------------------------------------
+      - name: Windows, horus uninstall -yes
+        if: runner.os == 'Windows'
+        shell: powershell
+        working-directory: ${{ runner.temp }}\newshell
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          $exe = (Get-Command horus).Source
+          if (-not (Test-Path $env:COMFY_DIR)) { throw "the ComfyUI folder is not there before the uninstall: $env:COMFY_DIR" }
+          horus uninstall
+          if ($LASTEXITCODE -ne 0) { throw "horus uninstall (the plan): exit code $LASTEXITCODE" }
+          if (-not (Test-Path $env:COMFY_DIR)) { throw 'the plan without -yes removed the ComfyUI folder' }
+          horus uninstall -yes
+          if ($LASTEXITCODE -ne 0) { throw "horus uninstall -yes: exit code $LASTEXITCODE" }
+          # On Windows the program file goes a moment after the end of the program.
+          for ($i = 0; ($i -lt 50) -and (Test-Path $exe); $i++) { Start-Sleep -Milliseconds 200 }
+          if (Test-Path $exe) { throw "the program file is still there after 10 s: $exe" }
+          Write-Host 'the program file is gone'
+
+      - name: macOS, horus uninstall -yes
+        if: runner.os == 'macOS'
+        working-directory: ${{ runner.temp }}/newshell
+        run: |
+          nz() { env -i HOME="$HOME" PATH="$NEWSHELL_PATH" /bin/zsh -l -c "$1"; }
+          test -d "$COMFY_DIR"
+          nz 'horus uninstall'
+          test -d "$COMFY_DIR" || { echo "the plan without -yes removed the ComfyUI folder"; exit 1; }
+          nz 'horus uninstall -yes'
+
+      - name: Windows, after the uninstall the ComfyUI folder is gone and a new shell does not find horus
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # A new shell starts with the PATH of the registry, not with the PATH of this step.
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (Test-Path $env:COMFY_DIR) { throw "the ComfyUI folder is still there: $env:COMFY_DIR" }
+          Write-Host "the ComfyUI folder is gone: $env:COMFY_DIR"
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\horus\horus.exe'
+          if (Test-Path $exe) { throw "the program file is still there: $exe" }
+          $n = ([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ -like '*Programs\horus' }).Count
+          if ($n -ne 0) { throw "the PATH still has $n entries of horus" }
+          if (Get-Command horus -ErrorAction SilentlyContinue) { throw "a new shell finds horus: $((Get-Command horus).Source)" }
+          Write-Host 'a new shell does not find horus'
+          Write-Host '--- what is left in the user folder'
+          Get-ChildItem $env:USERPROFILE -Force | Select-Object Name
+
+      - name: macOS, after the uninstall the ComfyUI folder is gone and a new shell does not find horus
+        if: runner.os == 'macOS'
+        run: |
+          if [ -e "$COMFY_DIR" ]; then echo "the ComfyUI folder is still there: $COMFY_DIR"; exit 1; fi
+          echo "the ComfyUI folder is gone: $COMFY_DIR"
+          if [ -e "$HOME/.venvs/comfy-mcp" ]; then echo "the venv of comfy-mcp is still there"; exit 1; fi
+          echo "the venv of comfy-mcp is gone"
+          if [ -e "$HOME/.local/bin/horus" ]; then echo "the program file is still there"; exit 1; fi
+          if grep -q 'added by the horus installer' "$HOME/.zprofile"; then echo "the profile still has the line"; exit 1; fi
+          if env -i HOME="$HOME" PATH="$NEWSHELL_PATH" /bin/zsh -l -c 'command -v horus'; then echo "a new shell finds horus"; exit 1; fi
+          echo "a new shell does not find horus"
+          echo '--- what is left in the home folder'
+          ls -A "$HOME" | head -n 50
+
+  by-hand:
+    # The steps "Install by hand" of the README, on a runner that has only an operating system.
+    # They download the real release, so this job runs only for the source release.
+    name: by hand ${{ matrix.os }}
+    if: github.event_name == 'release' || inputs.source == 'release'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    continue-on-error: false
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - name: Windows, download the program and the list of hashes
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\byhand" | Out-Null
+          Set-Location "$env:RUNNER_TEMP\byhand"
+          Invoke-WebRequest https://github.com/hieplam/horus/releases/latest/download/horus-windows-amd64.exe -OutFile horus.exe
+          Invoke-WebRequest https://github.com/hieplam/horus/releases/latest/download/checksums.txt -OutFile checksums.txt
+
+      - name: Windows, print the SHA-256 and compare it
+        if: runner.os == 'Windows'
+        shell: powershell
+        working-directory: ${{ runner.temp }}\byhand
+        run: |
+          (Get-FileHash horus.exe -Algorithm SHA256).Hash
+          Select-String horus-windows-amd64.exe checksums.txt
+          $have = (Get-FileHash horus.exe -Algorithm SHA256).Hash
+          $want = ((Get-Content checksums.txt | Where-Object { $_ -match 'horus-windows-amd64.exe' }) -split '\s+')[0]
+          if ($have -ne $want) { throw "the hashes differ: $have and $want" }
+          Write-Host 'the two hashes are equal'
+
+      - name: Windows, move the program and add the folder to the PATH
+        if: runner.os == 'Windows'
+        shell: powershell
+        working-directory: ${{ runner.temp }}\byhand
+        run: |
+          New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\horus"
+          Move-Item horus.exe "$env:LOCALAPPDATA\Programs\horus\horus.exe" -Force
+          [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Programs\horus", 'User')
+
+      - name: Windows, a new shell finds horus
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          (Get-Command horus).Source
+          $v = horus version
+          $v
+          if ($LASTEXITCODE -ne 0 -or $v -notmatch '^horus [0-9]') { throw "wrong version line: $v" }
+
+      - name: macOS, download the program and the list of hashes
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$RUNNER_TEMP/byhand" && cd "$RUNNER_TEMP/byhand"
+          curl -fsSLO https://github.com/hieplam/horus/releases/latest/download/horus-darwin-arm64
+          curl -fsSLO https://github.com/hieplam/horus/releases/latest/download/checksums.txt
+
+      - name: macOS, print the SHA-256 and compare it
+        if: runner.os == 'macOS'
+        working-directory: ${{ runner.temp }}/byhand
+        run: |
+          shasum -a 256 horus-darwin-arm64
+          grep horus-darwin-arm64 checksums.txt
+          have="$(shasum -a 256 horus-darwin-arm64 | cut -d' ' -f1)"
+          want="$(grep horus-darwin-arm64 checksums.txt | cut -d' ' -f1)"
+          test "$have" = "$want"
+          echo "the two hashes are equal"
+
+      - name: macOS, make the file a program, move it and add the folder to the PATH
+        if: runner.os == 'macOS'
+        working-directory: ${{ runner.temp }}/byhand
+        run: |
+          chmod +x horus-darwin-arm64
+          mkdir -p "$HOME/.local/bin"
+          mv horus-darwin-arm64 "$HOME/.local/bin/horus"
+          echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+
+      - name: macOS, a new shell finds horus
+        if: runner.os == 'macOS'
+        run: |
+          # "env -i" removes the PATH of this step. "zsh -i" reads ~/.zshrc.
+          v="$(env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin /bin/zsh -i -c 'horus version')"
+          echo "$v"
+          echo "$v" | grep -Eq '^horus [0-9]'

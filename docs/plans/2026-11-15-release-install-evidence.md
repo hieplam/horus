@@ -720,6 +720,25 @@ Then `-yes` printed `OK: removed the ComfyUI install folder: ...`, `OK: removed 
 fixed in this pull request: the first `KEEP` line said that the file stays, but it is in the ComfyUI folder that goes. The
 line now says `It is in the ComfyUI install folder, so it goes with that folder`.
 
+**CI run 43691777306 (pull request #160): both install jobs green with the uninstall step.** The real PATH removal and
+the removal of the program file are proven only here, on the runners:
+
+```
+install windows-latest  REMOVE  <home>\horus\builtin-workflows  (a file of horus in the user folder)
+install windows-latest  REMOVE  HKCU\Environment\Path  (the PATH entry of the install script)
+install windows-latest  REMOVE  <home>\AppData\Local\Programs\horus\horus.exe  (the program file: ...)
+install windows-latest  OK: removed the PATH entry of the install script: HKCU\Environment\Path
+install windows-latest  OK: removed the program file: <home>\AppData\Local\Programs\horus\horus.exe
+install windows-latest  OK: 3 REMOVE item(s) are gone.
+install windows-latest  the program file is gone
+install windows-latest  a new shell does not find horus
+install macos-latest    REMOVE  <home>/.zprofile  (the PATH entry of the install script)
+install macos-latest    OK: removed the program file: <home>/.local/bin/horus
+install macos-latest    OK: 3 REMOVE item(s) are gone.
+install macos-latest    the program file and the profile line are gone
+install macos-latest    a new shell does not find horus
+```
+
 **Stub check.** Each stub is one changed line, run against the tests and then put back:
 
 - `RunUninstall` returns at once (an `uninstall -yes` that does nothing): 6 tests of `internal/provision` fail

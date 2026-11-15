@@ -302,8 +302,9 @@ $ python scripts/lint-public.py
 lint-public: 0 finding(s)
 ```
 
-**Ratchet.** `python tools/goal_check.py --phase 4 --no-ci`: rows passed 1 → 2 (`binary-only` and
-`same-behaviour`). Go test functions 250 → 261. The answer "No workflows folder" outside a clone: 1 → 0.
+**Ratchet.** `python tools/goal_check.py --phase 4 --no-ci`: the row `binary-only` goes from FAIL to PASS.
+Rows passed 1 → 2 on the main of T0, and 2 → 3 after the rebase on the main with T1 (`release`, `binary-only`,
+`same-behaviour`). Go test functions 250 → 263 (with T1). The answer "No workflows folder" outside a clone: 1 → 0.
 
 **Stub check.** A `writeCopy` that writes nothing (no embedded workflows on disk) fails
 `TestWorkflowListWithoutAClonePrintsTheBuiltInWorkflows` (exit 1),

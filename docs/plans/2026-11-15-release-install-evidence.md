@@ -504,3 +504,21 @@ install.sh on MINGW64 x86_64 (no shim)         "this script supports macOS on Ap
 python tools/goal_check.py --phase 4 --no-ci --only install-line
 PASS  install-line - install scripts ok; CI part skipped (--no-ci); real part not run (needs --real ...)
 ```
+
+### CI run 43687880114 (pull request #155): both jobs green
+
+```
+install windows-latest  horus 0.0.0-ci
+install windows-latest  it-illustration                      (horus workflow list, run from the runner temp folder)
+install windows-latest  install.ps1: the SHA-256 of the download is not the SHA-256 in checksums.txt. Nothing is installed.
+install windows-latest  exit code: 1 / the folder is empty
+install macos-latest    export PATH="/Users/runner/.local/bin:$PATH" # added by the horus installer   (the profile .zprofile)
+install macos-latest    horus 0.0.0-ci                       (zsh -l, clean environment)
+install macos-latest    it-illustration
+install macos-latest    install.sh: the SHA-256 of the download is not the SHA-256 in checksums.txt. Nothing is installed.
+install macos-latest    the folder is empty
+```
+
+Two CI test faults showed up and were fixed in this pull request: the runner already has `~/.local/bin` on its PATH (the macOS steps now run the script with a clean PATH), and the old wrong-checksum test changed the first character to `f`, which is no change when it already was `f` (it now changes `0` to `1` and any other character to `0`).
+
+**Ratchet.** Goal rows passed 2 -> 3 once `python tools/goal_check.py --phase 4` reads these two green jobs (the part of `install-line` without `--real`).

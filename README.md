@@ -12,6 +12,116 @@ You describe the image. The agent reads this repo, builds or changes a
 workflow, checks it against your running ComfyUI, runs it, and shows you the
 result.
 
+## Install horus
+
+horus is one program. You install it with one line. The line downloads the
+program from the newest [GitHub Release](https://github.com/hieplam/horus/releases),
+checks its SHA-256, and puts it on your PATH. SHA-256 is a hash of the file. A
+download that does not match the hash is never installed. You need no clone of
+this repo, no Go and no Python for this step.
+
+On Windows 10 or 11 (64-bit), open PowerShell and run:
+
+```
+irm https://raw.githubusercontent.com/hieplam/horus/main/install.ps1 | iex
+```
+
+On macOS with Apple Silicon, open Terminal and run:
+
+```
+curl -fsSL https://raw.githubusercontent.com/hieplam/horus/main/install.sh | sh
+```
+
+The script puts the program here:
+
+| System | Program file | PATH |
+|---|---|---|
+| Windows | `%LOCALAPPDATA%\Programs\horus\horus.exe` | The script adds the folder to the PATH of your user account. |
+| macOS | `~/.local/bin/horus` | The script adds one marked line to your shell profile when the folder is not on the PATH. |
+
+Open a new terminal after the install, so that the new PATH is read. To update,
+run the same line again. The script replaces the program. It sends no token and
+reads no secret.
+
+**Settings.** Set an environment variable before the line to change a default.
+`HORUS_VERSION` picks a release, for example `0.1.0`. The default is the newest
+release. `HORUS_INSTALL_DIR` picks the folder of the program.
+`HORUS_INSTALL_NO_PATH=1` leaves the PATH unchanged.
+
+**Install by hand.** Use these steps when you do not want to run a script from the
+internet. There are three: download the program, check its SHA-256, and put it on
+the PATH. Do the steps of your system.
+
+On Windows, in PowerShell, download the program and the list of hashes:
+
+```
+Invoke-WebRequest https://github.com/hieplam/horus/releases/latest/download/horus-windows-amd64.exe -OutFile horus.exe
+Invoke-WebRequest https://github.com/hieplam/horus/releases/latest/download/checksums.txt -OutFile checksums.txt
+```
+
+Print the SHA-256 of your download, then the line of `checksums.txt` for the same
+file. The two hashes must be equal, letter for letter. If they differ, delete
+`horus.exe` and do not run it.
+
+```
+(Get-FileHash horus.exe -Algorithm SHA256).Hash
+Select-String horus-windows-amd64.exe checksums.txt
+```
+
+Move the program to its folder, then add the folder to the PATH of your user account:
+
+```
+New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\horus"
+Move-Item horus.exe "$env:LOCALAPPDATA\Programs\horus\horus.exe" -Force
+[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Programs\horus", 'User')
+```
+
+On macOS, in Terminal, download the program and the list of hashes:
+
+```
+curl -fsSLO https://github.com/hieplam/horus/releases/latest/download/horus-darwin-arm64
+curl -fsSLO https://github.com/hieplam/horus/releases/latest/download/checksums.txt
+```
+
+Print the SHA-256 of your download, then the line of `checksums.txt` for the same
+file. The two hashes must be equal. If they differ, delete `horus-darwin-arm64` and
+do not run it.
+
+```
+shasum -a 256 horus-darwin-arm64
+grep horus-darwin-arm64 checksums.txt
+```
+
+Make the file a program, move it to its folder, and add the folder to the PATH:
+
+```
+chmod +x horus-darwin-arm64
+mkdir -p "$HOME/.local/bin"
+mv horus-darwin-arm64 "$HOME/.local/bin/horus"
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
+
+**If it fails.**
+
+- `horus` is "not recognized" or "command not found": open a new terminal. The old terminal has the old PATH.
+- The script says that the SHA-256 is wrong: the download is damaged or changed. The script installed nothing. Run the line again. If it fails again, do not use the program.
+- The script says that it cannot download: the release does not exist or the network is down. Check [the releases page](https://github.com/hieplam/horus/releases).
+
+## Check the install and see the plan
+
+```
+horus version
+horus setup it-illustration
+```
+
+`horus version` prints one line: `horus <version>`. If it prints an error, the
+program is not on the PATH (see "If it fails" above).
+
+`horus setup <workflow>` prints a plan and changes nothing. The plan lists each
+model file of the workflow (`PRESENT` or `MISSING`) and each step that the
+machine still needs: a system package, ComfyUI, the model files. The next section
+runs the plan.
+
 ## The parts
 
 | Part | What it is |
@@ -32,23 +142,90 @@ flowchart LR
   repo -->|horus commands download and verify| models
 ```
 
-## Start here
+## Set up the machine
 
-1. **Set up the machine:** [`docs/setup.md`](docs/setup.md). Seven steps, from
-   an empty PC or Mac to a test image. Every command is safe to run again.
-2. **Make your first image:** [`workflows/it-illustration`](workflows/it-illustration/README.md).
+Run the plan with `-yes`. This installs ComfyUI first, then downloads the model
+files (11 GB for `it-illustration`).
+
+```
+horus setup it-illustration -yes
+```
+
+Two things can stop it before it changes anything.
+
+- **A system package.** A new machine can lack a program that ComfyUI needs: 7-Zip on Windows (installed with `winget`) or Python 3.12 on macOS (installed with `brew`). horus never installs a system package without your approval. Without it, `horus setup it-illustration -yes` prints the package and its command, changes nothing and exits 1. To approve the package, add `-with-packages`. Or install the package yourself, then run the command again. If `winget` or `brew` is missing, the plan says what to install and where to get it.
+- **The Hugging Face token.** The model files need the FLUX Kommunity License and a token. Write the token as `HF_TOKEN=<your token>` in the file `.env` of the user folder: `%USERPROFILE%\horus\.env` on Windows, `~/horus/.env` on macOS. [Setup step 3](docs/setup.md#step-3-put-your-hugging-face-token-in-env) shows how to get the token. Without it, the download stops with HTTP 401 or 403.
+
+To approve the package step too, run:
+
+```
+horus setup it-illustration -yes -with-packages
+```
+
+Every command is safe to run again. A second run prints `Plan: 0 steps. Nothing is missing.`
+An agent can do the same setup through the tool `install_workflow`. The tool asks
+you before it installs a package (`accept_setup`) and before it downloads the model
+files (`accept_license`). See [`docs/mcp.md`](docs/mcp.md).
+
+Then give the horus tools to your agent. This registers the server `horus` with
+Claude Code.
+
+```
+horus register
+```
+
+To register it with Codex, run `horus register -client codex`. After this, an agent
+in any folder of your PC has the tools `list_workflows`, `describe_workflow`,
+`install_workflow`, `uninstall_workflow` and `generate_image`. Check the machine at
+any time with `horus doctor`.
+
+## Uninstall
+
+`horus uninstall` prints what horus installed on this machine and changes nothing.
+Each line starts with `REMOVE` or `KEEP`, then the path and the reason.
+
+```
+horus uninstall
+```
+
+`horus uninstall -yes` removes each `REMOVE` item. Read the plan first, because
+nobody can undo the removal.
+
+```
+horus uninstall -yes
+```
+
+What `-yes` removes:
+
+- **The model files of the workflows.** This includes a model file that a person downloaded by hand, when its size matches `models.json`. A file with another size stays.
+- **The ComfyUI folder and the venv of the comfy MCP server.** Only a folder that horus installed. horus writes a file `horus-install.json` into each folder that it makes, and it deletes a folder only when that file is there. A ComfyUI that you installed yourself, or that an older horus installed, stays. A ComfyUI that answers and that horus did not start stays too.
+- **The registration** of the server `horus` in Claude Code and in Codex.
+- **The copy of the built-in workflows** and the state files of horus in the user folder.
+- **The PATH entry of the install script, and the program itself.** The program is the last item.
+
+What it keeps: `.env` (your token) and `outputs/` (your images), because they are your
+data. The plan names both paths. A system package (7-Zip, Python) stays: horus never
+removes a system package. A PATH entry that you added by hand stays: remove it yourself.
+
+`horus uninstall -models` limits the command to the model files. `horus uninstall -mcp`
+limits it to the registration.
+
+## Next steps
+
+1. **Make your first image:** [`workflows/it-illustration`](workflows/it-illustration/README.md).
    Ask the agent for "an illustration of a message queue", or run
    `horus run-illustration -subject "..."` without an agent.
-3. **Make your own style:** [`docs/style-to-workflow.md`](docs/style-to-workflow.md).
+2. **Make your own style:** [`docs/style-to-workflow.md`](docs/style-to-workflow.md).
    How the agent goes from one sentence to a tested, saved workflow.
+3. **Every step in detail:** [`docs/setup.md`](docs/setup.md).
 
 New to the words? Read [`docs/concepts.md`](docs/concepts.md) first.
 
-## Install the MCP servers on a new machine
+## Work on this repo (developers)
 
-Claude Code starts each MCP server itself, as a child program (a stdio server).
-You only install the programs. The full setup, with ComfyUI and the models, is
-[`docs/setup.md`](docs/setup.md).
+This section is for people who change the code of horus. A user who only wants
+images needs the install line above. Claude Code starts each MCP server itself,
+as a child program (a stdio server). The full setup is [`docs/setup.md`](docs/setup.md).
 
 1. Install Go 1.27.3 or newer, Python 3.12 and Claude Code. On Windows, Python
    needs the Python Launcher. On macOS, `brew install python@3.12 go uv` installs
@@ -57,7 +234,7 @@ You only install the programs. The full setup, with ComfyUI and the models, is
 3. Build `horus`, then install the comfy MCP server. `go install` puts `horus` in
    `%USERPROFILE%\go\bin` (`~/go/bin` on macOS). That folder must be
    on the PATH, because `.mcp.json` starts both servers through `horus`
-   ([how](docs/setup.md#step-0-get-the-horus-program)).
+   ([how](docs/setup.md#for-developers-build-from-a-clone)).
 
    ```
    go install ./cmd/horus
@@ -94,10 +271,7 @@ the install command that a FAIL line names.
 
 ## Give other agents an image tool
 
-```
-horus register
-```
-
+`horus register` (see "Set up the machine") adds the server `horus` to your agent.
 After this, an agent in any folder of your PC (for example a video project
 that needs pictures) has the horus tools. It calls `list_workflows`, reads the
 rules of a style with `describe_workflow`, and calls `generate_image`. The call
@@ -112,7 +286,8 @@ the variable `HORUS_ROOT` to the repo folder. You do not set it by hand
 - Windows 10 or 11, NVIDIA GPU with 6 GB VRAM or more, 16 GB RAM, about 20 GB free disk.
 - Or macOS on Apple Silicon with 16 GB of memory and about 14 GB free disk.
   Linux and Intel Macs are not supported yet.
-- Git, Go 1.27.3 or newer, Python 3.12 (for the comfy MCP server), and a free Hugging Face account.
+- A free Hugging Face account, to accept the model license.
+- Go 1.27.3 or newer and Git, only to work on the code of horus. Python 3.12, only for the comfy MCP server (`horus setup` installs it on macOS after you approve it).
   The [prerequisites](docs/setup.md#prerequisites) list each item for each system.
 - An AI agent CLI: [Claude Code](https://claude.com/claude-code) or Codex.
 

@@ -9,8 +9,11 @@ MCP tools and the `horus` program of this repo. The user does not need to know C
 | Task | Read |
 |---|---|
 | Set up or repair a machine | [`docs/setup.md`](docs/setup.md) |
-| `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed, or `horus` is not on the PATH. `.mcp.json` starts both servers through `horus` (`horus comfy-mcp` and `horus mcp`) on Windows and macOS. Run `horus doctor`, then the command that its FAIL line names (`go install ./cmd/horus` for `horus`, [step 0 of setup](docs/setup.md#step-0-get-the-horus-program)). Then ask the user to restart `claude`. |
-| Set up one workflow on a machine | `horus setup <workflow>` prints the plan and changes nothing. `horus setup <workflow> -yes` runs the plan: ComfyUI first, then the model files. The older names (`check-setup`, `install-comfyui`, `workflow install`) still work. Use `doctor` and `setup`. |
+| `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed, or `horus` is not on the PATH. `.mcp.json` starts both servers through `horus` (`horus comfy-mcp` and `horus mcp`) on Windows and macOS. Run `horus doctor`, then the command that its FAIL line names (for `horus`: the install line of [step 0 of setup](docs/setup.md#step-0-install-the-horus-program), or `go install ./cmd/horus` in a clone, [how](docs/setup.md#for-developers-build-from-a-clone)). Then ask the user to restart `claude`. |
+| Install the horus program on a new machine | The install line of the [README](README.md#install-horus): `install.ps1` on Windows, `install.sh` on macOS. It checks the SHA-256 of the release asset. `horus version` prints the version. |
+| Set up one workflow on a machine | `horus setup <workflow>` prints the plan and changes nothing. `horus setup <workflow> -yes` runs the plan: ComfyUI first, then the model files. A plan can start with a system package step (7-Zip with `winget`, Python 3.12 with `brew`): it runs only with `-with-packages`. The older names (`check-setup`, `install-comfyui`, `workflow install`) still work. Use `doctor` and `setup`. |
+| Add horus to Claude Code or Codex | `horus register` (Claude Code) or `horus register -client codex`. |
+| Remove what horus installed | `horus uninstall` prints the plan and changes nothing. `horus uninstall -yes` deletes the model files, and a ComfyUI folder or a venv only when horus installed it (the file `horus-install.json`). It keeps `.env` and `outputs/`. **Never run `-yes` on a machine with data that you must keep, and never with the real home folder in a test: use a sandbox.** |
 | Stop the ComfyUI that horus started | `horus stop-comfyui`. It refuses a ComfyUI that a person started. |
 | Make an image with an existing workflow | `workflows/<name>/README.md` |
 | A new style, a new model, a new workflow | [`docs/style-to-workflow.md`](docs/style-to-workflow.md) |
@@ -82,7 +85,9 @@ The full rules and the layer table are in
 ## Layout
 
 ```
-README.md                         entry point for people
+README.md                         entry point for people: the install line, setup, uninstall
+install.ps1, install.sh           the install scripts (the install line downloads them from main)
+release-please-config.json        the release tool; .github/workflows/release.yml builds and uploads the 3 release assets
 AGENTS.md                         this file
 ROADMAP.md                        what comes next
 docs/                             setup, style-to-workflow, concepts, running, models, mcp
@@ -91,7 +96,7 @@ cmd/horus/                        wiring: main.go (the command table) and wiring
 internal/cli/                     handler: one file for each command group (flags in, text out)
 internal/mcpserver/               handler: the 5 MCP tools, the envelope, the progress notifications
 internal/generate/                service: make one image
-internal/provision/               service: set up a machine (backend, model files, comfy-mcp and `horus comfy-mcp`, register, the plan of `horus setup`)
+internal/provision/               service: set up a machine (backend, model files, comfy-mcp and `horus comfy-mcp`, register, the plan of `horus setup`, the plan of `horus uninstall`)
 internal/doctor/                  service: the checks of `horus doctor`
 internal/devtools/                service: new-workflow and sync-workflows
 internal/comfy/                   adapter: the ComfyUI REST client (comfy/comfytest is the fake ComfyUI for tests)
@@ -100,9 +105,10 @@ internal/modelfiles/              adapter: find, check and remove model files, e
 internal/backend/                 adapter: Install, Start, Stop and Installed of a ComfyUI install (the Windows portable build; comfy-cli on macOS; backend/comfyclitest is the fake comfy for tests)
 internal/catalog/, graph/, herr/, settings/, platform/    base: manifests, graph conversion, error codes, settings, processes and OS facts
 internal/archtest/                the test of the design rules
-scripts/                          lint-public.py (a Python check before a pull request)
+scripts/                          lint-public.py (a Python check before a pull request), build-release.sh (builds the 3 release assets)
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), workflow_parity.py, requirements.txt
 tools/                            goal_check.py: the goal check of each phase
+workflows/embed.go                the go:embed line: the program holds each workflow folder (add a new folder there)
 workflows/<name>/                 manifest.json, workflow.json, models.json, README.md, examples/
 workflows/_template/README.md     template for a new workflow README
 prompts/<family>/<name>.md        one saved prompt each, with its result

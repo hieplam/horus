@@ -75,6 +75,41 @@ sequenceDiagram
   Note over S,P: If the agent cancels, the context ends the download. The .part file stays and the next install resumes it.
 ```
 
+On a machine without ComfyUI, `install_workflow` first runs the plan of
+`horus setup` (the spec
+[`2026-11-15-release-install.md`](specs/2026-11-15-release-install.md),
+"Setup through MCP"). The plan can have a system package step (7-Zip with
+`winget` on Windows, Python 3.12 with `brew` on macOS), a comfy-cli step
+(macOS), a ComfyUI step and the model files. The tool asks two consents, in
+this order, and changes nothing before both:
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant A as Agent
+  participant S as horus mcp
+  participant P as provision service
+  A->>S: call install_workflow
+  S->>P: read the plan (changes nothing)
+  S-->>A: SETUP_CONFIRMATION_REQUIRED, details.steps
+  A->>U: show each step of details.steps
+  U-->>A: agree
+  A->>S: call again with accept_setup=true
+  S-->>A: LICENSE_CONFIRMATION_REQUIRED (only when the plan downloads model files)
+  A->>U: show the license and the size
+  U-->>A: agree
+  A->>S: call again with accept_setup=true and accept_license=true
+  S->>P: run the steps in order: package, comfy-cli, ComfyUI, model files
+  S-->>A: a progress message that names each setup step, then every 5 s
+  S-->>A: return installed, or an error code
+```
+
+- `details.steps` lists each step of the plan: `kind` (`package`, `comfy-cli`, `backend` or `file`), `name` (what the step installs), `command` (the program and its arguments of a package step, else `null`) and `dir` (the folder that the step writes to).
+- One setup consent covers each step of `details.steps`, also the package steps.
+- When the package manager is not found, a person must install the package. The tool then answers `BACKEND_NOT_INSTALLED`, and its `next_step` names the package and where to get it. It changes nothing.
+- When a setup step fails, the tool answers `BACKEND_NOT_INSTALLED` with the failed step in `details.step` and the last lines of its output in `details.output_tail`. The next steps do not run.
+- On a machine where ComfyUI is installed, the plan has only model files, and the tool gives the same answers as before. `accept_setup` changes nothing there.
+
 `uninstall_workflow` works the same way: the provision service refuses a file
 that another workflow lists, then the model files adapter deletes the files.
 
@@ -146,7 +181,7 @@ it starts ComfyUI, and `horus stop-comfyui` reads it.
 |---|---|---|
 | `list_workflows` | Lists the workflows: name, summary, `good_for`, `not_good_for`, default size, measured time, `install_state`. | No |
 | `describe_workflow(workflow)` | One workflow in full: size limits, how to write the subject (rules and examples), license, the state of each model file. | No |
-| `install_workflow(workflow, accept_license=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license and the size. | Yes: downloads GB |
+| `install_workflow(workflow, accept_license=false, accept_setup=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license and the size. On a machine without ComfyUI it first runs the setup plan: without `accept_setup=true` it returns `SETUP_CONFIRMATION_REQUIRED` with the steps. | Yes: downloads GB, installs ComfyUI and a system package |
 | `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another workflow lists is kept unless `remove_shared=true`. | Yes: deletes files |
 | `generate_image(workflow, subject, out_path?, seed?, width?, height?, overwrite=false)` | Makes one PNG and waits until it is on disk. Returns the absolute path and the seed. | Writes one PNG |
 
@@ -188,7 +223,7 @@ A caller decides from three fields:
 
 ## Error codes
 
-The single source is the Go package `internal/herr`. `horus errors` prints the table, and `horus errors -json` prints it as JSON. The contract test reads `horus errors -json` and fails when this table misses a code.
+The single source is the Go package `internal/herr`. It has 22 codes. `horus errors` prints the table, and `horus errors -json` prints it as JSON. The contract test reads `horus errors -json` and fails when this table misses a code.
 
 | Code | Retryable | Action by | Next step |
 |---|---|---|---|
@@ -196,6 +231,7 @@ The single source is the Go package `internal/herr`. `horus errors` prints the t
 | `WORKFLOW_NOT_FOUND` | no | caller | Call `list_workflows` and use one of the names in `details.known`. |
 | `WORKFLOW_NOT_INSTALLED` | no | caller | Call `install_workflow` for this workflow, then call `generate_image` again. |
 | `LICENSE_CONFIRMATION_REQUIRED` | no | human | Show the license and the download size to the user. When the user agrees, call `install_workflow` again with `accept_license=true`. |
+| `SETUP_CONFIRMATION_REQUIRED` | no | human | Show each step in `details.steps` to the user. When the user agrees, call `install_workflow` again with `accept_setup=true`. |
 | `CONFIRMATION_REQUIRED` | no | human | Show the plan in `details.files` to the user. When the user agrees, call again with `confirm=true`. |
 | `OUTPUT_EXISTS` | no | caller | Pass another `out_path`, or pass `overwrite=true`. |
 | `BACKEND_UNAVAILABLE` | yes | human | ComfyUI does not answer and horus could not start it. The user runs `horus start-comfyui` and reads [`setup.md`](setup.md). |
@@ -298,5 +334,13 @@ The contract test starts the server over stdio with the official MCP client.
 A fake ComfyUI in the test process answers, so it needs no GPU and no network.
 It checks the tools, the schemas, the envelope, each main error code, the
 caption, cancel on timeout, and install and uninstall on stand-in model files.
-It ends with `contract: N of 30 passed` and exits 0 only when all pass.
-The total is 28 server checks plus 2 for each shipped workflow.
+It also starts the server two more times on a machine without ComfyUI: once
+without a package manager, and once with a fake package manager (`winget` on
+Windows, `brew` on macOS) that installs nothing. The PATH of the server then
+holds only the fake programs and the folders of the OS, and the proxy settings
+name a closed port, so no real package manager runs and no download leaves the
+machine. These checks prove the setup consent: no change on disk before
+`accept_setup=true`, the order of the two consents, and the package step with
+the arguments of the spec.
+It ends with `contract: N of 37 passed` and exits 0 only when all pass.
+The total is 35 server checks plus 2 for each shipped workflow.

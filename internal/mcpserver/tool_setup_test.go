@@ -381,6 +381,12 @@ func (stateSetup) Remove(context.Context, provision.Request) (*provision.Result,
 	return nil, errors.New("not in this test")
 }
 func (stateSetup) PartSize(string) int64 { return 0 }
+func (stateSetup) Plan(context.Context, provision.Request) (provision.Plan, error) {
+	return provision.Plan{}, errors.New("not in this test")
+}
+func (stateSetup) RunPlan(context.Context, provision.Request, provision.Plan, provision.Watch) (*provision.Result, error) {
+	return nil, errors.New("not in this test")
+}
 
 // TestBothToolsGiveTheSameInstallState: list_workflows and describe_workflow
 // give the same install_state for the same disk (issue #88).

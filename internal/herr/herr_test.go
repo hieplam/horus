@@ -32,18 +32,41 @@ func readGolden(t *testing.T) []goldenRow {
 	return rows
 }
 
+// newCodes are the codes that horus added after the Python version, each
+// with the code that comes before it in the table. The golden file does not
+// change (spec docs/specs/2026-11-15-release-install.md, "Setup through MCP").
+var newCodes = map[string]string{"SETUP_CONFIRMATION_REQUIRED": "LICENSE_CONFIRMATION_REQUIRED"}
+
+// oldCodes is the table without the new codes, in table order.
+func oldCodes() []Spec {
+	var out []Spec
+	for _, s := range Codes {
+		if _, ok := newCodes[s.Code]; !ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // TestCodesMatchPython compares the Go table with the golden table of the first
-// version of horus, written in Python.
+// version of horus, written in Python. The table is the golden table plus
+// exactly the new codes, each at its place.
 func TestCodesMatchPython(t *testing.T) {
 	rows := readGolden(t)
 	if len(rows) != 21 {
 		t.Fatalf("golden file has %d codes, want 21", len(rows))
 	}
-	if len(Codes) != len(rows) {
-		t.Fatalf("Go table has %d codes, Python has %d", len(Codes), len(rows))
+	if len(Codes) != len(rows)+len(newCodes) {
+		t.Fatalf("Go table has %d codes, want the %d of Python plus %d new", len(Codes), len(rows), len(newCodes))
 	}
+	for i, s := range Codes {
+		if before, ok := newCodes[s.Code]; ok && (i == 0 || Codes[i-1].Code != before) {
+			t.Errorf("%s is not after %s", s.Code, before)
+		}
+	}
+	old := oldCodes()
 	for i, py := range rows {
-		goRow := Codes[i]
+		goRow := old[i]
 		if goRow.Code != py.Code {
 			t.Errorf("row %d: code %s, Python %s", i, goRow.Code, py.Code)
 			continue
@@ -103,8 +126,12 @@ func TestTableJSON(t *testing.T) {
 	if err := json.Unmarshal(TableJSON(), &table); err != nil {
 		t.Fatal(err)
 	}
-	if len(table) != 21 {
-		t.Fatalf("%d codes, want 21", len(table))
+	if len(table) != 22 {
+		t.Fatalf("%d codes, want 22", len(table))
+	}
+	if s := table["SETUP_CONFIRMATION_REQUIRED"]; s.Retryable == nil || *s.Retryable || s.ActionBy != "human" ||
+		!strings.Contains(s.NextStep, "accept_setup=true") {
+		t.Errorf("SETUP_CONFIRMATION_REQUIRED: %+v", s)
 	}
 	for _, py := range readGolden(t) {
 		row, ok := table[py.Code]

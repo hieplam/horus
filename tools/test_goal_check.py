@@ -978,9 +978,20 @@ class ContractNames(unittest.TestCase):
     def names(self):
         return [ln for ln in g.CONTRACT_NAMES4.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
+    def new_checks(self, n):
+        return "".join(f"PASS  new {i}\n" for i in range(n))
+
     def test_the_baseline_names_and_more_checks_pass(self):
-        out = "".join(f"PASS  {n}\n" for n in self.names()) + "PASS  a new check\ncontract: 31 of 31 passed\n"
+        n = g.CONTRACT_CHECKS
+        out = "".join(f"PASS  {name}\n" for name in self.names()) + self.new_checks(n - 30) + f"contract: {n} of {n} passed\n"
         self.assertTrue(self.run_with(out)[0])
+
+    def test_fewer_checks_than_after_t5_fail(self):
+        n = g.CONTRACT_CHECKS - 1
+        out = "".join(f"PASS  {name}\n" for name in self.names()) + self.new_checks(n - 30) + f"contract: {n} of {n} passed\n"
+        ok, detail = self.run_with(out)
+        self.assertFalse(ok)
+        self.assertIn(f"needs {g.CONTRACT_CHECKS} or more checks", detail)
 
     def test_a_removed_name_fails_even_when_the_count_is_high(self):
         names = self.names()[1:]
@@ -993,6 +1004,25 @@ class ContractNames(unittest.TestCase):
         out = "FAIL  " + self.names()[0] + "\n" + "".join(f"PASS  {n}\n" for n in self.names()[1:]) + "contract: 29 of 30 passed\n"
         self.assertFalse(self.run_with(out, code=1)[0])
         self.assertFalse(self.run_with("crash")[0])
+
+
+class RowContract(unittest.TestCase):
+    """row_contract (phases 1 to 3) needs all CONTRACT_CHECKS checks of the contract test to pass."""
+
+    def run_with(self, out, code=0):
+        with Patch(run=lambda cmd, env=None, timeout=900: (code, out)):
+            return g.row_contract(ns(phase=1, no_ci=True, server_cmd=[g.sys.executable, "mcp"]))
+
+    def test_all_checks_pass(self):
+        n = g.CONTRACT_CHECKS
+        ok, detail = self.run_with(f"contract: {n} of {n} passed\n")
+        self.assertTrue(ok, detail)
+
+    def test_the_old_count_or_a_failed_check_fails(self):
+        n = g.CONTRACT_CHECKS
+        for out, code in (("contract: 30 of 30 passed\n", 0), (f"contract: {n - 1} of {n} passed\n", 1), ("crash", 1)):
+            ok, detail = self.run_with(out, code)
+            self.assertFalse(ok, f"{out!r} passed: {detail}")
 
 
 if __name__ == "__main__":

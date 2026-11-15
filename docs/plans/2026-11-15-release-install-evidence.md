@@ -39,6 +39,15 @@ commands.
 | 2026-11-15 | The test of `-yes -with-packages` for Windows replaces the install of the portable build with a fake (the seam `install` of `cmd/horus`). The fake also needs `7z` in the 7-Zip folder of `%ProgramFiles%`. The macOS case runs the real comfy-cli backend with the fake `brew`, a fake `python3.12` and the fake `comfy`. | the T4 agent (standing rule: a plan command that no longer fits) | The portable install downloads 1.9 GB. The test of `findSevenZip` proves that the real install finds `7z.exe` in that folder. |
 | 2026-11-15 | `TestSetupWithoutYesChangesNoFile` now sets its system: Windows, with a fake `7z` on the PATH. Its checks did not change. | the T4 agent (standing rule: no test is made weaker) | Without that, the test reads the real PATH. On `macos-latest` the plan then has a comfy-cli step, and the step count of the test is wrong. |
 | 2026-11-15 | The refusal is the pure method `Plan.Refusal(withPackages)`. `RunPlan` calls it first, and `horus setup` calls it before it prints "Running the plan.". | the T4 agent (design rule 3) | T5 (`install_workflow`) needs the same check before it changes anything. |
+| 2026-11-15 | `install_workflow` reads the plan of `horus setup` first. Only a plan with a step that is not a model file takes the new path. A plan with only model files (ComfyUI is installed), or a plan that fails to read, goes on as before. | the T5 agent (spec: "A machine where ComfyUI is installed gets the same answers as before") | The old answers stay the same, and the contract check "a machine with ComfyUI: accept_setup=true changes no answer of install_workflow" proves it. |
+| 2026-11-15 | The license consent is asked only when the plan downloads model files. A plan whose model files are present asks only the setup consent. | the T5 agent (design gap) | The license covers the model files. A call that downloads nothing has no license to accept. |
+| 2026-11-15 | Both consents come before the first change. With `accept_setup=true` and without `accept_license`, the tool answers `LICENSE_CONFIRMATION_REQUIRED` and runs no step. | the T5 agent (design gap: the spec gives the order of the consents) | An install that stops halfway between the two consents leaves ComfyUI without its model files. |
+| 2026-11-15 | A failed setup step (not a model file) gives `BACKEND_NOT_INSTALLED`, with the step in `details.step`, the last 20 output lines in `details.output_tail`, and a `next_step` that names `accept_setup=true`. A failed download keeps the codes of today. | the T5 agent (design gap) | ComfyUI is still not installed after the failure, and a person must fix the cause. No new code is needed: the spec has 22 codes. |
+| 2026-11-15 | A progress notification goes out when each setup step starts ("setup step 1 of 2: install the system package 7-Zip: ..."), then every 5 s while the step runs. | the T5 agent (plan step 2) | A package step can end in less than 5 s. Without the first notification the caller never sees it. |
+| 2026-11-15 | `TestCodesMatchPython` and `TestToolsMatchPython` put the one change of Phase 4 into the golden data in the test: the code `SETUP_CONFIRMATION_REQUIRED` after `LICENSE_CONFIRMATION_REQUIRED`, and the argument `accept_setup` with its description. Every other row and key is compared as before. The golden files do not change. | the T5 agent (standing rule: no golden file changes, no test is made weaker) | The spec adds the code and the argument. The tests name the exact difference, as the `.ps1` rule of `TestCodesMatchPython` does. |
+| 2026-11-15 | The contract test cannot run a successful ComfyUI install on Windows: the portable install always downloads the pinned 1.9 GB archive with a fixed SHA-256, and no setting replaces it. So its install check runs the package step with a fake `winget` (Windows) or `brew` (macOS) that installs nothing, and checks that the tool stops at the missing program. The full install after `accept_setup=true` (package, ComfyUI, model files) is proven by `TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps` on both runners, and for real by the fresh-machine run (T9). | the T5 agent (standing rule: a plan command that no longer fits) | A test seam in the shipped program only for the contract test adds a way to skip the install (design rule 1). The rule of the PC forbids a real download. |
+| 2026-11-15 | The contract sessions without ComfyUI set the PATH to a folder of fake programs and the system folders only, `HOME`, `USERPROFILE`, `HORUS_HOME`, `HORUS_ROOT` and `ProgramFiles` to the sandbox, and `HTTP_PROXY` and `HTTPS_PROXY` to the closed port 127.0.0.1:9. | the T5 agent (rule of the PC: no real `winget` or `brew`, no real download) | So the real package manager is never found, and no download can leave the machine, also when a step has a defect. |
+| 2026-11-15 | The goal tool has one count of contract checks, `CONTRACT_CHECKS = 37`. The row `contract` of phases 1 to 3 needs 37 of 37. The part of phase 4 needs 37 or more and each of the 30 baseline names. | the T5 agent (plan step 5) | The count went from 30 to 37. One constant keeps the tool and the CI job `contract` the same. |
 
 ## Baseline
 
@@ -522,3 +531,103 @@ install macos-latest    the folder is empty
 Two CI test faults showed up and were fixed in this pull request: the runner already has `~/.local/bin` on its PATH (the macOS steps now run the script with a clean PATH), and the old wrong-checksum test changed the first character to `f`, which is no change when it already was `f` (it now changes `0` to `1` and any other character to `0`).
 
 **Ratchet.** Goal rows passed 2 -> 3 once `python tools/goal_check.py --phase 4` reads these two green jobs (the part of `install-line` without `--real`).
+
+## T5
+
+Task: [#141](https://github.com/hieplam/horus/issues/141). Files: `internal/mcpserver/tool_install_workflow.go`,
+`internal/mcpserver/setup.go`, `internal/mcpserver/tool_install_setup_test.go`, `internal/mcpserver/server_test.go`,
+`internal/mcpserver/tool_setup_test.go`, `internal/herr/herr.go`, `internal/herr/herr_test.go`,
+`tests/mcp_contract.py`, `docs/mcp.md`, `tools/goal_check.py`, `tools/test_goal_check.py`, `.github/workflows/ci.yml`.
+
+**What changed.** `install_workflow` reads the plan of `horus setup` first. When the plan has a step that is not a
+model file (a system package, comfy-cli, ComfyUI), the tool answers the new code `SETUP_CONFIRMATION_REQUIRED` with
+`details.steps` until the call sends `accept_setup=true`. Then it asks the license consent when the plan downloads
+model files. Then it runs the plan with `RunPlan`, with the package steps approved. A progress notification names each
+setup step when it starts. A step for a person gives `BACKEND_NOT_INSTALLED` with a `next_step` that names the
+package. On a machine with ComfyUI the plan has only model files, and the tool answers as before. The decisions are in
+the "Decisions" table above (rows of the T5 agent).
+
+**Red** (before the change, on `main` at `6dee6ca`, built into the worktree):
+
+```
+$ horus errors -json | python -c "import json,sys; print(len(json.load(sys.stdin)))"
+21
+$ python tools/goal_check.py --phase 4 --no-ci --only full-setup
+FAIL  full-setup - no passing test: TestInstallWorkflowWithoutAcceptSetupAnswersSetupConfirmationRequired (not in internal/mcpserver, T5); TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps (not in internal/mcpserver, T5); horus errors -json lists 21 codes, needs 22
+```
+
+**Green** (on the PC, after the rebase on `main` at `cc1a4e9`):
+
+```
+$ horus errors -json | python -c "import json,sys; print(len(json.load(sys.stdin)))"
+22
+$ go test -count=1 ./internal/mcpserver ./internal/herr
+ok  	github.com/hieplam/horus/internal/mcpserver	0.476s
+ok  	github.com/hieplam/horus/internal/herr	0.680s
+$ python tests/mcp_contract.py --server-cmd bin/horus.exe mcp
+PASS  server identifies as horus and has instructions
+PASS  tools/list has exactly the 5 tools
+PASS  every tool has an outputSchema with ok, result, error
+PASS  uninstall_workflow is marked destructive, list_workflows read-only
+PASS  list_workflows shows installed and partially_installed styles
+PASS  describe_workflow gives subject rules, examples and 3 present files
+PASS  list_workflows and describe_workflow carry no theme or look
+PASS  describe_workflow hides the ComfyUI graph (no node class names)
+PASS  unknown workflow -> WORKFLOW_NOT_FOUND with the known names, isError
+PASS  generate_image writes a PNG at out_path and returns its path and seed
+PASS  horus sends the subject to the model as written (0 characters added)
+PASS  seed 7 reaches the sampler of the graph
+PASS  generate_image sends progress notifications
+PASS  existing out_path -> OUTPUT_EXISTS
+PASS  width 1000 -> INVALID_ARGUMENT field=width, action_by=caller
+PASS  too short subject -> INVALID_ARGUMENT field=subject with the rules
+PASS  style without model files -> WORKFLOW_NOT_INSTALLED naming the file
+PASS  GPU out of memory -> OUT_OF_MEMORY, retryable, action_by=caller
+PASS  a job over the time limit -> GENERATION_TIMEOUT, and horus cancels it on the backend
+PASS  install of an installed style -> ok, already_installed
+PASS  install without accept_license -> LICENSE_CONFIRMATION_REQUIRED, action_by=human, with size
+PASS  a machine with ComfyUI: accept_setup=true changes no answer of install_workflow
+PASS  uninstall without confirm -> CONFIRMATION_REQUIRED, plan: 1 to delete, 2 shared kept; nothing deleted
+PASS  uninstall with confirm deletes the 1 unshared file and keeps the 2 shared files
+PASS  uninstall with remove_shared deletes the 2 shared files
+PASS  after uninstall, list_workflows shows both styles not_installed
+PASS  errors are the same envelope in structuredContent and in text
+PASS  backend down and autostart off -> BACKEND_UNAVAILABLE, action_by=human
+PASS  no ComfyUI and no package manager -> BACKEND_NOT_INSTALLED naming 7-Zip; nothing changed
+PASS  no ComfyUI -> SETUP_CONFIRMATION_REQUIRED, action_by=human, with details.steps
+PASS  no change on disk before the setup consent, also with accept_license=true
+PASS  accept_setup=true without accept_license -> LICENSE_CONFIRMATION_REQUIRED; nothing changed
+PASS  accept_setup=true runs winget with the arguments of the spec, then stops: 7z not found
+PASS  install_workflow sends a progress message that names the setup step
+PASS  it-illustration: manifest has no theme and no caption style file
+PASS  it-illustration: the graph holds no style words
+PASS  docs/mcp.md lists every error code
+contract: 37 of 37 passed
+$ python tools/goal_check.py --phase 4 --no-ci --only full-setup same-behaviour --server-cmd bin/horus.exe mcp
+PASS  full-setup - 7 pinned tests pass; horus errors -json lists 22 codes; real part not run (needs --real on the PC after the release)
+PASS  same-behaviour - contract: 37 of 37, 30 of 30 baseline checks pass; parity: 17 of 17; go test ./...: ok; archtest: ok, 0 allow list files; 290 Go test functions (baseline 250); 0 changed parity or golden files; CI part skipped (--no-ci); real part not run (needs --real on the PC after the release)
+goal: 2 of 2 rows passed
+note: the real part did not run for full-setup, same-behaviour (run with --real on the PC after the release)
+```
+
+`gofmt -l .` prints nothing. `go test ./...` passes. `python scripts/lint-public.py` prints `lint-public: 0 finding(s)`.
+`python -m pytest tools/test_goal_check.py` prints `101 passed` (98 before: 3 new tests of the count of contract checks).
+
+**Stub check.** Two stub programs, each built from this tree with one line changed in `installWithSetup`:
+
+- Stub A runs the plan without the setup consent (`if false && !accept_setup`). The contract test prints
+  `contract: 33 of 37 passed`. It fails "no ComfyUI -> SETUP_CONFIRMATION_REQUIRED ...", "no change on disk before the
+  setup consent, also with accept_license=true", "accept_setup=true without accept_license -> ..." and the package
+  step check (the fake `winget` ran three times). The Go test
+  `TestInstallWorkflowWithoutAcceptSetupAnswersSetupConfirmationRequired` fails.
+- Stub B ignores `accept_setup=true` (`if true || !accept_setup`). The contract test prints
+  `contract: 34 of 37 passed`. It fails "accept_setup=true runs winget with the arguments of the spec, then stops: 7z
+  not found" (`ran=[]`), the order check and the progress check. The Go tests
+  `TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps`, `TestInstallWorkflowAsksTheSetupConsentBeforeTheLicense` and
+  `TestInstallWorkflowNamesTheSetupStepThatFailed` fail.
+
+**Ratchet.** `python tools/goal_check.py --phase 4 --no-ci`, rows passed: 3 -> 4 on the main of T4 (`release`,
+`binary-only`, `same-behaviour`, and now `full-setup`). After the rebase on the main with T3 and T6 the tool prints
+`goal: 6 of 8 rows passed` (`install-line` of T3 and `register` of T6 also pass; `uninstall` and `readme` wait for T7, T8
+and T9). Contract checks: 30 -> 37 (7 new checks, each of the 30 baseline names passes). Error codes: 21 -> 22.
+Go test functions: 290 (baseline 250).

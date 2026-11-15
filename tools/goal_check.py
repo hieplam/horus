@@ -192,6 +192,9 @@ def current_ci_detail(required: list[str]) -> tuple[bool, str]:
     return ci_detail(sha.strip(), required)
 
 
+CONTRACT_CHECKS = 37  # checks of tests/mcp_contract.py: 30 until Phase 4, 37 after task T5 of Phase 4 (setup through MCP)
+
+
 def row_contract(a: argparse.Namespace, ci_required: list[str] | None = None) -> tuple[bool, str]:
     cmd = a.server_cmd or ["horus", "mcp"]
     if not shutil.which(cmd[0]) and not Path(cmd[0]).is_file():
@@ -200,10 +203,10 @@ def row_contract(a: argparse.Namespace, ci_required: list[str] | None = None) ->
     m = re.search(r"contract: (\d+) of (\d+) passed", out)
     if not m:
         return False, f"contract test gave no result line ({last_line(out)})"
-    local_ok = code == 0 and m.group(1) == m.group(2) == "30"
+    local_ok = code == 0 and m.group(1) == m.group(2) == str(CONTRACT_CHECKS)
     detail = f"local {m.group(1)} of {m.group(2)}"
     if not local_ok:
-        return False, detail + ", needs 30 of 30"
+        return False, detail + f", needs {CONTRACT_CHECKS} of {CONTRACT_CHECKS}"
     if a.no_ci:
         return True, detail + "; CI part skipped (--no-ci)"
     ci_ok, ci = current_ci_detail(ci_required or [f"contract {o}" for o in CI_OSES])
@@ -1471,8 +1474,8 @@ def row4_readme(a: argparse.Namespace) -> tuple[bool, str]:
 
 
 def contract_names_part(a: argparse.Namespace) -> tuple[bool, str]:
-    """The contract test passes, and each of the 30 baseline checks is in its output with PASS.
-    The count may grow (task T5 adds checks); the names may not go away."""
+    """The contract test passes with at least CONTRACT_CHECKS checks, and each of the 30 baseline checks is in
+    its output with PASS. The count may grow; the names may not go away."""
     cmd = a.server_cmd or ["horus", "mcp"]
     if not shutil.which(cmd[0]) and not Path(cmd[0]).is_file():
         return False, f"contract: server command not found: {cmd[0]}"
@@ -1486,8 +1489,10 @@ def contract_names_part(a: argparse.Namespace) -> tuple[bool, str]:
         return False, f"contract: no result line ({last_line(out)})"
     passed = {ln[len("PASS  "):].strip() for ln in out.splitlines() if ln.startswith("PASS  ")}
     lacking = [n for n in names if n not in passed]
-    ok = code == 0 and m.group(1) == m.group(2) and int(m.group(2)) >= len(names) and not lacking
+    ok = code == 0 and m.group(1) == m.group(2) and int(m.group(2)) >= max(len(names), CONTRACT_CHECKS) and not lacking
     detail = f"contract: {m.group(1)} of {m.group(2)}, {len(names) - len(lacking)} of {len(names)} baseline checks pass"
+    if int(m.group(2)) < CONTRACT_CHECKS:
+        detail += f", needs {CONTRACT_CHECKS} or more checks"
     if lacking:
         detail += ", missing or failed: " + ", ".join(lacking[:3]) + (" ..." if len(lacking) > 3 else "")
     return ok, detail

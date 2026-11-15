@@ -845,13 +845,13 @@ in the job `by hand`, because the row `readme` needs every command of sections 1
 (3 m 45 s) and `fresh macos-latest` (3 m 13 s) are green. Plan before and after the install:
 
 ```
-windows  Plan: 4 step(s):  1. install ComfyUI in C:\Users\runneradmin\ComfyUI_windows_portable  2-4. download (3 model files)
-windows  OK: ComfyUI v0.44.0 is installed in C:\Users\runneradmin\ComfyUI_windows_portable
+windows  Plan: 4 step(s):  1. install ComfyUI in <home>\ComfyUI_windows_portable  2-4. download (3 model files)
+windows  OK: ComfyUI v0.44.0 is installed in <home>\ComfyUI_windows_portable
 windows  PRESENT   ComfyUI in ...   Plan: 3 step(s): (3 model file downloads)
 windows  the plan has 3 steps, each one a model file download. No model file is downloaded by this workflow.
-macos    Plan: 5 step(s):  1. install comfy-cli ...  2. install ComfyUI in /Users/runner/horus  3-5. download
-macos    OK: comfy-mcp is installed in /Users/runner/.venvs/comfy-mcp
-macos    OK: ComfyUI v0.44.0 is installed in /Users/runner/horus
+macos    Plan: 5 step(s):  1. install comfy-cli ...  2. install ComfyUI in <home>/horus  3-5. download
+macos    OK: comfy-mcp is installed in <home>/.venvs/comfy-mcp
+macos    OK: ComfyUI v0.44.0 is installed in <home>/horus
 macos    Plan: 3 step(s): (3 model file downloads)
 macos    the plan has 3 steps, each one a model file download. No model file is downloaded by this workflow.
 ```
@@ -860,10 +860,10 @@ After `horus uninstall -yes`:
 
 ```
 windows  OK: 4 REMOVE item(s) are gone.   the program file is gone
-windows  the ComfyUI folder is gone: C:\Users\runneradmin\ComfyUI_windows_portable
+windows  the ComfyUI folder is gone: <home>\ComfyUI_windows_portable
 windows  a new shell does not find horus
 macos    OK: 5 REMOVE item(s) are gone.
-macos    the ComfyUI folder is gone: /Users/runner/horus
+macos    the ComfyUI folder is gone: <home>/horus
 macos    the venv of comfy-mcp is gone
 macos    a new shell does not find horus
 ```

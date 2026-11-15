@@ -346,7 +346,7 @@ func installWithSetup(ctx context.Context, c *call, setup Setup, w *catalog.Work
 			return nil, installError(res, err, w)
 		}
 		row := stepRows(provision.Plan{Steps: []provision.Step{failed}})[0]
-		e := herr.New("BACKEND_NOT_INSTALLED", fmt.Sprintf("the setup step '%s' failed: %v", stepText(failed), err),
+		e := herr.New("BACKEND_NOT_INSTALLED", fmt.Sprintf("the setup step %s (%s) failed: %v", failed.Name, failed.Kind, err),
 			map[string]any{"step": row, "steps": steps, "output_tail": out.tail(20)})
 		e.NextStep = "Show the message and details.step to the user. When the user has fixed the cause, call install_workflow again with accept_setup=true."
 		return nil, e

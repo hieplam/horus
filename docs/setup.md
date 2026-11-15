@@ -362,15 +362,20 @@ folder then has the tools `list_workflows`, `describe_workflow`, `install_workfl
 `uninstall_workflow` and `generate_image`. Check it with `claude mcp get horus` from
 any folder: it shows `Connected` and `HORUS_ROOT`. See [`mcp.md`](mcp.md).
 
-**Flags.** Run `horus register` inside this repo. It takes two flags:
+**Flags.** `horus register` takes three flags:
+
+- `-client claude|codex`: the client to register the server for. Default: `claude`.
+  `horus register -client codex` runs `codex mcp add horus --env HORUS_ROOT=<repo root> -- <path of horus> mcp`.
+  Another name exits 2.
 
 - `-root <folder>`: the repo folder (it must have `workflows/`) to pass as `HORUS_ROOT`.
   Default: the repo found from the current folder.
 - `-horus-path <path>`: the `horus` program that Claude Code starts. Default: the
   program that runs `horus register`.
 
-When no repo is found and no `-root` is given, or when the folder has no `workflows/`,
-`horus register` stops with an error and registers nothing.
+When no repo is found and no `-root` is given, `horus register` still works and passes
+no `HORUS_ROOT`. When `-root` names a folder without `workflows/`, it stops with an error
+and registers nothing.
 
 **If it fails.** `The claude command was not found`: install Claude Code, or add the
 stdio server `horus` with the argument `mcp` to your agent by hand. `SKIP: Claude Code

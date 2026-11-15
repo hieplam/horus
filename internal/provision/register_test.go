@@ -14,7 +14,7 @@ import (
 	"github.com/hieplam/horus/internal/platform"
 )
 
-// fakeClaudeMain is the fake claude program. It appends its folder and its
+// fakeClaudeMain is the fake claude or codex program (the same code). It appends its folder and its
 // arguments to the record file. "mcp get" exits 0 when HORUS_FAKE_KNOWN is
 // set, and 1 if not. "mcp add" exits with HORUS_FAKE_ADD_EXIT.
 func fakeClaudeMain(rec string) int {
@@ -37,6 +37,12 @@ func fakeClaudeMain(rec string) int {
 // fakeClaude copies the test binary to <dir>/claude and returns the dir and the path.
 func fakeClaude(t *testing.T) (dir, path string) {
 	t.Helper()
+	return fakeClient(t, "claude")
+}
+
+// fakeClient copies the test binary to <dir>/<name> and returns the dir and the path.
+func fakeClient(t *testing.T, name string) (dir, path string) {
+	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +52,7 @@ func fakeClaude(t *testing.T) (dir, path string) {
 		t.Fatal(err)
 	}
 	dir = t.TempDir()
-	path = filepath.Join(dir, platform.ExeName("claude"))
+	path = filepath.Join(dir, platform.ExeName(name))
 	if err := os.WriteFile(path, data, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -83,13 +89,13 @@ func register(o RegisterOptions) error {
 	return Register(context.Background(), platform.Programs{}, o)
 }
 
-func TestRegisterAddsTheServerInUserScope(t *testing.T) {
+func TestRegisterClaudeRunsMCPAddWithTheArgumentsOfTheSpec(t *testing.T) {
 	_, claude := fakeClaude(t)
 	_, read := record(t, nil)
 	root := repo(t)
 	ask := t.TempDir()
 	var out bytes.Buffer
-	err := register(RegisterOptions{Claude: claude, HorusPath: "/the/path/horus", Root: root, AskDir: ask, Stdout: &out, Stderr: io.Discard})
+	err := register(RegisterOptions{Program: claude, HorusPath: "/the/path/horus", Root: root, AskDir: ask, Stdout: &out, Stderr: io.Discard})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,11 +115,11 @@ func TestRegisterAddsTheServerInUserScope(t *testing.T) {
 	}
 }
 
-func TestRegisterSkipsWhenClaudeKnowsTheServer(t *testing.T) {
+func TestRegisterClaudeSkipsOnASecondRun(t *testing.T) {
 	_, claude := fakeClaude(t)
 	_, read := record(t, map[string]string{"HORUS_FAKE_KNOWN": "1"})
 	var out bytes.Buffer
-	if err := register(RegisterOptions{Claude: claude, HorusPath: "/p/horus", Root: repo(t), AskDir: t.TempDir(), Stdout: &out}); err != nil {
+	if err := register(RegisterOptions{Program: claude, HorusPath: "/p/horus", Root: repo(t), AskDir: t.TempDir(), Stdout: &out}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(read(), "mcp add") {
@@ -128,7 +134,7 @@ func TestRegisterReportsAFailedAdd(t *testing.T) {
 	_, claude := fakeClaude(t)
 	record(t, map[string]string{"HORUS_FAKE_ADD_EXIT": "3"})
 	var out bytes.Buffer
-	err := register(RegisterOptions{Claude: claude, HorusPath: "/p/horus", Root: repo(t), AskDir: t.TempDir(), Stdout: &out})
+	err := register(RegisterOptions{Program: claude, HorusPath: "/p/horus", Root: repo(t), AskDir: t.TempDir(), Stdout: &out})
 	if err == nil || err.Error() != "claude mcp add failed (exit code 3)." {
 		t.Fatalf("err: %v", err)
 	}
@@ -140,7 +146,7 @@ func TestRegisterReportsAFailedAdd(t *testing.T) {
 func TestRegisterRefusesARootWithoutWorkflows(t *testing.T) {
 	_, claude := fakeClaude(t)
 	_, read := record(t, nil)
-	err := register(RegisterOptions{Claude: claude, HorusPath: "/p/horus", Root: t.TempDir(), AskDir: t.TempDir()})
+	err := register(RegisterOptions{Program: claude, HorusPath: "/p/horus", Root: t.TempDir(), AskDir: t.TempDir()})
 	if err == nil || !strings.Contains(err.Error(), "has no workflows folder") {
 		t.Fatalf("err: %v", err)
 	}
@@ -169,6 +175,73 @@ func TestRegisterFindsClaudeOnThePath(t *testing.T) {
 	}
 	err := Register(context.Background(), noPath{}, RegisterOptions{HorusPath: "/x/horus", Root: root})
 	if err == nil || !strings.HasPrefix(err.Error(), "The claude command was not found.") {
+		t.Fatalf("err: %v", err)
+	}
+}
+
+// TestRegisterCodexRunsMCPAddWithTheArgumentsOfTheSpec: codex gets "mcp get\n// horus", then "mcp add horus --env HORUS_ROOT=<root> -- <horus> mcp".
+func TestRegisterCodexRunsMCPAddWithTheArgumentsOfTheSpec(t *testing.T) {
+	_, codex := fakeClient(t, "codex")
+	_, read := record(t, nil)
+	root := repo(t)
+	var out bytes.Buffer
+	err := register(RegisterOptions{Client: ClientCodex, Program: codex, HorusPath: "/the/path/horus", Root: root, AskDir: t.TempDir(), Stdout: &out, Stderr: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := read()
+	if !strings.Contains(got, "args mcp get horus\n") {
+		t.Fatalf("no question to codex:\n%s", got)
+	}
+	if !strings.Contains(got, "args mcp add horus --env HORUS_ROOT="+root+" -- /the/path/horus mcp\n") {
+		t.Fatalf("no add command:\n%s", got)
+	}
+	if strings.Contains(got, "--scope") {
+		t.Fatalf("codex got a claude flag:\n%s", got)
+	}
+	if !strings.HasPrefix(out.String(), "OK: registered for Codex.") {
+		t.Fatalf("output: %q", out.String())
+	}
+}
+
+// TestRegisterCodexSkipsWhenMCPGetExitsZero: a codex that knows the server
+// gets no "mcp add".
+func TestRegisterCodexSkipsWhenMCPGetExitsZero(t *testing.T) {
+	_, codex := fakeClient(t, "codex")
+	_, read := record(t, map[string]string{"HORUS_FAKE_KNOWN": "1"})
+	var out bytes.Buffer
+	if err := register(RegisterOptions{Client: ClientCodex, Program: codex, HorusPath: "/p/horus", Root: repo(t), AskDir: t.TempDir(), Stdout: &out}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(read(), "mcp add") {
+		t.Fatalf("added a known server:\n%s", read())
+	}
+	if !strings.HasPrefix(out.String(), "SKIP: Codex already knows a server named horus") {
+		t.Fatalf("output: %q", out.String())
+	}
+}
+
+// TestRegisterPassesNoHorusRootWithoutARepoRoot: with an empty Root, both
+// clients get an add command without HORUS_ROOT.
+func TestRegisterPassesNoHorusRootWithoutARepoRoot(t *testing.T) {
+	for client, want := range map[string]string{
+		ClientClaude: "args mcp add --scope user horus -- /p/horus mcp\n",
+		ClientCodex:  "args mcp add horus -- /p/horus mcp\n",
+	} {
+		_, prog := fakeClient(t, client)
+		_, read := record(t, nil)
+		if err := register(RegisterOptions{Client: client, Program: prog, HorusPath: "/p/horus", Root: "", AskDir: t.TempDir()}); err != nil {
+			t.Fatalf("%s: %v", client, err)
+		}
+		if !strings.Contains(read(), want) || strings.Contains(read(), "HORUS_ROOT") {
+			t.Fatalf("%s:\n%s", client, read())
+		}
+	}
+}
+
+func TestRegisterRefusesAnotherClientName(t *testing.T) {
+	err := register(RegisterOptions{Client: "vim", Program: "/x", HorusPath: "/p/horus"})
+	if err == nil || !strings.Contains(err.Error(), "claude, codex") {
 		t.Fatalf("err: %v", err)
 	}
 }

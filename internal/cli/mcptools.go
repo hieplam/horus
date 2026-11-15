@@ -72,22 +72,30 @@ func ComfyMCP(ctx context.Context, args []string, in io.Reader, out, errOut io.W
 	return code
 }
 
-// Register is horus register.
+// Register is horus register. Exit code 2 is a flag that does not parse, or a
+// client name that is not claude or codex.
 func Register(ctx context.Context, args []string, out, errOut io.Writer, programs provision.Programs) int {
 	fs := newFlags("horus register", errOut)
-	rootFlag := fs.String("root", "", "the horus repo folder (with workflows/) to pass as HORUS_ROOT (default: the repo found from the current folder)")
+	client := fs.String("client", provision.ClientClaude, "the client to register the server for: "+provision.ClientNames)
+	rootFlag := fs.String("root", "", "the horus repo folder (with workflows/) to pass as HORUS_ROOT (default: the repo found from the current folder; none when there is no repo)")
 	horus := fs.String("horus-path", "", "path of the horus program to register (default: this program)")
 	if code, done := parse(fs, args); done {
 		return code
+	}
+	if *client != provision.ClientClaude && *client != provision.ClientCodex {
+		fmt.Fprintf(errOut, "horus register: unknown client %q. The clients are: %s.\n", *client, provision.ClientNames)
+		return 2
 	}
 	root := *rootFlag
 	if root == "" {
 		root = settings.Root()
 	}
-	if abs, err := filepath.Abs(root); err == nil {
-		root = abs
+	if root != "" {
+		if abs, err := filepath.Abs(root); err == nil {
+			root = abs
+		}
 	}
-	o := provision.RegisterOptions{HorusPath: *horus, Root: root, AskDir: os.TempDir(), Stdout: out, Stderr: errOut}
+	o := provision.RegisterOptions{Client: *client, HorusPath: *horus, Root: root, AskDir: os.TempDir(), Stdout: out, Stderr: errOut}
 	if o.HorusPath == "" {
 		self, err := os.Executable()
 		if err != nil {

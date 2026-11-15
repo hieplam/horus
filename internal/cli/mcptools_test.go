@@ -18,12 +18,16 @@ import (
 // every other command exits 0.
 type fakePrograms struct {
 	claude string
+	codex  string
 	runs   []platform.Command
 }
 
 func (f *fakePrograms) LookPath(name string) (string, error) {
 	if name == "claude" && f.claude != "" {
 		return f.claude, nil
+	}
+	if name == "codex" && f.codex != "" {
+		return f.codex, nil
 	}
 	return "", errors.New("not found")
 }
@@ -119,16 +123,56 @@ func TestRegisterWithoutClaude(t *testing.T) {
 	}
 }
 
-func TestRegisterWithoutARepoFails(t *testing.T) {
-	useRoot(t, t.TempDir()) // a folder without workflows/
+// TestRegisterWithoutARepoRootPassesNoHorusRoot: a machine with only the
+// program has no repo root, and register still works.
+func TestRegisterWithoutARepoRootPassesNoHorusRoot(t *testing.T) {
+	t.Setenv("HORUS_ROOT", "")
+	wd, _ := os.Getwd()
+	t.Chdir(t.TempDir())
+	t.Cleanup(func() { os.Chdir(wd) })
+	settings.Reset()
+	t.Cleanup(settings.Reset)
 	f := &fakePrograms{claude: "/bin/claude"}
 	var out, errOut bytes.Buffer
-	if code := Register(context.Background(), []string{"-horus-path", "/x/horus"}, &out, &errOut, f); code != 1 ||
-		!strings.Contains(errOut.String(), "has no workflows folder") {
+	if code := Register(context.Background(), []string{"-horus-path", "/x/horus"}, &out, &errOut, f); code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut.String())
 	}
-	if len(f.runs) != 0 {
-		t.Fatalf("called claude: %s", f.commands())
+	if want := "/bin/claude mcp get horus\n/bin/claude mcp add --scope user horus -- /x/horus mcp"; f.commands() != want {
+		t.Fatalf("commands:\n%s", f.commands())
+	}
+}
+
+func TestRegisterRootWithoutWorkflowsFails(t *testing.T) {
+	f := &fakePrograms{claude: "/bin/claude"}
+	var out, errOut bytes.Buffer
+	if code := Register(context.Background(), []string{"-horus-path", "/x/horus", "-root", t.TempDir()}, &out, &errOut, f); code != 1 ||
+		!strings.Contains(errOut.String(), "has no workflows folder") || len(f.runs) != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+}
+
+// TestRegisterClientCodexRunsCodex: -client codex runs the codex program.
+func TestRegisterClientCodexRunsCodex(t *testing.T) {
+	root := repoDir(t)
+	f := &fakePrograms{claude: "/bin/claude", codex: "/bin/codex"}
+	var out, errOut bytes.Buffer
+	if code := Register(context.Background(), []string{"-client", "codex", "-horus-path", "/x/horus", "-root", root}, &out, &errOut, f); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	want := "/bin/codex mcp get horus\n/bin/codex mcp add horus --env HORUS_ROOT=" + root + " -- /x/horus mcp"
+	if f.commands() != want {
+		t.Fatalf("commands:\n%s\nwant:\n%s", f.commands(), want)
+	}
+}
+
+// TestRegisterAnotherClientNameExitsTwo: a name that is not claude or codex
+// exits 2, lists the two names and runs nothing.
+func TestRegisterAnotherClientNameExitsTwo(t *testing.T) {
+	f := &fakePrograms{claude: "/bin/claude", codex: "/bin/codex"}
+	var out, errOut bytes.Buffer
+	code := Register(context.Background(), []string{"-client", "vim", "-horus-path", "/x/horus"}, &out, &errOut, f)
+	if code != 2 || !strings.Contains(errOut.String(), "claude, codex") || len(f.runs) != 0 {
+		t.Fatalf("exit %d: %s (%d runs)", code, errOut.String(), len(f.runs))
 	}
 }
 

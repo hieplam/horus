@@ -382,3 +382,70 @@ FAIL  full-setup - no passing test: TestInstallWorkflowWithoutAcceptSetupAnswers
 ```
 
 Go test functions: 250 → 265.
+
+## T6
+
+Task: [#142](https://github.com/hieplam/horus/issues/142). Files: `internal/provision/register.go`, `internal/cli/mcptools.go`
+and their tests, `docs/mcp.md`, `docs/setup.md`.
+
+**Red** (before the change, program built into the worktree):
+
+```
+$ horus register -client codex
+flag provided but not defined: -client
+exit 2
+```
+
+**Green.** The real `codex` ran with `CODEX_HOME` in a scratch folder (`.scratch/codexhome` of the worktree). Before the
+run, `codex mcp list` in that folder printed `No MCP servers configured yet.`, so `CODEX_HOME` is respected. The real
+`codex mcp list` (real home) held no `horus` entry after the run. `HORUS_ROOT` was not set, so the repo root was the
+worktree (a clone).
+
+```
+$ horus register -client codex
+Added global MCP server 'horus'.
+OK: registered for Codex. Start a new Codex session to see the tools.
+exit 0
+$ horus register -client codex
+SKIP: Codex already knows a server named horus (codex mcp get horus).
+exit 0
+$ codex mcp get horus
+horus
+  enabled: true
+  transport: stdio
+  command: <worktree>\bin\horus.exe
+  args: mcp
+  env: HORUS_ROOT=*****
+exit 0
+$ horus register -client vim
+horus register: unknown client "vim". The clients are: claude, codex.
+exit 2
+$ go test ./internal/provision ./internal/cli -run Register -v
+--- PASS: TestRegisterClaudeRunsMCPAddWithTheArgumentsOfTheSpec
+--- PASS: TestRegisterClaudeSkipsOnASecondRun
+--- PASS: TestRegisterCodexRunsMCPAddWithTheArgumentsOfTheSpec
+--- PASS: TestRegisterCodexSkipsWhenMCPGetExitsZero
+--- PASS: TestRegisterPassesNoHorusRootWithoutARepoRoot
+--- PASS: TestRegisterAnotherClientNameExitsTwo
+(and the older Register tests, all PASS)
+$ python tools/goal_check.py --phase 4 --no-ci --only register
+PASS  register - 6 pinned tests pass; real part not run (needs --real on the PC after the release)
+goal: 1 of 1 rows passed
+```
+
+**Decisions** (standing rules, no owner question):
+
+- The `claude` fake and the `codex` fake are the same test program (`fakeClaudeMain`), because both clients take the same
+  `mcp get` and `mcp add` shape.
+- With a root that is set but has no `workflows/` folder (`-root <folder>`), `horus register` still fails with the old
+  text. Only an empty root (no clone, no `-root`) passes no `HORUS_ROOT`, as the spec says.
+- The Codex flag is `--env KEY=VALUE`, placed before the `--` (checked with `codex mcp add --help`).
+- `README.md` is not changed: T8 owns it.
+
+**Ratchet.** `python tools/goal_check.py --phase 4 --no-ci`: rows passed 3 (`release`, `binary-only`, `same-behaviour`) on the
+main of this branch → 4 with `register`. (The plan says 4 → 5 because it counts the rows of T3 and T4 first. Those lanes are
+not merged yet.) Clients that `horus register` serves: 1 → 2. Contract test: `contract: 30 of 30 passed`.
+
+**Stub check.** A `register` that ignores `-client` runs `claude` and never gives the fake `codex` its arguments:
+`TestRegisterClientCodexRunsCodex` (cli, `/bin/claude` is not the fake of `codex`) and
+`TestRegisterCodexRunsMCPAddWithTheArgumentsOfTheSpec` fail.

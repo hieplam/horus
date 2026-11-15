@@ -521,7 +521,7 @@ install windows-latest  horus 0.0.0-ci
 install windows-latest  it-illustration                      (horus workflow list, run from the runner temp folder)
 install windows-latest  install.ps1: the SHA-256 of the download is not the SHA-256 in checksums.txt. Nothing is installed.
 install windows-latest  exit code: 1 / the folder is empty
-install macos-latest    export PATH="/Users/runner/.local/bin:$PATH" # added by the horus installer   (the profile .zprofile)
+install macos-latest    export PATH="$HOME/.local/bin:$PATH" # added by the horus installer   (the profile .zprofile)
 install macos-latest    horus 0.0.0-ci                       (zsh -l, clean environment)
 install macos-latest    it-illustration
 install macos-latest    install.sh: the SHA-256 of the download is not the SHA-256 in checksums.txt. Nothing is installed.

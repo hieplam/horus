@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Goal check of the Go port (epic: port horus to Go, Phase 1).
 
-    python tools/goal_check.py [--phase 2|3] [--no-ci] [--real] [--real-out <folder>] [--server-cmd <words...>] [--only <row...>]
+    python tools/goal_check.py [--phase 2|3|4] [--no-ci] [--real] [--real-out <folder>] [--server-cmd <words...>] [--only <row...>]
 
 With --phase 3, it checks the 8 goal rows of Phase 3 (docs/specs/2026-11-12-macos-backend.md):
 mac-backend, mac-setup, mac-image, tcc-folders, out-of-memory, one-config, one-setup-doc,
@@ -16,6 +16,18 @@ summary. With --real on macOS, mac-backend, mac-setup, mac-image, tcc-folders an
 one-config run horus and comfy on the Mac; on Windows, a row of the Mac fails and says
 so, one-config runs horus doctor, and same-behaviour runs the Phase 2 rows backend and
 commands with --real.
+
+With --phase 4, it checks the 8 goal rows of Phase 4 (docs/specs/2026-11-15-release-install.md):
+release, install-line, binary-only, full-setup, uninstall, register, readme, same-behaviour.
+The Go rows run the tests that PINNED4 pins by name, as Phase 3 does. A row whose code does not
+exist yet fails and its detail names what is missing (a file, a test name, a CI job, a code count).
+Unless --no-ci, release needs the CI job "release-build" and install-line the jobs "install <os>".
+Without --real, a row stands on its part without --real and its detail says "real part not run".
+With --real (on the PC, after the release), release downloads the 3 assets of the newest release and
+checks each SHA-256 and "horus version"; install-line, full-setup and uninstall need the newest run of
+fresh-machine.yml with source=release (run-name "fresh-machine source=release tag=<tag>") green on both
+runners; register runs the real codex with CODEX_HOME in a scratch folder; same-behaviour makes one
+real image from the downloaded Windows asset (HORUS_COMFYUI_URL must name port 8189).
 
 Without --phase, it checks the 8 goal rows of Phase 1 (docs/specs/2026-11-10-go-port.md).
 With --phase 2, it checks the 8 goal rows of Phase 2 (docs/specs/2026-11-11-restructure.md):
@@ -1063,6 +1075,483 @@ CHECKS3 = {"mac-backend": row3_mac_backend, "mac-setup": row3_mac_setup, "mac-im
            "one-setup-doc": row3_setup_doc, "same-behaviour": row3_same}
 
 
+# ---------------------------------------------------------------------------------------------
+# Phase 4: release, install line, full setup and uninstall (docs/specs/2026-11-15-release-install.md).
+# ---------------------------------------------------------------------------------------------
+
+ROWS4 = ["release", "install-line", "binary-only", "full-setup", "uninstall", "register", "readme", "same-behaviour"]
+BASELINE_COMMIT4 = "38c1838"  # main before the first task of Phase 4; the parity test and the golden files are compared with it
+BASELINE_TESTS4 = 250  # Go test functions at BASELINE_COMMIT4 (go test -list . ./...)
+CONTRACT_NAMES4 = ROOT / "tools" / "phase4_contract_checks.txt"  # the 30 contract checks at BASELINE_COMMIT4, one name per line
+ERROR_CODES4 = 22  # horus errors -json after T5 (21 at the baseline)
+REAL_PORT4 = "8189"  # a real image of Phase 4 uses this port only: the ComfyUI of the owner on 8188 gets no job
+RELEASE_ASSETS = ["horus-windows-amd64.exe", "horus-darwin-arm64", "checksums.txt"]
+RELEASE_FILES = ["release-please-config.json", ".release-please-manifest.json", ".github/workflows/release.yml"]
+RELEASE_SETTINGS = ["bump-minor-pre-major", "bump-patch-for-minor-pre-major"]  # the two 0.x settings of release-please
+RELEASE_JOBS = ["release-build"]
+INSTALL_JOBS = [f"install {o}" for o in CI_OSES]
+INSTALL_SCRIPTS = ["install.sh", "install.ps1"]
+INSTALL_LINES = ["curl -fsSL https://raw.githubusercontent.com/hieplam/horus/main/install.sh | sh",
+                 "irm https://raw.githubusercontent.com/hieplam/horus/main/install.ps1 | iex"]
+FRESH_WORKFLOW = ".github/workflows/fresh-machine.yml"
+# The Go tests that the rows of Phase 4 pin: (package folder, test name, the task that writes it).
+# Tasks T1 to T7 write tests with exactly these names (the list is in the evidence log, section T0).
+# A task may rename a pin only by changing this table in its own pull request.
+PINNED4 = {
+    "release": [
+        ("cmd/horus", "TestVersionPrintsTheVersionOfTheLinkerFlag", "T1"),
+        ("internal/mcpserver", "TestServerInfoVersionIsTheVersionOfTheBuild", "T1"),
+    ],
+    "binary-only": [
+        ("cmd/horus", "TestWorkflowListWithoutAClonePrintsTheBuiltInWorkflows", "T2"),
+        ("cmd/horus", "TestListWorkflowsOfTheMCPServerWithoutAClonePrintsTheBuiltInWorkflows", "T2"),
+        ("internal/settings", "TestEnvFileOfTheUserFolderGivesASetting", "T2"),
+        ("internal/settings", "TestOutputDirWithoutACloneIsTheOutputsFolderOfTheUserFolder", "T2"),
+        ("internal/settings", "TestHorusWorkflowsDirReplacesTheBuiltInWorkflows", "T2"),
+        ("internal/settings", "TestAFolderWithOnlyAWorkflowsFolderIsNotAClone", "T2"),
+    ],
+    "full-setup": [
+        ("internal/provision", "TestPlanOfAnEmptyMachineListsTheStepsInTheOrderOfTheSpec", "T4"),
+        ("internal/provision", "TestPlanWithoutAPackageManagerHasAStepForAPerson", "T4"),
+        ("cmd/horus", "TestSetupYesWithoutWithPackagesRunsNoProgramAndExitsOne", "T4"),
+        ("cmd/horus", "TestSetupYesWithPackagesRunsTheFakePackageManagerThenAPlanHasZeroSteps", "T4"),
+        ("cmd/horus", "TestSetupYesWithoutAPackageManagerRunsNothingAndExitsOne", "T4"),
+        ("internal/mcpserver", "TestInstallWorkflowWithoutAcceptSetupAnswersSetupConfirmationRequired", "T5"),
+        ("internal/mcpserver", "TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps", "T5"),
+    ],
+    "uninstall": [
+        ("internal/provision", "TestUninstallPlanWithoutYesChangesNothing", "T7"),
+        ("internal/provision", "TestUninstallYesRemovesEachRemoveItem", "T7"),
+        ("internal/provision", "TestUninstallKeepsAFolderWithoutAnInstallRecord", "T7"),
+        ("internal/provision", "TestUninstallKeepsTheEnvFileAndTheOutputsFolder", "T7"),
+        ("internal/provision", "TestUninstallModelsLeavesComfyUIAndTheRegistration", "T7"),
+        ("internal/provision", "TestUninstallMCPLeavesTheFiles", "T7"),
+        ("internal/provision", "TestUninstallKeepsAComfyUIThatAnswersAndHorusDidNotStart", "T7"),
+        ("internal/provision", "TestUninstallRunsMCPRemoveOfBothClients", "T7"),
+        ("internal/backend", "TestInstallWritesTheInstallRecord", "T7"),
+        ("internal/platform", "TestPathEntryOfTheInstallerIsRemoved", "T7"),
+        ("internal/platform", "TestTheProgramFileRemovesItself", "T7"),
+        ("cmd/horus", "TestSetupThenUninstallLeavesOnlyTheKeptItems", "T7"),
+    ],
+    "register": [
+        ("internal/provision", "TestRegisterClaudeRunsMCPAddWithTheArgumentsOfTheSpec", "T6"),
+        ("internal/provision", "TestRegisterClaudeSkipsOnASecondRun", "T6"),
+        ("internal/provision", "TestRegisterCodexRunsMCPAddWithTheArgumentsOfTheSpec", "T6"),
+        ("internal/provision", "TestRegisterCodexSkipsWhenMCPGetExitsZero", "T6"),
+        ("internal/provision", "TestRegisterPassesNoHorusRootWithoutARepoRoot", "T6"),
+        ("internal/cli", "TestRegisterAnotherClientNameExitsTwo", "T6"),
+    ],
+}
+_RELEASE_CACHE: dict[str, tuple] = {}
+
+
+def file_problems(files: list[str]) -> list[str]:
+    """The files of the list that do not exist in the repo root."""
+    return [f for f in files if not (ROOT / f).is_file()]
+
+
+def join_parts(parts: list[tuple[bool, str]]) -> tuple[bool, str]:
+    """One row from several parts: it passes when every part passes, and the detail holds every part."""
+    return all(ok for ok, _ in parts), "; ".join(d for _, d in parts)
+
+
+def find_key(node, key: str) -> list:
+    """Every value of the key anywhere in a JSON tree."""
+    found = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == key:
+                found.append(v)
+            found += find_key(v, key)
+    elif isinstance(node, list):
+        for v in node:
+            found += find_key(v, key)
+    return found
+
+
+def release_config_problems(text: str) -> list[str]:
+    """What stops release-please-config.json from keeping every version at 0.x (spec, "Version and release")."""
+    try:
+        cfg = json.loads(text)
+    except ValueError:
+        return ["release-please-config.json is not JSON"]
+    return [f"release-please-config.json has no {k}: true" for k in RELEASE_SETTINGS if True not in find_key(cfg, k)]
+
+
+def release_files_part() -> tuple[bool, str]:
+    missing = file_problems(RELEASE_FILES)
+    problems = [f"missing: {f}" for f in missing]
+    if RELEASE_FILES[0] not in missing:
+        problems += release_config_problems((ROOT / RELEASE_FILES[0]).read_text(encoding="utf-8", errors="replace"))
+    return not problems, ("files: " + ", ".join(problems)) if problems else "release files ok"
+
+
+def install_script_problems(name: str, text: str) -> list[str]:
+    """A script that is empty or that never names the checksum file cannot check a SHA-256."""
+    low = text.lower()
+    return [f"{name} does not mention {w}" for w in ("sha256", "checksums.txt") if w not in low]
+
+
+def install_files_part() -> tuple[bool, str]:
+    problems = [f"missing: {f}" for f in file_problems(INSTALL_SCRIPTS)]
+    for f in INSTALL_SCRIPTS:
+        if (ROOT / f).is_file():
+            problems += install_script_problems(f, (ROOT / f).read_text(encoding="utf-8", errors="replace"))
+    return not problems, ("files: " + ", ".join(problems)) if problems else "install scripts ok"
+
+
+def with_real4(a: argparse.Namespace, ok: bool, detail: str, real) -> tuple[bool, str]:
+    """Join the part without --real and the real part. Without --real the row stands on its part
+    without --real, and the detail says so."""
+    if not ok:
+        return False, detail
+    if not a.real:
+        return True, detail + "; real part not run (needs --real on the PC after the release)"
+    ok_r, detail_r = real(a)
+    return ok_r, detail + "; real: " + detail_r
+
+
+def sha256_of(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def parse_checksums(text: str) -> dict[str, str]:
+    """checksums.txt in the format of sha256sum: '<sha256>  <name>' or '<sha256> *<name>'."""
+    out = {}
+    for ln in text.splitlines():
+        m = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](\S+)", ln.strip())
+        if m:
+            out[m.group(2)] = m.group(1).lower()
+    return out
+
+
+def checksum_problems(folder: Path) -> list[str]:
+    """The program files of the folder whose SHA-256 is not equal to their line of checksums.txt."""
+    try:
+        lines = parse_checksums((folder / "checksums.txt").read_text(encoding="utf-8"))
+    except OSError:
+        return ["checksums.txt is missing"]
+    problems = []
+    for name in RELEASE_ASSETS[:2]:
+        if name not in lines:
+            problems.append(f"{name} has no line in checksums.txt")
+        elif not (folder / name).is_file():
+            problems.append(f"{name} was not downloaded")
+        elif sha256_of(folder / name) != lines[name]:
+            problems.append(f"{name} has a SHA-256 that differs from checksums.txt")
+    return problems
+
+
+def release_assets(a: argparse.Namespace) -> tuple[Path | None, str, str]:
+    """Download the 3 assets of the newest release into a scratch folder. Returns (folder, tag, why not)."""
+    if "r" not in _RELEASE_CACHE:
+        _RELEASE_CACHE["r"] = _release_assets(a)
+    return _RELEASE_CACHE["r"]
+
+
+def _release_assets(a: argparse.Namespace) -> tuple[Path | None, str, str]:
+    if not shutil.which("gh"):
+        return None, "", "gh not found"
+    code, out = run(["gh", "release", "view", "--json", "tagName,assets"], timeout=120)
+    try:
+        info = json.loads(out) if code == 0 else None
+    except ValueError:
+        info = None
+    if not info:
+        return None, "", "no release"
+    tag = info.get("tagName", "")
+    names = sorted(x.get("name", "") for x in info.get("assets", []))
+    if names != sorted(RELEASE_ASSETS):
+        return None, tag, f"release {tag} has {len(names)} assets ({', '.join(names) or 'none'}), needs " + ", ".join(RELEASE_ASSETS)
+    base = Path(a.real_out).resolve() if a.real_out else ROOT / ".scratch" / "release-assets"
+    folder = base / tag
+    folder.mkdir(parents=True, exist_ok=True)
+    code, out = run(["gh", "release", "download", tag, "--dir", str(folder), "--clobber"], timeout=900)
+    if code != 0:
+        return None, tag, f"download of {tag} failed: {last_line(out)}"
+    return folder, tag, ""
+
+
+def real_release(a: argparse.Namespace) -> tuple[bool, str]:
+    folder, tag, why = release_assets(a)
+    if folder is None:
+        return False, why
+    bad = checksum_problems(folder)
+    if bad:
+        return False, f"release {tag}: " + ", ".join(bad)
+    if this_os() != "win32":
+        return False, f"release {tag}: 3 assets, SHA-256 ok; running the Windows asset needs Windows (this machine: {this_os()})"
+    code, out = run([str(folder / RELEASE_ASSETS[0]), "version"], timeout=60)
+    want = f"horus {tag.lstrip('v')}"
+    if code != 0 or out.strip() != want:
+        return False, f"{RELEASE_ASSETS[0]} version: exit {code}, printed '{last_line(out)}', needs '{want}'"
+    return True, f"release {tag}: 3 assets, each SHA-256 equal to its line, '{want}'"
+
+
+def row4_release(a: argparse.Namespace) -> tuple[bool, str]:
+    parts = [release_files_part(), pinned_tests(PINNED4["release"]), ci_part3(a, RELEASE_JOBS)]
+    ok, detail = join_parts(parts)
+    return with_real4(a, ok, detail, real_release)
+
+
+def pick_fresh_run(runs: list[dict]) -> dict | None:
+    """The newest run of fresh-machine.yml with the real release as its source. The run-name of the
+    workflow is 'fresh-machine source=<build|release> tag=<tag>', and gh lists the newest run first."""
+    for r in runs:
+        if "source=release" in (r.get("displayTitle") or ""):
+            return r
+    return None
+
+
+def judge_fresh(runs: list[dict], jobs_of, tag: str) -> tuple[bool, str]:
+    """Pure judgement: the newest release run is for the newest tag, it is green, and both runners are green."""
+    r = pick_fresh_run(runs)
+    if r is None:
+        return False, "no run of fresh-machine.yml with source=release"
+    title = r.get("displayTitle") or ""
+    if f"tag={tag}" not in title:
+        return False, f"the newest release run '{title}' is not for the newest tag {tag}"
+    if r.get("conclusion") != "success":
+        return False, f"the run '{title}' is {r.get('conclusion') or r.get('status') or 'unknown'}"
+    jobs = jobs_of(r["databaseId"])
+    bad = []
+    for os_name in CI_OSES:
+        hit = [j for j in jobs if os_name in j.get("name", "")]
+        if not hit or any(j.get("conclusion") != "success" for j in hit):
+            bad.append(os_name)
+    if bad:
+        return False, f"the run '{title}' has no green job on " + ", ".join(bad)
+    return True, f"fresh-machine run '{title}' is green on " + " and ".join(CI_OSES)
+
+
+def real_fresh(a: argparse.Namespace) -> tuple[bool, str]:
+    if not shutil.which("gh"):
+        return False, "gh not found"
+    code, out = run(["gh", "release", "view", "--json", "tagName"], timeout=120)
+    try:
+        tag = json.loads(out)["tagName"] if code == 0 else ""
+    except (ValueError, KeyError, TypeError):
+        tag = ""
+    if not tag:
+        return False, "no release"
+    code, out = run(["gh", "run", "list", "--workflow", "fresh-machine.yml", "--limit", "30",
+                     "--json", "databaseId,displayTitle,conclusion,status"], timeout=120)
+    try:
+        runs = json.loads(out) if code == 0 else []
+    except ValueError:
+        runs = []
+
+    def jobs_of(run_id: int) -> list[dict]:
+        c, o = run(["gh", "run", "view", str(run_id), "--json", "jobs"], timeout=120)
+        try:
+            return json.loads(o).get("jobs", []) if c == 0 else []
+        except ValueError:
+            return []
+    return judge_fresh(runs, jobs_of, tag)
+
+
+def row4_install_line(a: argparse.Namespace) -> tuple[bool, str]:
+    ok, detail = join_parts([install_files_part(), ci_part3(a, INSTALL_JOBS)])
+    return with_real4(a, ok, detail, real_fresh)
+
+
+def row4_binary_only(a: argparse.Namespace) -> tuple[bool, str]:
+    return pinned_tests(PINNED4["binary-only"])
+
+
+def error_codes_part(a: argparse.Namespace) -> tuple[bool, str]:
+    """horus errors -json lists ERROR_CODES4 codes (the new code SETUP_CONFIRMATION_REQUIRED, task T5)."""
+    exe = horus_exe(a)
+    if not shutil.which(exe) and not Path(exe).is_file():
+        return False, f"horus errors -json: program not found: {exe}"
+    code, out = run([exe, "errors", "-json"], timeout=60)
+    try:
+        n = len(json.loads(out)) if code == 0 else -1
+    except ValueError:
+        n = -1
+    if n < 0:
+        return False, f"horus errors -json: exit {code}, no JSON list ({last_line(out)})"
+    return n == ERROR_CODES4, f"horus errors -json lists {n} codes" + ("" if n == ERROR_CODES4 else f", needs {ERROR_CODES4}")
+
+
+def row4_full_setup(a: argparse.Namespace) -> tuple[bool, str]:
+    ok, detail = join_parts([pinned_tests(PINNED4["full-setup"]), error_codes_part(a)])
+    return with_real4(a, ok, detail, real_fresh)
+
+
+def row4_uninstall(a: argparse.Namespace) -> tuple[bool, str]:
+    ok, detail = pinned_tests(PINNED4["uninstall"])
+    return with_real4(a, ok, detail, real_fresh)
+
+
+def real_register(a: argparse.Namespace) -> tuple[bool, str]:
+    """horus register -client codex with CODEX_HOME in a scratch folder, then codex mcp get horus.
+    The real config of the owner is never touched."""
+    codex = shutil.which("codex")
+    if not codex:
+        return False, "codex not found"
+    exe = horus_exe(a)
+    scratch = ROOT / ".scratch" / f"codex-home-{time.strftime('%Y%m%d-%H%M%S')}"
+    scratch.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ, CODEX_HOME=str(scratch))
+    code, out = run([exe, "register", "-client", "codex"], env=env, timeout=120)
+    if code != 0:
+        return False, f"horus register -client codex: exit {code}: {last_line(out)}"
+    code, out = run([codex, "mcp", "get", "horus"], env=env, timeout=120)
+    if code != 0:
+        return False, f"codex mcp get horus: exit {code}: {last_line(out)}"
+    return True, f"horus register -client codex, then codex mcp get horus exits 0 (CODEX_HOME {scratch})"
+
+
+def row4_register(a: argparse.Namespace) -> tuple[bool, str]:
+    ok, detail = pinned_tests(PINNED4["register"])
+    return with_real4(a, ok, detail, real_register)
+
+
+def readme_sections(text: str) -> list[str]:
+    """The text of each '## ' section of the README, in order. The text before the first one is no section."""
+    return re.split(r"(?m)^## ", text)[1:]
+
+
+def fence_commands(text: str) -> list[str]:
+    """The command lines of the shell code blocks of a text: blocks with no language, sh, bash, shell or
+    powershell. A comment line, a blank line and a block of another language (mermaid) are no command."""
+    cmds, lang, inside = [], "", False
+    for ln in text.splitlines():
+        m = re.match(r"^```\s*(\w*)", ln)
+        if m:
+            inside = not inside
+            lang = m.group(1).lower() if inside else ""
+            continue
+        if not inside or lang not in ("", "sh", "bash", "shell", "powershell", "pwsh", "console"):
+            continue
+        cmd = re.sub(r"^(\$|PS>|>)\s+", "", ln.strip())
+        if cmd and not cmd.startswith("#"):
+            cmds.append(cmd)
+    return cmds
+
+
+def squash(text: str) -> str:
+    return re.sub(r"\s+", " ", text)
+
+
+def readme_problems(readme: str, fresh: str | None) -> list[str]:
+    """Both install lines are in section 1 or 2 of the README, and each command line of those sections is
+    in fresh-machine.yml (None when the file is missing)."""
+    first = "\n".join(readme_sections(readme)[:2])
+    problems = [f"the install line of {ln.rsplit('/', 1)[-1].split()[0]} is not in section 1 or 2"
+                for ln in INSTALL_LINES if squash(ln) not in squash(first)]
+    if fresh is None:
+        problems.append(f"missing: {FRESH_WORKFLOW}")
+    else:
+        body = squash(fresh)
+        problems += [f"the README command '{c[:60]}' is not in fresh-machine.yml"
+                     for c in fence_commands(first) if squash(c) not in body]
+    return problems
+
+
+def row4_readme(a: argparse.Namespace) -> tuple[bool, str]:
+    try:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    except OSError:
+        return False, "missing: README.md"
+    try:
+        fresh = (ROOT / FRESH_WORKFLOW).read_text(encoding="utf-8")
+    except OSError:
+        fresh = None
+    problems = readme_problems(readme, fresh)
+    if problems:
+        return False, f"{len(problems)} problems: " + "; ".join(problems)
+    return True, "both install lines are in section 1 or 2; each README command is in fresh-machine.yml"
+
+
+def contract_names_part(a: argparse.Namespace) -> tuple[bool, str]:
+    """The contract test passes, and each of the 30 baseline checks is in its output with PASS.
+    The count may grow (task T5 adds checks); the names may not go away."""
+    cmd = a.server_cmd or ["horus", "mcp"]
+    if not shutil.which(cmd[0]) and not Path(cmd[0]).is_file():
+        return False, f"contract: server command not found: {cmd[0]}"
+    try:
+        names = [ln.strip() for ln in CONTRACT_NAMES4.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    except OSError:
+        return False, f"missing: {CONTRACT_NAMES4.relative_to(ROOT).as_posix()}"
+    code, out = run([sys.executable, "tests/mcp_contract.py", "--server-cmd", *cmd], timeout=600)
+    m = re.search(r"contract: (\d+) of (\d+) passed", out)
+    if not m:
+        return False, f"contract: no result line ({last_line(out)})"
+    passed = {ln[len("PASS  "):].strip() for ln in out.splitlines() if ln.startswith("PASS  ")}
+    lacking = [n for n in names if n not in passed]
+    ok = code == 0 and m.group(1) == m.group(2) and int(m.group(2)) >= len(names) and not lacking
+    detail = f"contract: {m.group(1)} of {m.group(2)}, {len(names) - len(lacking)} of {len(names)} baseline checks pass"
+    if lacking:
+        detail += ", missing or failed: " + ", ".join(lacking[:3]) + (" ..." if len(lacking) > 3 else "")
+    return ok, detail
+
+
+def frozen_files4() -> list[str] | str:
+    """Files of the parity test (and its fixtures and golden files) that differ from the baseline.
+    tests/mcp_contract.py is left out: task T5 adds checks there, and contract_names_part guards the old ones."""
+    code, out = run(["git", "diff", "--name-status", "-M", BASELINE_COMMIT4, "--",
+                     "tests/workflow_parity.py", "tests/fixtures", "*golden*"], timeout=60)
+    if code != 0:
+        return f"git diff against {BASELINE_COMMIT4} failed: {last_line(out)}"
+    return [ln for ln in out.splitlines() if ln.strip() and not ln.startswith("R100")]
+
+
+def real_same4(a: argparse.Namespace) -> tuple[bool, str]:
+    """One real image through MCP from the downloaded Windows asset, on port 8189 only."""
+    if this_os() != "win32":
+        return False, f"the real image needs the PC (this machine: {this_os()})"
+    url = comfy_url()
+    if not url.endswith(":" + REAL_PORT4):
+        return False, f"HORUS_COMFYUI_URL is {url}; set it to a ComfyUI on port {REAL_PORT4} (the ComfyUI of the owner on 8188 gets no job)"
+    folder, tag, why = release_assets(a)
+    if folder is None:
+        return False, why
+    bad = checksum_problems(folder)
+    if bad:
+        return False, f"release {tag}: " + ", ".join(bad)
+    img = argparse.Namespace(**{**vars(a), "server_cmd": [str(folder / RELEASE_ASSETS[0]), "mcp"]})
+    ok, detail, _ = real_image(img)
+    return ok, f"{detail} (program of release {tag})" if ok else detail
+
+
+def row4_same(a: argparse.Namespace) -> tuple[bool, str]:
+    parts: list[tuple[bool, str]] = [contract_names_part(a)]
+    code, out = run([sys.executable, "tests/workflow_parity.py"], timeout=900)
+    parity = code == 0 and re.search(r"parity: 17 of 17 cases equal", out) is not None
+    parts.append((parity, "parity: " + ("17 of 17" if parity else last_line(out))))
+    go = go_exe()
+    if go:
+        code, out = run([go, "test", "./..."])
+        parts.append((code == 0, "go test ./...: " + ("ok" if code == 0 else "failed, " + last_line(out))))
+    else:
+        parts.append((False, "go not found"))
+    lists = allow_files()
+    ok_a, detail_a, _ = go_test_ran([f"./{ARCHTEST_DIR}"], ARCHTEST_TESTS)
+    parts.append((ok_a and not lists, f"archtest: {'ok' if ok_a else detail_a}, {len(lists)} allow list files"))
+    n, err = go_test_count()
+    parts.append((n >= BASELINE_TESTS4, err if n < 0 else f"{n} Go test functions (baseline {BASELINE_TESTS4})"))
+    changed = frozen_files4()
+    if isinstance(changed, str):
+        parts.append((False, changed))
+    else:
+        parts.append((not changed, f"{len(changed)} changed parity or golden files" + (": " + ", ".join(changed[:3]) if changed else "")))
+    parts.append(ci_part3(a, SAME_BEHAVIOUR_JOBS))
+    ok, detail = join_parts(parts)
+    return with_real4(a, ok, detail, real_same4)
+
+
+CHECKS4 = {"release": row4_release, "install-line": row4_install_line, "binary-only": row4_binary_only,
+           "full-setup": row4_full_setup, "uninstall": row4_uninstall, "register": row4_register,
+           "readme": row4_readme, "same-behaviour": row4_same}
+
+
 CHECKS = {"contract": row_contract, "graph": row_graph, "workflow-cli": row_workflow_cli,
           "downloader": row_downloader, "setup-commands": row_setup, "builds": row_builds,
           "real-image": row_real, "no-python": row_no_python}
@@ -1074,12 +1563,12 @@ def main() -> int:
     ap.add_argument("--no-ci", action="store_true", help="leave out the CI part of the rows contract, same-behaviour and process-tree")
     ap.add_argument("--real", action="store_true", help="run the real-image row (GPU machine only)")
     ap.add_argument("--real-out", help="folder for the PNG of the real-image row (default: .scratch/real-image)")
-    ap.add_argument("--phase", type=int, choices=[1, 2, 3], default=1,
-                    help="goal rows to check: 1 = the Go port (default), 2 = the three layers, 3 = macOS")
+    ap.add_argument("--phase", type=int, choices=[1, 2, 3, 4], default=1,
+                    help="goal rows to check: 1 = the Go port (default), 2 = the three layers, 3 = macOS, 4 = release and install")
     ap.add_argument("--only", nargs="+", metavar="ROW",
                     help="check only these rows, for example --only backend (the summary counts these rows)")
     a = ap.parse_args()
-    rows, checks = {1: (ROWS, CHECKS), 2: (ROWS2, CHECKS2), 3: (ROWS3, CHECKS3)}[a.phase]
+    rows, checks = {1: (ROWS, CHECKS), 2: (ROWS2, CHECKS2), 3: (ROWS3, CHECKS3), 4: (ROWS4, CHECKS4)}[a.phase]
     if a.only:
         unknown = [r for r in a.only if r not in rows]
         if unknown:
@@ -1097,7 +1586,8 @@ def main() -> int:
         print(f"{'PASS' if ok else 'FAIL'}  {row} - {detail}", flush=True)
     print(f"goal: {passed} of {len(rows)} rows passed")
     if not_real:
-        print("note: the real part did not run for " + ", ".join(not_real) + " (run with --real on the Mac and on the PC)")
+        where = "on the PC after the release" if a.phase == 4 else "on the Mac and on the PC"
+        print("note: the real part did not run for " + ", ".join(not_real) + f" (run with --real {where})")
     return 0 if passed == len(rows) else 1
 
 

@@ -33,6 +33,9 @@ jobs:
       - name: gofmt prints nothing
         if: matrix.goos == 'linux'
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: lint-public finds nothing
+        if: matrix.goos == 'linux'
+        run: python3 scripts/lint-public.py
 
   contract:
     # tools/goal_check.py reads the jobs whose name starts with "contract" and has the system name.

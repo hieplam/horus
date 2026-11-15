@@ -47,6 +47,11 @@ var commands = map[string]command{
 			return cli.RunSetup(ctx, args, os.Stdout, os.Stderr, setupStepsAt)
 		})
 	}},
+	"uninstall": {"print what horus installed; -yes removes it (-models, -mcp: one part)", func(args []string) int {
+		return withSignal(func(ctx context.Context) int {
+			return cli.RunUninstall(ctx, args, os.Stdout, os.Stderr, uninstallAt)
+		})
+	}},
 	"workflow": {"list, check, install or remove the model files of a workflow", func(args []string) int {
 		return withSignal(func(ctx context.Context) int { return cli.Workflow(ctx, args, os.Stdout, os.Stderr, setupAt) })
 	}},

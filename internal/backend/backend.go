@@ -43,6 +43,15 @@ type Backend interface {
 	// Installed gives the install folder, and reports if ComfyUI is
 	// installed there.
 	Installed() (dir string, ok bool)
+	// Folder gives the folder that Install makes and that holds the install
+	// record (platform.InstallRecordName): the install folder of the
+	// portable build, the workspace <dir>/ComfyUI of comfy-cli. horus
+	// uninstall deletes it only when the record is there.
+	Folder() string
+	// Running reports if a server answers at the address, and if the state
+	// file of the install names a ComfyUI that horus started at that
+	// address. It changes nothing.
+	Running(ctx context.Context) (answers, started bool)
 }
 
 // layout is the folders and files of one install, as full paths.
@@ -130,6 +139,23 @@ func (p Place) serverURL() string {
 func (p Place) Installed() (string, bool) {
 	dir := p.dir()
 	return dir, isInstalled(dir)
+}
+
+// Running reports if a server answers at the address of p, and if the state
+// file of the install folder names a ComfyUI that horus started at that
+// address (the rule of Stop).
+func (p Place) Running(ctx context.Context) (up, started bool) {
+	url := p.serverURL()
+	st, err := readState(statePath(p.absDir()))
+	return answers(ctx, url), err == nil && st != nil && st.URL == url
+}
+
+// absDir is the install folder as an absolute path.
+func (p Place) absDir() string {
+	if d, err := filepath.Abs(p.dir()); err == nil {
+		return d
+	}
+	return p.dir()
 }
 
 // comfyUIDir is the ComfyUI folder of the install: <dir>/ComfyUI.

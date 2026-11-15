@@ -42,6 +42,8 @@ func fakeProgram() (int, bool) {
 		return fakePackageManager(exe, os.Args[1:]), true
 	case "python3.12", "python":
 		return fakePython(exe, os.Args[1:]), true
+	case "claude", "codex":
+		return fakeMCPClient(exe, os.Args[1:]), true
 	}
 	return 0, false
 }
@@ -127,6 +129,10 @@ func (f *fakeInstall) Install(_ context.Context, out io.Writer) error {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(f.dir, "ComfyUI", "main.py"), []byte("# fake\n"), 0o644); err != nil {
+		return err
+	}
+	// The install record, as the real install of the portable build writes it.
+	if err := platform.WriteInstallRecord(f.dir, platform.RecordComfyUI); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "fake install of ComfyUI in %s\n", f.dir)

@@ -87,6 +87,10 @@ func (p *portable) layout() layout {
 	}
 }
 
+// Folder gives the install folder: Install makes it and writes the install
+// record into it.
+func (p *portable) Folder() string { return p.absDir() }
+
 // -- install ------------------------------------------------------------------
 
 // Install runs the steps of the install. It returns nil after a skip.
@@ -189,6 +193,11 @@ func (p *portable) Install(ctx context.Context, out io.Writer) error {
 	}
 	if err := os.Rename(top, installDir); err != nil {
 		return err
+	}
+	// The install record: horus made this folder, so horus uninstall may
+	// delete it.
+	if err := platform.WriteInstallRecord(installDir, platform.RecordComfyUI); err != nil {
+		return fmt.Errorf("ComfyUI is installed in %s, but the install record was not written: %w", installDir, err)
 	}
 
 	if !o.KeepArchive {

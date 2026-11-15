@@ -97,6 +97,11 @@ func InstallComfyMCP(ctx context.Context, programs Programs, o ComfyMCPOptions) 
 		if code, err := run(launcher[0], out, errOut, append(lead, "-m", "venv", venv)...); err != nil || code != 0 {
 			return fmt.Errorf("Creating the venv failed (%s).", exitText(code, err))
 		}
+		// The install record: horus made this venv, so horus uninstall may
+		// delete it. A venv of an older horus has no record and stays.
+		if err := platform.WriteInstallRecord(venv, platform.RecordComfyMCP); err != nil {
+			return fmt.Errorf("The venv %s was made, but the install record was not written: %w", venv, err)
+		}
 	}
 
 	var versions bytes.Buffer

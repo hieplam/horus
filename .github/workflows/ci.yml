@@ -201,6 +201,32 @@ jobs:
           if ($n -ne 1) { throw "the PATH has $n entries of horus" }
           & (Join-Path $env:LOCALAPPDATA 'Programs\horus\horus.exe') version
 
+      - name: Windows, horus uninstall -yes removes the program and the PATH entry
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\horus\horus.exe'
+          Set-Location $env:RUNNER_TEMP
+          & $exe uninstall
+          if ($LASTEXITCODE -ne 0) { throw "horus uninstall (the plan): exit code $LASTEXITCODE" }
+          & $exe uninstall -yes
+          if ($LASTEXITCODE -ne 0) { throw "horus uninstall -yes: exit code $LASTEXITCODE" }
+          # On Windows the program file goes a moment after the end of the program.
+          for ($i = 0; ($i -lt 50) -and (Test-Path $exe); $i++) { Start-Sleep -Milliseconds 200 }
+          if (Test-Path $exe) { throw "the program file is still there after 10 s: $exe" }
+          Write-Host 'the program file is gone'
+
+      - name: Windows, a new shell does not find horus
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # A new shell starts with the PATH of the registry, not with the PATH of this step.
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          $n = ([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ -like '*Programs\horus' }).Count
+          if ($n -ne 0) { throw "the PATH still has $n entries of horus" }
+          if (Get-Command horus -ErrorAction SilentlyContinue) { throw "a new shell finds horus: $((Get-Command horus).Source)" }
+          Write-Host 'a new shell does not find horus'
+
       - name: macOS, serve the release files
         if: runner.os == 'macOS'
         run: |
@@ -264,3 +290,20 @@ jobs:
           cat install.sh | env PATH=/usr/bin:/bin:/usr/sbin:/sbin sh
           test "$(grep -c 'added by the horus installer' "$HOME/.zprofile")" -eq 1
           "$HOME/.local/bin/horus" version
+
+      - name: macOS, horus uninstall -yes removes the program and the profile line
+        if: runner.os == 'macOS'
+        run: |
+          cd "$RUNNER_TEMP"
+          "$HOME/.local/bin/horus" uninstall
+          "$HOME/.local/bin/horus" uninstall -yes
+          if [ -e "$HOME/.local/bin/horus" ]; then echo "the program file is still there"; exit 1; fi
+          if grep -q 'added by the horus installer' "$HOME/.zprofile"; then echo "the profile still has the line"; exit 1; fi
+          echo "the program file and the profile line are gone"
+
+      - name: macOS, a new shell does not find horus
+        if: runner.os == 'macOS'
+        run: |
+          # "env -i" gives a shell with no PATH of this step. "zsh -l" reads ~/.zprofile.
+          if env -i HOME="$HOME" /bin/zsh -l -c 'command -v horus'; then echo "a new shell finds horus"; exit 1; fi
+          echo "a new shell does not find horus"

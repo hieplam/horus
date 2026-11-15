@@ -48,6 +48,16 @@ commands.
 | 2026-11-15 | The contract test cannot run a successful ComfyUI install on Windows: the portable install always downloads the pinned 1.9 GB archive with a fixed SHA-256, and no setting replaces it. So its install check runs the package step with a fake `winget` (Windows) or `brew` (macOS) that installs nothing, and checks that the tool stops at the missing program. The full install after `accept_setup=true` (package, ComfyUI, model files) is proven by `TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps` on both runners, and for real by the fresh-machine run (T9). | the T5 agent (standing rule: a plan command that no longer fits) | A test seam in the shipped program only for the contract test adds a way to skip the install (design rule 1). The rule of the PC forbids a real download. |
 | 2026-11-15 | The contract sessions without ComfyUI set the PATH to a folder of fake programs and the system folders only, `HOME`, `USERPROFILE`, `HORUS_HOME`, `HORUS_ROOT` and `ProgramFiles` to the sandbox, and `HTTP_PROXY` and `HTTPS_PROXY` to the closed port 127.0.0.1:9. | the T5 agent (rule of the PC: no real `winget` or `brew`, no real download) | So the real package manager is never found, and no download can leave the machine, also when a step has a defect. |
 | 2026-11-15 | The goal tool has one count of contract checks, `CONTRACT_CHECKS = 37`. The row `contract` of phases 1 to 3 needs 37 of 37. The part of phase 4 needs 37 or more and each of the 30 baseline names. | the T5 agent (plan step 5) | The count went from 30 to 37. One constant keeps the tool and the CI job `contract` the same. |
+| 2026-11-15 | The comfy-cli backend writes the install record into the workspace `<install folder>/ComfyUI`, not into the install folder. `Backend.Folder()` names the folder of the record: the install folder of the portable build, the workspace of comfy-cli. `horus uninstall` deletes that folder. | the T7 agent (design gap) | On macOS the install folder is the user folder (`<home>/horus`, decision D43), with `.env` and `outputs/`. A record there would make the uninstall delete the data of the user. |
+| 2026-11-15 | The model files part runs the plan of `horus workflow remove` for each workflow with `-force`. A file that two workflows list goes too. A file of another size stays (`REFUSED`), as in `workflow remove`. | the T7 agent (design gap) | The uninstall removes every workflow. Without `-force` a shared file is kept by each workflow, and no shared file ever goes. |
+| 2026-11-15 | On Windows the PATH entry goes only when it equals the folder of the running program and that folder holds only `horus.exe` (and the `horus.exe.old` of an update). On macOS each line with the marker goes from the three profile files (the rule of `## T3`). | the T7 agent (design gap) | `install.ps1` writes no marker. A folder with other programs (for example the `bin` folder of Go after `go install`) is not the folder of the script, and its entry must stay. |
+| 2026-11-15 | The registry code is two small functions (`regRead`, `regWrite`) that take the key. The edit of the value is the pure `platform.RemoveListEntry`. The test writes a scratch key `HKCU\Software\horus-test-<random>` and deletes it. No test opens `HKCU\Environment`. The real PATH removal is proven only by the install jobs of CI. | the T7 agent (lane rule 3) | A test must never change the PATH of the owner. |
+| 2026-11-15 | On Windows the program file goes after the end of the program: `platform.RemoveSelf` starts a hidden PowerShell that waits for the process to end and then deletes the file (up to 10 s of tries). It takes no path: it deletes only `os.Executable()`. The item counts as done when that PowerShell started. The CI step waits up to 10 s for the file to go. | the T7 agent (spec: "The program removes itself last") | A running program cannot delete its own file on Windows. A rename alone leaves a file. |
+| 2026-11-15 | `platform.RemoveTree` deletes a folder and never follows a link: a symbolic link or a junction (Go gives it `ModeIrregular`) goes as a link, and its target keeps its files. The uninstall uses it for each folder. | the T7 agent (lane rule 5) | The test installs of the owner have junctions to the real model folder. |
+| 2026-11-15 | The plan has an MCP item only for a client that is found and whose `mcp get horus` exits 0. The commands are `claude mcp remove --scope user horus` and `codex mcp remove horus` (read from `--help` of both, no remove ran). After the run, a second `mcp get horus` must exit with a code that is not 0. | the T7 agent (spec, the mirror of `## T6`) | The spec removes the server "when the client is found and knows the server". |
+| 2026-11-15 | The user folder itself goes when it is empty after the run. A state file `horus-comfyui.state.json` in the user folder (macOS) stays when it names a ComfyUI that horus started and that the run does not remove. | the T7 agent (design gap) | An empty folder is no data of the user. Without the state file, `horus stop-comfyui` cannot stop that ComfyUI. |
+| 2026-11-15 | The line of the ComfyUI folder says that everything in it goes, also a file that a person put there, and a KEEP model file in that folder says that it goes with the folder. | the T7 agent (found by the manual run on the sandbox) | The spec deletes the whole install folder with a record. The plan must not say KEEP for a file that the run deletes. |
+| 2026-11-15 | `internal/backend.Backend` gets `Folder()` and `Running(ctx)`. `internal/provision` declares the interfaces `ComfyInstall` and `Installer` that the uninstall needs, and `cmd/horus` gives it the backend and the functions of `internal/platform` (`installerOS`). | the T7 agent (design rules 4 and 5) | The service declares what it needs. A test gives it fakes, so no test reaches the real PATH or the real program. |
 
 ## Baseline
 
@@ -631,3 +641,117 @@ note: the real part did not run for full-setup, same-behaviour (run with --real 
 `goal: 6 of 8 rows passed` (`install-line` of T3 and `register` of T6 also pass; `uninstall` and `readme` wait for T7, T8
 and T9). Contract checks: 30 -> 37 (7 new checks, each of the 30 baseline names passes). Error codes: 21 -> 22.
 Go test functions: 290 (baseline 250).
+
+## T7
+
+Task: [#143](https://github.com/hieplam/horus/issues/143). Files: `internal/provision/uninstall.go`,
+`internal/provision/comfymcp.go` (the record of the venv), `internal/cli/uninstall.go`, `internal/backend/backend.go`,
+`internal/backend/portable.go`, `internal/backend/comfycli.go` (the record, `Folder`, `Running`),
+`internal/platform/record.go` (the record, `RemoveTree`), `internal/platform/pathentry*.go` (the PATH entry,
+`RemoveSelf`), `cmd/horus/main.go`, `cmd/horus/wiring.go`, the job `install` of `.github/workflows/ci.yml`, and their
+tests. The decisions are in the "Decisions" table above (rows of the T7 agent).
+
+**What changed.** `horus uninstall` prints one line for each item: `REMOVE` or `KEEP`, the path, what it is, and the
+reason of a `KEEP`. Without `-yes` it changes nothing. With `-yes` it stops the ComfyUI that horus started, then removes
+the model files (the rules of `horus workflow remove`, with `-force`), the ComfyUI folder and the venv (only with the
+install record `horus-install.json`), the server `horus` of Claude Code and Codex, the copy of the built-in workflows,
+the PATH entry of the install script, and the program file. `.env` and `outputs/` stay, and the plan names both.
+`-models` and `-mcp` limit it to one part. The exit code is 1 when a `REMOVE` item is still there.
+`Backend.Install` and `horus install-comfy-mcp` write the install record into the folder that they make.
+
+**The uninstall rule.** Each Go test of uninstall builds its own sandbox (`t.TempDir`): `USERPROFILE`, `HOME`,
+`HORUS_HOME`, `HORUS_ROOT`, `LOCALAPPDATA`, `APPDATA`, `CODEX_HOME` and the PATH are in it, the PATH holds only the fake
+`claude` and `codex`, `HORUS_MODELS_DIR`, `HORUS_TEXT_ENCODER_DIR` and `HORUS_COMFYUI_DIR` are empty, and
+`settings.Reset()` runs. Before a test runs `-yes`, the helper `planInside` (`internal/provision`) or
+`planInsideSandbox` (`cmd/horus`) checks each path of `Uninstall.Paths()`. The PATH entry and the program file of these
+tests are a fake of the OS. The registry test uses a scratch key `HKCU\Software\horus-test-<random>`, and the
+self-removal test runs a copy of the test binary in a temporary folder.
+
+**Red** (before the change, on `main` at `2b2c54f`, built into the worktree):
+
+```
+$ horus uninstall
+horus: unknown command "uninstall"
+exit 2
+```
+
+**Green** (on the PC, after the rebase on `main` at `1297e09`):
+
+```
+$ go test -count=1 ./internal/provision ./internal/platform ./internal/backend ./internal/cli ./cmd/horus
+ok  	github.com/hieplam/horus/internal/provision	31.490s
+ok  	github.com/hieplam/horus/internal/platform	3.861s
+ok  	github.com/hieplam/horus/internal/backend	38.521s
+ok  	github.com/hieplam/horus/internal/cli	0.230s
+ok  	github.com/hieplam/horus/cmd/horus	19.695s
+$ python tools/goal_check.py --phase 4 --no-ci --only uninstall --server-cmd <worktree>/bin/horus.exe mcp
+PASS  uninstall - 12 pinned tests pass; real part not run (needs --real on the PC after the release)
+goal: 1 of 1 rows passed
+$ python tests/mcp_contract.py --server-cmd bin/horus.exe mcp
+contract: 37 of 37 passed
+$ python tests/workflow_parity.py
+parity: 17 of 17 cases equal
+$ python scripts/lint-public.py
+lint-public: 0 finding(s)
+```
+
+`gofmt -l .` prints nothing. `GOOS=darwin GOARCH=arm64 go vet ./...` passes. After the test run, the PC has no key
+`HKCU\Software\horus-test-*`.
+
+**A manual run on the PC** with the built program, in the scratch folder `.scratch/manual` of the worktree: `USERPROFILE`,
+`HOME`, `HORUS_HOME`, `HORUS_ROOT`, `LOCALAPPDATA`, `APPDATA` and `CODEX_HOME` in it, the PATH only
+`C:\Windows\System32;C:\Windows`, `HORUS_COMFYUI_URL=http://127.0.0.1:9`, the three folder settings unset, and the program
+a copy in `.scratch/manual/prog`. The plan was read first (no `-yes`). Each path was in the scratch folder:
+
+```
+Uninstall plan:
+KEEP    <scratch>\home\ComfyUI_windows_portable\ComfyUI\models\vae\flux2-vae.safetensors  (model file flux2-vae.safetensors of workflow it-illustration: the file has 35 bytes, models.json says 336211292: it is not the listed file)
+REMOVE  <scratch>\home\ComfyUI_windows_portable  (the ComfyUI install folder)
+KEEP    <scratch>\home\.venvs\comfy-mcp  (the venv of horus install-comfy-mcp: it has no install record horus-install.json, so horus did not make it (or an older horus did). Delete it by hand when you do not need it.)
+KEEP    <scratch>\home\horus\.env  (the .env file: data of the user)
+KEEP    <scratch>\home\horus\outputs  (the images: data of the user)
+REMOVE  <scratch>\prog\horus.exe  (the program file: the last item. A system package (7-Zip, Python) stays.)
+Nothing changed. Run horus uninstall -yes to remove the 2 REMOVE item(s).
+exit 0
+```
+
+Then `-yes` printed `OK: removed the ComfyUI install folder: ...`, `OK: removed the program file: ...` and
+`OK: 2 REMOVE item(s) are gone.`, exit 0, and 3 s later the copy of the program was gone. This run showed one defect,
+fixed in this pull request: the first `KEEP` line said that the file stays, but it is in the ComfyUI folder that goes. The
+line now says `It is in the ComfyUI install folder, so it goes with that folder`.
+
+**CI run 43691777306 (pull request #160): both install jobs green with the uninstall step.** The real PATH removal and
+the removal of the program file are proven only here, on the runners:
+
+```
+install windows-latest  REMOVE  <home>\horus\builtin-workflows  (a file of horus in the user folder)
+install windows-latest  REMOVE  HKCU\Environment\Path  (the PATH entry of the install script)
+install windows-latest  REMOVE  <home>\AppData\Local\Programs\horus\horus.exe  (the program file: ...)
+install windows-latest  OK: removed the PATH entry of the install script: HKCU\Environment\Path
+install windows-latest  OK: removed the program file: <home>\AppData\Local\Programs\horus\horus.exe
+install windows-latest  OK: 3 REMOVE item(s) are gone.
+install windows-latest  the program file is gone
+install windows-latest  a new shell does not find horus
+install macos-latest    REMOVE  <home>/.zprofile  (the PATH entry of the install script)
+install macos-latest    OK: removed the program file: <home>/.local/bin/horus
+install macos-latest    OK: 3 REMOVE item(s) are gone.
+install macos-latest    the program file and the profile line are gone
+install macos-latest    a new shell does not find horus
+```
+
+**Stub check.** Each stub is one changed line, run against the tests and then put back:
+
+- `RunUninstall` returns at once (an `uninstall -yes` that does nothing): 6 tests of `internal/provision` fail
+  (`TestUninstallYesRemovesEachRemoveItem`, `TestUninstallKeepsTheEnvFileAndTheOutputsFolder`,
+  `TestUninstallModelsLeavesComfyUIAndTheRegistration`, `TestUninstallRunsMCPRemoveOfBothClients`,
+  `TestUninstallReportsAnItemThatStays`, `TestUninstallKeepsAModelFileOfAnotherSize`), and
+  `TestSetupThenUninstallLeavesOnlyTheKeptItems` fails on both systems (`the home folder holds: ...`).
+- The plan ignores the install record (`case false && !f.ComfyRecord`, and the venv always `REMOVE`):
+  `TestUninstallKeepsAFolderWithoutAnInstallRecord` fails (`want a KEEP item with the reason of the record`,
+  `a folder without an install record was deleted`).
+- The command runs the plan without `-yes` (`if false && !yes`): `TestSetupThenUninstallLeavesOnlyTheKeptItems` fails on
+  both systems at its first run without `-yes`.
+
+**Ratchet.** `python tools/goal_check.py --phase 4 --no-ci`: `goal: 6 of 8 rows passed` on `main` at `2b2c54f` →
+`goal: 7 of 8 rows passed` with this change (the row `uninstall` passes, `readme` waits for T8 and T9). The plan says
+5 → 6, because it counts before T3 and T6. Commands that undo a horus install: 0 → 1. Go test functions: 290 → 310.

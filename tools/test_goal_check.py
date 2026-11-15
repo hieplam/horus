@@ -570,5 +570,430 @@ class Main3(unittest.TestCase):
                 self.assertIn(task, ("T1", "T2", "T3", "T4", "T5"))
 
 
+# ---------------------------------------------------------------------------------------------
+# Phase 4. Each row gets stubs that must FAIL (an empty package, a missing test name, a README
+# without the install line) and an input that must PASS. No network, no ComfyUI.
+# ---------------------------------------------------------------------------------------------
+
+GOOD4 = 'if len("x") == 0 {\n\t\tt.Fatal("empty")\n\t}'
+README_GOOD = ("# horus\n\n## The parts\n\ntext\n\n## Install\n\n```\n" + g.INSTALL_LINES[0] + "\n```\n\n```powershell\n"
+               + g.INSTALL_LINES[1] + "\n```\n\n## Docs\n\n```\ngo install ./cmd/horus\n```\n")
+FRESH_GOOD = "run-name: x\n    run: " + g.INSTALL_LINES[0] + "\n    run: " + g.INSTALL_LINES[1] + "\n"
+
+
+def all_pins4(skip=()):
+    seen = {}
+    for pins in g.PINNED4.values():
+        for pkg, name, _ in pins:
+            if name not in skip:
+                seen[(pkg, name)] = GOOD4
+    return seen
+
+
+def jobs4(**overrides):
+    """The 3 jobs of Phase 4 and the 7 jobs of ci.yml, all green, with the given conclusions changed.
+    The keys are job names with _ for - and a space (release_build, install_macos_latest); None removes the job."""
+    names = ["release-build", "install windows-latest", "install macos-latest"] + [j["name"] for j in jobs()]
+    out = []
+    for n in names:
+        key = n.replace(" ", "_").replace("-", "_").replace("/", "_")
+        c = overrides.get(key, "success")
+        if c is not None:
+            out.append({"name": n, "status": "completed", "conclusion": c})
+    return out
+
+
+class Rows4Shape(unittest.TestCase):
+    def test_eight_rows_each_with_a_check(self):
+        self.assertEqual(list(g.CHECKS4), g.ROWS4)
+        self.assertEqual(len(g.ROWS4), 8)
+
+    def test_every_pin_is_unique_and_names_a_task(self):
+        seen = set()
+        for row, pins in g.PINNED4.items():
+            self.assertIn(row, g.ROWS4)
+            for pkg, name, task in pins:
+                self.assertRegex(name, r"^Test[A-Z]\w+$")
+                self.assertIn(task, ("T1", "T2", "T4", "T5", "T6", "T7"))
+                self.assertNotIn((pkg, name), seen)
+                seen.add((pkg, name))
+
+    def test_the_baseline_names_are_30_and_unique(self):
+        names = [ln for ln in g.CONTRACT_NAMES4.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        self.assertEqual(len(names), 30)
+        self.assertEqual(len(set(names)), 30)
+
+    def test_phase_4_is_a_choice_of_the_command_line(self):
+        code, out = g.run([g.sys.executable, "tools/goal_check.py", "--phase", "4", "--only", "nope"])
+        self.assertEqual(code, 2)
+        self.assertIn("unknown row(s) for this phase: nope", out)
+
+
+class ReleaseConfig(unittest.TestCase):
+    def test_good_config_passes(self):
+        text = '{"release-type": "go", "bump-minor-pre-major": true, "packages": {".": {"bump-patch-for-minor-pre-major": true}}}'
+        self.assertEqual(g.release_config_problems(text), [])
+
+    def test_each_missing_setting_fails_and_is_named(self):
+        for key in g.RELEASE_SETTINGS:
+            cfg = {k: True for k in g.RELEASE_SETTINGS}
+            cfg[key] = False
+            problems = g.release_config_problems(g.json.dumps(cfg))
+            self.assertEqual(len(problems), 1)
+            self.assertIn(key, problems[0])
+
+    def test_an_empty_or_broken_config_fails(self):
+        self.assertEqual(len(g.release_config_problems("{}")), 2)
+        self.assertEqual(g.release_config_problems("not json"), ["release-please-config.json is not JSON"])
+
+
+class FileRows4(GoStub):
+    def put(self, name, text="x"):
+        p = self.root / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+
+    def test_release_files_missing_then_present(self):
+        ok, detail = g.release_files_part()
+        self.assertFalse(ok)
+        for f in g.RELEASE_FILES:
+            self.assertIn(f, detail)
+        self.put(g.RELEASE_FILES[0], '{"bump-minor-pre-major": true, "bump-patch-for-minor-pre-major": true}')
+        self.put(g.RELEASE_FILES[1], "{}")
+        self.put(g.RELEASE_FILES[2], "name: release")
+        self.assertTrue(g.release_files_part()[0])
+
+    def test_release_config_without_the_settings_fails(self):
+        self.put(g.RELEASE_FILES[0], "{}")
+        self.put(g.RELEASE_FILES[1], "{}")
+        self.put(g.RELEASE_FILES[2], "name: release")
+        ok, detail = g.release_files_part()
+        self.assertFalse(ok)
+        self.assertIn("bump-minor-pre-major", detail)
+
+    def test_install_scripts_missing_empty_and_good(self):
+        ok, detail = g.install_files_part()
+        self.assertFalse(ok)
+        self.assertIn("missing: install.sh", detail)
+        self.put("install.sh", "")  # an empty script is a stub
+        self.put("install.ps1", "")
+        ok, detail = g.install_files_part()
+        self.assertFalse(ok)
+        self.assertIn("install.sh does not mention sha256", detail)
+        self.put("install.sh", "sha256sum ... checksums.txt")
+        self.put("install.ps1", "Get-FileHash -Algorithm SHA256 ... checksums.txt")
+        self.assertTrue(g.install_files_part()[0])
+
+
+@unittest.skipUnless(g.go_exe(), "needs the go program")
+class Rows4OnGo(FileRows4):
+    def test_each_go_row_passes_with_all_pins_and_fails_without_one(self):
+        rows = {"binary-only": g.row4_binary_only, "uninstall": g.row4_uninstall, "register": g.row4_register}
+        self.module(all_pins4())
+        for name, check in rows.items():
+            ok, detail = check(ns(phase=4))
+            self.assertTrue(ok, f"{name}: {detail}")
+        for name, check in rows.items():
+            victim = g.PINNED4[name][0]
+            self.module(all_pins4(skip=(victim[1],)))
+            ok, detail = check(ns(phase=4))
+            self.assertFalse(ok, name)
+            self.assertIn(victim[1], detail)
+            self.assertIn(victim[2], detail)
+
+    def test_an_empty_package_fails_the_row(self):
+        self.module({}, empty_pkgs=["internal/provision", "internal/backend", "internal/platform", "cmd/horus"])
+        ok, detail = g.row4_uninstall(ns(phase=4))
+        self.assertFalse(ok)
+        self.assertIn("internal/provision has no test files", detail)
+
+    def test_a_stub_body_that_asserts_nothing_fails(self):
+        tests = all_pins4()
+        tests[("internal/cli", "TestRegisterAnotherClientNameExitsTwo")] = ""
+        self.module(tests)
+        ok, detail = g.row4_register(ns(phase=4))
+        self.assertFalse(ok)
+        self.assertIn("TestRegisterAnotherClientNameExitsTwo (asserts nothing", detail)
+
+    def test_release_needs_files_pins_and_the_ci_job(self):
+        self.module(all_pins4())
+        self.put(g.RELEASE_FILES[0], '{"bump-minor-pre-major": true, "bump-patch-for-minor-pre-major": true}')
+        self.put(g.RELEASE_FILES[1], "{}")
+        self.put(g.RELEASE_FILES[2], "name: release")
+        old = g.ci_jobs
+        g._CI_CACHE.clear()
+        try:
+            g.ci_jobs = lambda sha: (jobs4(release_build=None), "")
+            ok, detail = g.row4_release(ns(phase=4, no_ci=False))
+            self.assertFalse(ok)
+            self.assertIn("release-build (missing)", detail)
+            g._CI_CACHE.clear()
+            g.ci_jobs = lambda sha: (jobs4(), "")
+            ok, detail = g.row4_release(ns(phase=4, no_ci=False))
+            self.assertTrue(ok, detail)
+            self.assertIn("real part not run", detail)
+            (self.root / g.RELEASE_FILES[2]).unlink()
+            g._CI_CACHE.clear()
+            self.assertFalse(g.row4_release(ns(phase=4, no_ci=False))[0])
+        finally:
+            g.ci_jobs = old
+            g._CI_CACHE.clear()
+
+    def test_install_line_needs_both_install_jobs(self):
+        self.put("install.sh", "sha256 checksums.txt")
+        self.put("install.ps1", "SHA256 checksums.txt")
+        old = g.ci_jobs
+        g._CI_CACHE.clear()
+        try:
+            g.ci_jobs = lambda sha: (jobs4(install_macos_latest="failure"), "")
+            ok, detail = g.row4_install_line(ns(phase=4, no_ci=False))
+            self.assertFalse(ok)
+            self.assertIn("install macos-latest (failure)", detail)
+            g._CI_CACHE.clear()
+            g.ci_jobs = lambda sha: (jobs4(), "")
+            self.assertTrue(g.row4_install_line(ns(phase=4, no_ci=False))[0])
+        finally:
+            g.ci_jobs = old
+            g._CI_CACHE.clear()
+
+    def test_full_setup_needs_the_pins_and_22_codes(self):
+        self.module(all_pins4())
+        with Patch(error_codes_part=lambda a: (True, "horus errors -json lists 22 codes")):
+            self.assertTrue(g.row4_full_setup(ns(phase=4))[0])
+        with Patch(error_codes_part=lambda a: (False, "horus errors -json lists 21 codes, needs 22")):
+            ok, detail = g.row4_full_setup(ns(phase=4))
+        self.assertFalse(ok)
+        self.assertIn("21 codes", detail)
+        self.module(all_pins4(skip=("TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps",)))
+        with Patch(error_codes_part=lambda a: (True, "22")):
+            ok, detail = g.row4_full_setup(ns(phase=4))
+        self.assertFalse(ok)
+        self.assertIn("TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps", detail)
+
+
+class ErrorCodes4(unittest.TestCase):
+    def count(self, n):
+        with Patch(run=lambda cmd, env=None, timeout=900: (0, g.json.dumps([{}] * n)), horus_exe=lambda a: g.sys.executable):
+            return g.error_codes_part(ns(phase=4))
+
+    def test_22_codes_pass_and_21_codes_fail(self):
+        self.assertTrue(self.count(22)[0])
+        ok, detail = self.count(21)
+        self.assertFalse(ok)
+        self.assertIn("lists 21 codes, needs 22", detail)
+
+    def test_a_program_that_is_not_found_fails(self):
+        ok, detail = g.error_codes_part(ns(phase=4, server_cmd=["horus-not-there-xyz"]))
+        self.assertFalse(ok)
+        self.assertIn("program not found", detail)
+
+
+class ReadmeRow(FileRows4):
+    def test_good_readme_and_workflow_pass(self):
+        self.assertEqual(g.readme_problems(README_GOOD, FRESH_GOOD), [])
+
+    def test_install_line_in_section_3_fails(self):  # the Stub check of task T8
+        late = "# horus\n\n## One\n\ntext\n\n## Two\n\ntext\n\n## Three\n\n```\n" + g.INSTALL_LINES[0] + "\n" + g.INSTALL_LINES[1] + "\n```\n"
+        problems = g.readme_problems(late, FRESH_GOOD)
+        self.assertEqual(len(problems), 2)
+        self.assertIn("install.sh", problems[0])
+        self.assertIn("install.ps1", problems[1])
+
+    def test_a_readme_without_the_install_lines_fails(self):
+        self.assertEqual(len(g.readme_problems("# horus\n\n## One\n\ntext\n", FRESH_GOOD)), 2)
+
+    def test_a_missing_workflow_is_named(self):
+        self.assertEqual(g.readme_problems(README_GOOD, None), ["missing: .github/workflows/fresh-machine.yml"])
+
+    def test_a_readme_command_that_the_workflow_lacks_fails(self):
+        readme = README_GOOD.replace("\n```\n\n```powershell", "\nhorus setup it-illustration\n```\n\n```powershell", 1)
+        problems = g.readme_problems(readme, FRESH_GOOD)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("horus setup it-illustration", problems[0])
+        self.assertEqual(g.readme_problems(readme, FRESH_GOOD + "run: horus setup it-illustration\n"), [])
+
+    def test_commands_only_from_shell_blocks(self):
+        text = "```mermaid\nA --> B\n```\n```bash\n$ horus doctor\n# a comment\n\nhorus -h\n```\n"
+        self.assertEqual(g.fence_commands(text), ["horus doctor", "horus -h"])
+
+    def test_the_row_reads_the_files(self):
+        ok, detail = g.row4_readme(ns(phase=4))
+        self.assertFalse(ok)
+        self.assertIn("missing: README.md", detail)
+        self.put("README.md", README_GOOD)
+        ok, detail = g.row4_readme(ns(phase=4))
+        self.assertFalse(ok)
+        self.assertIn("missing: .github/workflows/fresh-machine.yml", detail)
+        self.put(g.FRESH_WORKFLOW, FRESH_GOOD)
+        self.assertTrue(g.row4_readme(ns(phase=4))[0])
+
+
+class Checksums(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, wrong=False):
+        lines = []
+        for name in g.RELEASE_ASSETS[:2]:
+            (self.dir / name).write_bytes(name.encode())
+            sha = g.sha256_of(self.dir / name)
+            lines.append(f"{'0' * 64 if wrong and name == g.RELEASE_ASSETS[1] else sha}  {name}")
+        (self.dir / "checksums.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def test_equal_checksums_pass(self):
+        self.write()
+        self.assertEqual(g.checksum_problems(self.dir), [])
+
+    def test_a_wrong_line_fails_and_names_the_file(self):
+        self.write(wrong=True)
+        problems = g.checksum_problems(self.dir)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("horus-darwin-arm64", problems[0])
+
+    def test_a_missing_checksums_file_and_a_missing_program_fail(self):
+        self.assertEqual(g.checksum_problems(self.dir), ["checksums.txt is missing"])
+        self.write()
+        (self.dir / g.RELEASE_ASSETS[0]).unlink()
+        self.assertIn("was not downloaded", g.checksum_problems(self.dir)[0])
+
+    def test_parse_checksums_reads_both_formats(self):
+        sha = "ab" * 32
+        self.assertEqual(g.parse_checksums(f"{sha}  a.exe\n{sha} *b\nbad line\n"), {"a.exe": sha, "b": sha})
+
+
+class FreshRun(unittest.TestCase):
+    RUNS = [{"databaseId": 3, "displayTitle": "fresh-machine source=build tag=none", "conclusion": "success"},
+            {"databaseId": 2, "displayTitle": "fresh-machine source=release tag=v0.1.0", "conclusion": "success"}]
+
+    def judge(self, runs=None, jobs=None, tag="v0.1.0"):
+        jobs = jobs if jobs is not None else [{"name": f"fresh {o}", "conclusion": "success"} for o in g.CI_OSES]
+        return g.judge_fresh(runs if runs is not None else self.RUNS, lambda i: jobs, tag)
+
+    def test_a_green_release_run_of_the_newest_tag_passes(self):
+        ok, detail = self.judge()
+        self.assertTrue(ok, detail)
+
+    def test_no_run_a_red_run_an_old_tag_and_a_missing_runner_fail(self):
+        self.assertFalse(self.judge(runs=[])[0])
+        self.assertFalse(self.judge(runs=[self.RUNS[0]])[0])  # a build run is no proof of the release
+        self.assertIn("not for the newest tag", self.judge(tag="v0.2.0")[1])
+        red = [dict(self.RUNS[1], conclusion="failure")]
+        self.assertIn("failure", self.judge(runs=red)[1])
+        one = [{"name": "fresh windows-latest", "conclusion": "success"}]
+        self.assertIn("macos-latest", self.judge(jobs=one)[1])
+        bad = [{"name": "fresh windows-latest", "conclusion": "success"}, {"name": "fresh macos-latest", "conclusion": "failure"}]
+        self.assertFalse(self.judge(jobs=bad)[0])
+
+
+class RealParts4(unittest.TestCase):
+    def test_real_part_not_run_without_real_and_run_with_it(self):
+        ok, detail = g.with_real4(ns(phase=4), True, "x", lambda a: (False, "no release"))
+        self.assertTrue(ok)
+        self.assertIn("real part not run", detail)
+        ok, detail = g.with_real4(ns(phase=4, real=True), True, "x", lambda a: (False, "no release"))
+        self.assertFalse(ok)
+        self.assertEqual(detail, "x; real: no release")
+        self.assertEqual(g.with_real4(ns(phase=4, real=True), False, "x", lambda a: (True, "y")), (False, "x"))
+
+    def test_a_row_with_real_fails_when_there_is_no_release(self):
+        with Patch(release_assets=lambda a: (None, "", "no release")):
+            ok, detail = g.real_release(ns(phase=4, real=True))
+        self.assertFalse(ok)
+        self.assertEqual(detail, "no release")
+
+    def test_the_real_image_refuses_the_port_of_the_owner(self):
+        def must_not_run(a):
+            raise AssertionError("must not run")
+        with Patch(this_os=lambda: "win32", comfy_url=lambda: "http://127.0.0.1:8188", real_image=must_not_run):
+            ok, detail = g.real_same4(ns(phase=4, real=True))
+        self.assertFalse(ok)
+        self.assertIn("port 8189", detail)
+
+    def test_the_real_image_uses_the_program_of_the_release(self):
+        seen = {}
+
+        def image(a):
+            seen["cmd"] = a.server_cmd
+            return True, "1536x1024 x.png", {}
+        with Patch(this_os=lambda: "win32", comfy_url=lambda: "http://127.0.0.1:8189", real_image=image,
+                   release_assets=lambda a: (Path("rel"), "v0.1.0", ""), checksum_problems=lambda f: []):
+            ok, detail = g.real_same4(ns(phase=4, real=True))
+        self.assertTrue(ok, detail)
+        self.assertEqual(seen["cmd"], [str(Path("rel") / g.RELEASE_ASSETS[0]), "mcp"])
+        with Patch(this_os=lambda: "win32", comfy_url=lambda: "http://127.0.0.1:8189", real_image=image,
+                   release_assets=lambda a: (Path("rel"), "v0.1.0", ""), checksum_problems=lambda f: ["x differs"]):
+            self.assertFalse(g.real_same4(ns(phase=4, real=True))[0])
+
+
+class SameBehaviour4(unittest.TestCase):
+    """Each fact of the row is replaced by a fake; one bad fact must fail the row."""
+
+    def facts(self, **kw):
+        f = {"contract": (True, "contract: 30 of 30, 30 of 30 baseline checks pass"), "parity": "parity: 17 of 17 cases equal",
+             "gotest": 0, "archtest": (True, "3 named tests pass", ""), "count": (250, ""), "changed": [],
+             "allow": [], "jobs": jobs()}
+        f.update(kw)
+
+        def run(cmd, env=None, timeout=900):
+            if "tests/workflow_parity.py" in cmd:
+                return 0, f["parity"]
+            if cmd[-1] == "./...":
+                return f["gotest"], "FAIL x" if f["gotest"] else "ok"
+            return 0, "abc123"
+        g._CI_CACHE.clear()
+        return Patch(contract_names_part=lambda a: f["contract"], run=run, go_exe=lambda: "go",
+                     go_test_ran=lambda p, n=None: f["archtest"], go_test_count=lambda: f["count"],
+                     frozen_files4=lambda: f["changed"], allow_files=lambda: f["allow"],
+                     ci_jobs=lambda sha: (f["jobs"], ""))
+
+    def check(self, **kw):
+        with self.facts(**kw):
+            return g.row4_same(ns(phase=4, no_ci=False))
+
+    def test_all_good_passes(self):
+        ok, detail = self.check()
+        self.assertTrue(ok, detail)
+        self.assertIn("real part not run", detail)
+
+    def test_each_bad_fact_fails(self):
+        for kw in ({"contract": (False, "contract: 29 of 29")}, {"parity": "parity: 16 of 17 cases equal"},
+                   {"gotest": 1}, {"archtest": (False, "no passing test: TestPlanted", "")}, {"count": (249, "")},
+                   {"changed": ["M\ttests/workflow_parity.py"]}, {"allow": ["allow_token.txt"]},
+                   {"jobs": jobs(contract_macos_latest="failure")}, {"jobs": jobs(go_linux_amd64="failure")}):
+            ok, detail = self.check(**kw)
+            self.assertFalse(ok, f"{kw} passed: {detail}")
+
+
+class ContractNames(unittest.TestCase):
+    """contract_names_part with a fake contract test: a missing or failed baseline name fails the row."""
+
+    def run_with(self, out, code=0):
+        with Patch(run=lambda cmd, env=None, timeout=900: (code, out)):
+            return g.contract_names_part(ns(phase=4, server_cmd=[g.sys.executable, "mcp"]))
+
+    def names(self):
+        return [ln for ln in g.CONTRACT_NAMES4.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+    def test_the_baseline_names_and_more_checks_pass(self):
+        out = "".join(f"PASS  {n}\n" for n in self.names()) + "PASS  a new check\ncontract: 31 of 31 passed\n"
+        self.assertTrue(self.run_with(out)[0])
+
+    def test_a_removed_name_fails_even_when_the_count_is_high(self):
+        names = self.names()[1:]
+        out = "".join(f"PASS  {n}\n" for n in names) + "PASS  new 1\nPASS  new 2\ncontract: 32 of 32 passed\n"
+        ok, detail = self.run_with(out)
+        self.assertFalse(ok)
+        self.assertIn(self.names()[0], detail)
+
+    def test_a_failed_name_and_no_result_line_fail(self):
+        out = "FAIL  " + self.names()[0] + "\n" + "".join(f"PASS  {n}\n" for n in self.names()[1:]) + "contract: 29 of 30 passed\n"
+        self.assertFalse(self.run_with(out, code=1)[0])
+        self.assertFalse(self.run_with("crash")[0])
+
+
 if __name__ == "__main__":
     unittest.main()

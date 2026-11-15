@@ -136,8 +136,8 @@ jobs:
           $bad = Join-Path $env:RUNNER_TEMP 'release-bad'
           New-Item -ItemType Directory -Path $bad | Out-Null
           Copy-Item "$good\*" $bad
-          # One character of each checksum is wrong in the folder "release-bad".
-          (Get-Content "$good\checksums.txt") | ForEach-Object { 'f' + $_.Substring(1) } | Set-Content -Encoding ascii "$bad\checksums.txt"
+          # The first character of each checksum is changed (0 becomes 1, any other becomes 0). So each checksum is wrong in the folder "release-bad".
+          (Get-Content "$good\checksums.txt") | ForEach-Object { $(if ($_[0] -eq '0') { '1' } else { '0' }) + $_.Substring(1) } | Set-Content -Encoding ascii "$bad\checksums.txt"
           Start-Process python -ArgumentList '-m','http.server','8081','--bind','127.0.0.1' -WorkingDirectory $good -WindowStyle Hidden
           Start-Process python -ArgumentList '-m','http.server','8082','--bind','127.0.0.1' -WorkingDirectory $bad -WindowStyle Hidden
           Start-Sleep -Seconds 3
@@ -205,8 +205,8 @@ jobs:
           bad="$RUNNER_TEMP/release-bad"
           mkdir "$bad"
           cp "$good"/* "$bad"/
-          # One character of each checksum is wrong in the folder "release-bad".
-          sed 's/^./f/' "$good/checksums.txt" > "$bad/checksums.txt"
+          # The first character of each checksum is changed (0 becomes 1, any other becomes 0). So each checksum is wrong in the folder "release-bad".
+          awk '{ c = substr($0, 1, 1); print (c == "0" ? "1" : "0") substr($0, 2) }' "$good/checksums.txt" > "$bad/checksums.txt"
           (cd "$good" && nohup python -m http.server 8081 --bind 127.0.0.1 >/dev/null 2>&1 &)
           (cd "$bad" && nohup python -m http.server 8082 --bind 127.0.0.1 >/dev/null 2>&1 &)
           sleep 3

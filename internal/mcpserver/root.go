@@ -30,8 +30,12 @@ func workflowsDirError() *herr.Error {
 // not exist, and where the setting is.
 func rootNextStep(dir string) string {
 	setting := "HORUS_ROOT"
-	if settings.Get("HORUS_WORKFLOWS_DIR", "") != "" {
+	switch {
+	case settings.Get("HORUS_WORKFLOWS_DIR", "") != "":
 		setting = "HORUS_WORKFLOWS_DIR"
+	case settings.Root() == "":
+		return "horus could not write the copy of its built-in workflows to " + dir +
+			". Ask the user to make the user folder of horus writable, or to set HORUS_HOME to a folder that can be written. Then restart the agent."
 	}
 	return "The setting " + setting + " names a folder without workflows (" + dir + "). " +
 		"Ask the user to fix or remove HORUS_WORKFLOWS_DIR and HORUS_ROOT in the MCP server config or in " +

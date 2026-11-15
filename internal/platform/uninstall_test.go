@@ -14,12 +14,12 @@ import (
 // part (osPathEntryCase) removes it from a scratch place: a scratch registry
 // key on Windows (never HKCU\Environment), a scratch home folder elsewhere.
 func TestPathEntryOfTheInstallerIsRemoved(t *testing.T) {
-	dir := `C:\Users\u\AppData\Local\Programs\horus`
+	dir := `D:\Apps\Programs\horus`
 	for _, c := range []struct{ in, want string }{
 		{`C:\a;` + dir, `C:\a`},
 		{dir + `;C:\a`, `C:\a`},
 		{`C:\a;` + dir + `\;%USERPROFILE%\go\bin;;D:\b `, `C:\a;%USERPROFILE%\go\bin;;D:\b `},
-		{`C:\a;C:\USERS\U\APPDATA\LOCAL\PROGRAMS\HORUS;D:\b`, `C:\a;D:\b`},
+		{`C:\a;D:\APPS\PROGRAMS\HORUS;D:\b`, `C:\a;D:\b`},
 		{dir, ``},
 	} {
 		got, changed := RemoveListEntry(c.in, dir)
@@ -33,7 +33,7 @@ func TestPathEntryOfTheInstallerIsRemoved(t *testing.T) {
 		}
 	}
 
-	line := `export PATH="/Users/u/.local/bin:$PATH" ` + ProfileMarker
+	line := `export PATH="/opt/u/.local/bin:$PATH" ` + ProfileMarker
 	text := "# my profile\r\nexport A=1\n\n" + line + "\nalias l='ls'\n"
 	got, changed := RemoveMarkedLines(text)
 	if want := "# my profile\r\nexport A=1\n\nalias l='ls'\n"; !changed || got != want {

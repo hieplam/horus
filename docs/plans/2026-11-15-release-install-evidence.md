@@ -888,3 +888,19 @@ file fails the row `readme`.
 **Green.** `go test ./...` passes with that hostile environment and without it. The first test also passes with `HORUS_AUTOSTART=0`.
 
 **Ratchet.** Tests that fail with a hostile environment: 5 → 0.
+
+## #150
+
+**What.** `release-please-config.json` had `"release-as": "0.1.0"` after the release `v0.1.0`. The key is removed (`"packages": {".": {}}`). The row `release` of `tools/goal_check.py --phase 4` now fails when the config has the key `release-as`. A test gives it the bad config and needs a failure.
+
+**Docs read (`docs/manifest-releaser.md` of release-please).** `release-as` sets the next version and ignores the commits. The doc says to remove it, or to raise it, after the release PR is merged. `bump-patch-for-minor-pre-major`: a `feat` commit bumps the patch while the version is below 1.0.0. `bump-minor-pre-major`: a breaking change bumps the minor while the version is below 1.0.0. Both default to false. After the first release, release-please reads the last released version from the manifest `.release-please-manifest.json`. On `main` the manifest holds `{".": "0.1.0"}` (release PR #163).
+
+**Next version with the remaining settings.** A `fix` commit gives 0.1.1. A `feat` commit gives 0.1.1 (patch, because of `bump-patch-for-minor-pre-major`). A breaking change gives 0.2.0. All stay `0.x` (decision D36 of issue #4). None gives 0.1.0.
+
+**Red.** On `main` at `0d6fa79`: `grep -c release-as release-please-config.json` prints `1`. `python tools/goal_check.py --phase 4 --no-ci --only release` prints `FAIL  release - files: release-please-config.json pins the version with release-as: '0.1.0'; remove the key after the first release; ...`. With the new test and the old config, `python -m unittest test_goal_check.ReleaseConfig` (in `tools/`) prints `FAIL: test_the_config_of_the_repository_pins_no_version`.
+
+**Green.** `grep -c release-as release-please-config.json` prints `0`. `python tools/goal_check.py --phase 4 --no-ci --only release` prints `PASS  release - release files ok; 2 pinned tests pass; ...`. `python -m unittest test_goal_check.ReleaseConfig` prints `Ran 5 tests ... OK`.
+
+**Stub check.** A config that keeps the key, or sets it to another version (`9.9.9`), fails the row `release` and the test `test_a_pinned_version_fails_and_is_named`.
+
+**Ratchet.** Fixed version pins in `release-please-config.json`: 1 → 0.

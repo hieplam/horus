@@ -59,6 +59,11 @@ commands.
 | 2026-11-15 | The line of the ComfyUI folder says that everything in it goes, also a file that a person put there, and a KEEP model file in that folder says that it goes with the folder. | the T7 agent (found by the manual run on the sandbox) | The spec deletes the whole install folder with a record. The plan must not say KEEP for a file that the run deletes. |
 | 2026-11-15 | `internal/backend.Backend` gets `Folder()` and `Running(ctx)`. `internal/provision` declares the interfaces `ComfyInstall` and `Installer` that the uninstall needs, and `cmd/horus` gives it the backend and the functions of `internal/platform` (`installerOS`). | the T7 agent (design rules 4 and 5) | The service declares what it needs. A test gives it fakes, so no test reaches the real PATH or the real program. |
 | 2026-11-15 | The code blocks of README sections 1 and 2 hold only fixed commands. The commands with `-yes` and `horus register` are in section 4, outside the check of the row `readme`. | the T8 agent (design gap) | The row needs each command of those sections in `fresh-machine.yml`. A fresh runner has no HF token and no Claude Code, so T9 cannot run a download or a register. |
+| 2026-11-16 | The hands-on run of T12 sets `HORUS_COMFYUI_URL=http://127.0.0.1:9` (a closed port), not an empty value. It also puts `ProgramFiles`, `ProgramFiles(x86)`, `TEMP` and `TMP` in the scratch folder. | the T12 agent (standing rule of the owner's machine) | Without the setting, `horus doctor` and the uninstall plan ask `127.0.0.1:8188`, the ComfyUI of the owner. The other folders make the PC look like a new machine (no 7-Zip). |
+| 2026-11-16 | `release-as: 0.1.0` in `release-please-config.json` is a defect of the row `release`. T12 moved the follow-up #150 into the epic, with a Verify block, and did not open a second issue. | the T12 agent (acceptance) | The run of `release.yml` after the release says `Setting version for . from release-as configuration`. The next `feat` or `fix` gets version 0.1.0 again, and that tag exists. |
+| 2026-11-16 | The `.mcp.json` FAIL lines of `horus doctor` on a machine with only the program go to the open follow-up #154 as a comment, not to a new issue. | the T12 agent (acceptance) | #154 has the same cause. No goal row reads `horus doctor`. |
+| 2026-11-16 | The name `by hand ${{ matrix.os }}` of a skipped job of `fresh-machine.yml` gets no issue. | the T12 agent (acceptance) | GitHub skips that job before it expands the matrix, so it shows the name as written. The goal tool reads the run name and the jobs that ran, not that name. |
+| 2026-11-16 | Task T10 (#146) has no closing pull request, so `epic.mjs check 146 --dry-run` prints `FAIL`. Its proof of done is the release `v0.1.0` with its 3 assets. No issue. | the T12 agent | The owner did T10 by hand: the setting and the merge of the release pull request #163. |
 
 ## Baseline
 
@@ -1212,3 +1217,165 @@ on the image, because the owner's jobs shared the GPU. That is no defect.
 
 **Ratchet.** Goal rows passed with `--real`: 7 of 8 before the release (the row `release` had no release) → 6 of 8 in
 run 1 (#164) → 8 of 8 in run 2 → 7 of 8 in run 3 (shared GPU) → 8 of 8 in run 5, the Green.
+
+## T12
+
+Task: [#148](https://github.com/hieplam/horus/issues/148), the agent acceptance. It builds nothing. It reads, runs the
+released program in a scratch home folder, and files each finding. No GPU work: the owner's ComfyUI on port 8188 was in
+use, so nothing was sent to port 8188 or 8189.
+
+### Step 1: the two pages next to the fresh-machine run on the real release
+
+The run is [43856502263](https://github.com/hieplam/horus/actions/runs/43856502263), title
+`fresh-machine source=release tag=v0.1.0`. The jobs `fresh windows-latest`, `fresh macos-latest`,
+`by hand windows-latest` and `by hand macos-latest` are green. The job `assets` is skipped (source `release`).
+`<home>` below is the home folder of the runner.
+
+| Page | Command or promise | In the log | Result in the log |
+|---|---|---|---|
+| README 1 | `irm .../install.ps1 \| iex` | fresh windows | `Installed <home>\AppData\Local\Programs\horus\horus.exe`, `Added ... to the PATH of the user. Open a new terminal.` |
+| README 1 | `curl -fsSL .../install.sh \| sh` | fresh macos | `Installed <home>/.local/bin/horus`, `Added <home>/.local/bin to the PATH in <home>/.zprofile`, the profile line with the marker |
+| README 1 | the table: program file and PATH of each system | both | the two paths above, the marker line in `.zprofile` (macOS), the PATH of the registry (Windows) |
+| README 1 | "Open a new terminal after the install" | both | the next steps read the PATH of the registry (Windows) or start `zsh -l` (macOS), and find `horus` |
+| README 1 | install by hand, Windows: `Invoke-WebRequest` x2, `Get-FileHash`, `Select-String`, `New-Item`, `Move-Item`, `SetEnvironmentVariable` | by hand windows | `985A407B...2DB8` and `checksums.txt:1:985a407b...2db8  horus-windows-amd64.exe`, `the two hashes are equal`, `horus 0.1.0` |
+| README 1 | install by hand, macOS: `curl -fsSLO` x2, `shasum -a 256`, `grep`, `chmod`, `mkdir`, `mv`, `echo ... >> ~/.zshrc` | by hand macos | `480596...7b84e  horus-darwin-arm64` twice, `the two hashes are equal`, `horus 0.1.0` |
+| README 2 | `horus version` prints `horus <version>` | both | `horus 0.1.0` (the tag is `v0.1.0`) |
+| README 2 | `horus setup it-illustration` prints the plan (`PRESENT` or `MISSING`, each step) and changes nothing | both | Windows `Plan: 4 step(s)`, macOS `Plan: 5 step(s)`, `Nothing changed. Run horus setup it-illustration -yes to run the plan.` |
+| README 4 | `horus setup it-illustration -yes`, `-with-packages`, a second run prints `Plan: 0 steps. Nothing is missing.` | no | not in the run: the runner has no Hugging Face token (decision of T8 above). The ComfyUI part ran as `horus install-comfyui`. The text `Plan: 0 steps. Nothing is missing.` is in `internal/cli/setup.go:180`. |
+| README 4 | `horus register`, `-client codex` | no | not in the run: the runner has no Claude Code (decision of T8). The Go tests and the real `codex` of T6 prove it. |
+| README 5 | `horus uninstall` prints `REMOVE` and `KEEP` lines and changes nothing | both | the plan, `Nothing changed. Run horus uninstall -yes to remove the 4 REMOVE item(s).` (Windows, 5 on macOS). The step checks that the ComfyUI folder is still there. |
+| README 5 | `horus uninstall -yes` removes each `REMOVE` item, keeps `.env` and `outputs/`, the plan names both | both | `OK: 4 REMOVE item(s) are gone.` (Windows), `OK: 5 REMOVE item(s) are gone.` (macOS). `KEEP <home>\horus\.env`, `KEEP <home>\horus\outputs`. Then `the ComfyUI folder is gone`, `a new shell does not find horus`, `the venv of comfy-mcp is gone` (macOS). |
+| setup step 0 | the two install lines, then `horus version` | both | as README 1 and 2 |
+| setup step 0 | "If it fails" texts: SHA-256, other system | no | the texts are the words of `install.ps1:25,69` and `install.sh:30,70`. The CI jobs `install <os>` run the wrong checksum case. |
+| setup step 1 | `horus install-comfy-mcp` | fresh macos | `OK: comfy-mcp is installed in <home>/.venvs/comfy-mcp` |
+| setup step 2 | `horus install-comfyui` | both | `OK: ComfyUI v0.44.0 is installed in <home>\ComfyUI_windows_portable` and `... in <home>/horus` |
+| setup step 2 | `horus start-comfyui`, step 3 to step 6 | no | they need a GPU, a token or Claude Code. The real image of T11 (#147) covers the PC. The Mac is follow-up #168. |
+| setup, "Check" | `horus doctor` | both | FAIL lines on a machine with only the program: `.mcp.json` (2 lines) without a `Fix:` part. Comment on #154. |
+
+Result: each command of README sections 1 and 2 and of setup step 0 is in the log, and each promised result is in the output.
+The commands that are not in the log are the commands that the T8 decision moved out of sections 1 and 2.
+
+### Step 2: the released program on the PC, in a scratch home folder
+
+The scratch folder was a temporary folder outside any clone. `USERPROFILE`, `HOME`, `HORUS_HOME`, `LOCALAPPDATA`,
+`APPDATA`, `CODEX_HOME`, `ProgramFiles`, `ProgramFiles(x86)`, `TEMP` and `TMP` were in it. `HORUS_ROOT`,
+`HORUS_MODELS_DIR`, `HORUS_TEXT_ENCODER_DIR` and `HORUS_COMFYUI_DIR` were not set. `HORUS_COMFYUI_URL` was
+`http://127.0.0.1:9`. The PATH was the program folder and `C:\Windows\System32`, `C:\Windows`, Windows PowerShell.
+`<scratch>` below is that folder.
+
+```
+$ irm https://raw.githubusercontent.com/hieplam/horus/main/install.ps1 | iex   (HORUS_INSTALL_DIR=<scratch>\prog, HORUS_INSTALL_NO_PATH=1)
+Downloading horus-windows-amd64.exe from https://github.com/hieplam/horus/releases/latest/download
+Installed <scratch>\prog\horus.exe
+Next commands:
+  horus setup it-illustration
+  horus register
+user PATH unchanged: True
+$ horus version
+horus 0.1.0
+$ horus workflow list
+it-illustration
+  Text in, image out. The picture is 1536x1024. ...
+  Models: 3 file(s), 11.02 GB (diffusion, text_encoder, vae). Installed: no (0 of 3 files) (size check).
+Install: horus workflow install <name>    Check: horus workflow check <name>
+$ horus setup it-illustration        (no winget on the PATH)
+MISSING   7-Zip (7z)
+MISSING   package manager winget
+MISSING   ComfyUI in <scratch>\home\ComfyUI_windows_portable
+Plan: 5 step(s):
+  1. a step for a person: winget was not found. Install 7-Zip by hand from https://www.7-zip.org/
+  2. install ComfyUI in <scratch>\home\ComfyUI_windows_portable
+  3-5. download (3 model files)
+Nothing changed. Install the package by hand (step above), then run horus setup it-illustration again.
+$ horus setup it-illustration        (a fake winget.cmd on the PATH that records each call)
+  1. install the system package 7-Zip (needs -with-packages): <scratch>\fakebin\winget.cmd install --id 7zip.7zip -e --accept-source-agreements --accept-package-agreements
+Nothing changed. Run horus setup it-illustration -yes -with-packages to run the plan.
+winget calls file exists: False
+$ horus uninstall                     (claude found: False, codex found: False)
+Uninstall plan:
+REMOVE  <scratch>\home\horus\builtin-workflows  (a file of horus in the user folder)
+KEEP    <scratch>\home\horus\.env  (the .env file: data of the user)
+KEEP    <scratch>\home\horus\outputs  (the images: data of the user)
+REMOVE  <scratch>\prog\horus.exe  (the program file: the last item. A system package (7-Zip, Python) stays.)
+Nothing changed. Run horus uninstall -yes to remove the 2 REMOVE item(s).
+```
+
+Each of the 4 paths of the uninstall plan is inside the scratch folder. `horus errors -json` lists 22 codes.
+
+**MCP session** (the Python MCP client of `tests/requirements.txt`, `horus mcp` of the release, the same environment
+and the fake `winget`):
+
+```
+serverInfo: horus 0.1.0
+install_workflow inputSchema: workflow, accept_license (default false), accept_setup (default false)
+=== list_workflows {} isError=False      it-illustration, install_state not_installed, download_bytes 11022645311, backend_running false
+=== describe_workflow {"workflow": "it-illustration"} isError=False      subject rules, 2 examples with the image path in <scratch>\home\horus\builtin-workflows, license, 3 missing files
+=== install_workflow {"workflow": "it-illustration"} isError=True
+  "code": "SETUP_CONFIRMATION_REQUIRED",
+  "message": "this machine needs 2 setup step(s) before it-illustration can run: install the system package 7-Zip: <scratch>\\fakebin\\winget.cmd install --id 7zip.7zip -e ...; install ComfyUI in <scratch>\\home\\ComfyUI_windows_portable",
+  "retryable": false, "action_by": "human",
+  "next_step": "Show each step in details.steps to the user. When the user agrees, call install_workflow again with accept_setup=true.",
+  "details.steps": package 7-Zip (with the command), backend ComfyUI, file x3 (each with its folder)
+```
+
+No file in the scratch home folder changed during the session, and the fake `winget` got no call. Without `winget`
+on the PATH, the same call answers `BACKEND_NOT_INSTALLED`, `"message": "winget was not found, so horus cannot
+install 7-Zip, which the install of ComfyUI needs"`, `"next_step": "Ask the user to install 7-Zip by hand from
+https://www.7-zip.org/, then call install_workflow again."`.
+
+**Judgement of each text** (does it name the item, what it does, and the next command):
+
+| Text | Item | What it does | Next command | Result |
+|---|---|---|---|---|
+| install line | the program file | `Installed <path>` | `horus setup it-illustration`, `horus register` | good |
+| `horus version` | the program | its version | none needed | good |
+| `horus workflow list` | the workflow, its files and size | installed or not | `horus workflow install <name>`, an older command than `horus setup` | follow-up #166 |
+| `horus setup` plan | each package, ComfyUI, each file, with its path | the steps in order | `-yes -with-packages`, or the 7-Zip address | good |
+| `horus uninstall` plan | each path | `REMOVE` or `KEEP` and why | `horus uninstall -yes` | good. The `-yes` output prints the user folder line first: follow-up #166 |
+| `horus doctor` | each check | PASS or FAIL | two `.mcp.json` FAIL lines without a fix on a machine with only the program | comment on #154 |
+| `horus -h` | each command | one line | `register` names only Claude Code | follow-up #166 |
+| `SETUP_CONFIRMATION_REQUIRED` | each step in `details.steps` | the command of a package step, the folder of each step | `accept_setup=true` after the user agrees | good |
+| `BACKEND_NOT_INSTALLED` (no winget) | 7-Zip, winget | why the install cannot run | the address of 7-Zip, then `install_workflow` | good |
+
+### Step 3: each new error text and `next_step` against "Explaining to the user"
+
+- `SETUP_CONFIRMATION_REQUIRED` (`internal/herr/herr.go:45`): names the steps, says what the user must agree to, and names `accept_setup=true`. Good.
+- `BACKEND_NOT_INSTALLED` for a missing package manager (`internal/mcpserver/tool_install_workflow.go:303-306`): names the package, the manager and the address. Good.
+- `BACKEND_NOT_INSTALLED` for a failed setup step (`tool_install_workflow.go:349-351`): names the step, gives the last 20 output lines, and names `accept_setup=true`. Good.
+- The refusal of `horus setup -yes` (`internal/cli/setup.go:134-152`): names the package and the two ways to go on. Read from the code: the rule of this task forbids `-yes` on the PC. `TestSetupYesWithoutWithPackagesRunsNoProgramAndExitsOne` runs it with fakes.
+- The older table texts of `BACKEND_NOT_INSTALLED` and `BACKEND_UNAVAILABLE` still say "in the horus repo". A user with only the program has no repo. The golden file of the table must not change in this phase (row `same-behaviour`), so this is follow-up #167.
+
+### Step 4: the design
+
+```
+$ go test -count=1 ./internal/archtest
+ok  	github.com/hieplam/horus/internal/archtest	2.349s
+```
+
+`internal/archtest/testdata` holds only the planted files of the stub tests, and no allow list. Phase 4 adds three
+interfaces (`git diff 38c1838 HEAD`): `provision.ComfyInstall` (the ComfyUI install folder and its HTTP server: input
+and output), `provision.Installer` (the PATH entry and the program file: OS output), and `cli.Uninstaller` (the
+handler's view of the service, the same pattern as `cli.Setup`, `cli.Doctor` and `cli.Backend` of Phase 2). Each one
+hides an input or an output. The README says that `horus uninstall -yes` also deletes a model file that a person
+downloaded, when its size matches `models.json` (README "Uninstall", setup "Uninstall" table).
+
+### Step 5: the findings
+
+| Finding | Goal row | Where |
+|---|---|---|
+| `release-as: 0.1.0` stays in `release-please-config.json`. The next release gets 0.1.0 again. | `release` | defect #150, moved into the epic, blocks #148 |
+| `horus doctor` prints `.mcp.json` FAIL lines on a machine with only the program | none | comment on follow-up #154 |
+| `horus -h` names only Claude Code for `register`. `uninstall -yes` prints the user folder line first. `workflow list` names `horus workflow install`. `AGENTS.md` says that a `feat` raises the minor version. | none | follow-up #166 |
+| Two `next_step` texts of the error table name "the horus repo" | none (the golden file must not change in this phase) | follow-up #167 |
+| The real run of the release on the Mac | none (owner decision of 2026-11-15) | follow-up #168 |
+| The skipped job shows `by hand ${{ matrix.os }}` | none | no issue (Decisions above) |
+| `epic.mjs check 146 --dry-run` prints `FAIL #146 - no merged pull request closes it` | none | no issue: the release `v0.1.0` with 3 assets is the proof (Decisions above) |
+
+Open follow-ups outside the epic that T12 read: #117, #119, #129, #154. None of them threatens a goal row.
+
+**Ratchet.** Open defects against the goal rows: 1 found (#150) → 0 when #150 is closed.
+
+### Step 6: issue #4
+
+Issue #4 has the status of Phase 4, its check boxes, the decisions D55 and up, and the note that the owner moved
+Phase 5 to later. The follow-up for the real run on the Mac is #168.

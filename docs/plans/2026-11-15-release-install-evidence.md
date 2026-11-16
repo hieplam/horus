@@ -904,3 +904,13 @@ file fails the row `readme`.
 **Stub check.** A config that keeps the key, or sets it to another version (`9.9.9`), fails the row `release` and the test `test_a_pinned_version_fails_and_is_named`.
 
 **Ratchet.** Fixed version pins in `release-please-config.json`: 1 → 0.
+
+**After the merge.** PR #170 merged as `ci(release)`. The run of `release.yml` on `main` (run 43883698186, after the merge) has no line `Setting version for . from release-as configuration`. Its release-please lines are:
+
+```
+❯ Found release for path ., v0.1.0
+✔ Considering: 4 commits
+✔ No user facing commits found since 4ff61000d82c1b5dce0de82f98721b4f35a6a8bb - skipping
+```
+
+The run before the fix (run 43860102939) had the line `⚠ Setting version for . from release-as configuration` between "Considering" and "No user facing commits". It opened no release pull request, because the commits were `ci` and `test` commits.

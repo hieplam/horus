@@ -111,6 +111,9 @@ func TestDoctorModelCheckLinesAndExitCode(t *testing.T) {
 		err: errors.New("1 check(s) failed. Fix: horus workflow install w")}
 	f := &fakeDoctor{rs: []doctor.Result{{Name: "ComfyUI folder", Level: doctor.Pass, Detail: "/c"}}, setup: setup}
 	var out, errOut bytes.Buffer
+	t.Setenv("HORUS_WORKFLOWS_DIR", "") // the test wants the default folder, whatever the machine sets
+	settings.Reset()
+	t.Cleanup(settings.Reset)
 	code := RunDoctor(context.Background(), "check-setup", []string{"-workflow", "w"}, &out, &errOut, f.at)
 	want := "PASS  ComfyUI folder - /c\n" +
 		"      Checking workflow 'w': 2 model file(s).\n" +

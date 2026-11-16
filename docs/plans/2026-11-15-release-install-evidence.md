@@ -1050,6 +1050,60 @@ goal: 8 of 8 rows passed
 exit 0
 ```
 
+**After the fix of #164** ([PR #165](https://github.com/hieplam/horus/pull/165), `main` at `0d6fa79`, ci.yml run
+43860102987 green). The newest release is still `v0.1.0`, so the goal tool still accepts the fresh-machine run
+43856502263. A new run of the workflow is not needed.
+
+**The wait for the GPU.** At 18:44, `nvidia-smi` showed `4743 MiB, 100 %`. The process was the owner's ComfyUI
+(`D:\ComfyUI_windows_portable\python_embeded\python.exe`) on port 8188. The GPU has 6144 MiB, and the owner's ComfyUI
+keeps about 5 GB loaded, also between jobs. From 18:44 to 20:36 the load stayed between 65 and 100 %, with short
+drops. T11 did not start a second ComfyUI in that time (standing rule of the PC: the owner's work comes first).
+
+**Run 3** (21:10:44 to 21:44:24), on a detached `HEAD` at `0d6fa79`, with a new build, with `HORUS_AUTOSTART=1`. At the
+start: `519 MiB, 0 %`, and the queue of port 8188 (`GET /queue`, read only) was empty. At 21:13:19, while the image
+started, the owner's ComfyUI started a job, and 11 more waited in its queue. Both ComfyUIs then shared the GPU
+(`5650` to `5746 MiB, 100 %`). T11 sent nothing to port 8188.
+
+```
+$ python tools/goal_check.py --phase 4 --real --server-cmd <worktree>\bin\horus.exe mcp      (HORUS_AUTOSTART=1)
+PASS  release - release files ok; 2 pinned tests pass; CI: 1 jobs green (release-build); real: release v0.1.0: 3 assets, each SHA-256 equal to its line, 'horus 0.1.0'
+PASS  install-line - install scripts ok; CI: 2 jobs green (install windows-latest, install macos-latest); real: fresh-machine run 'fresh-machine source=release tag=v0.1.0' is green on windows-latest and macos-latest
+PASS  binary-only - 6 pinned tests pass
+PASS  full-setup - 7 pinned tests pass; horus errors -json lists 22 codes; real: fresh-machine run 'fresh-machine source=release tag=v0.1.0' is green on windows-latest and macos-latest
+PASS  uninstall - 12 pinned tests pass; real: fresh-machine run 'fresh-machine source=release tag=v0.1.0' is green on windows-latest and macos-latest
+PASS  register - 6 pinned tests pass; real: horus register -client codex, then codex mcp get horus exits 0 (CODEX_HOME <worktree>\.scratch\codex-home-20261116-211155)
+PASS  readme - both install lines are in section 1 or 2; each README command is in fresh-machine.yml
+FAIL  same-behaviour - contract: 37 of 37, 30 of 30 baseline checks pass; parity: 17 of 17; go test ./...: ok; archtest: ok, 0 allow list files; 310 Go test functions (baseline 250); 0 changed parity or golden files; CI: 6 jobs green (contract windows-latest, contract macos-latest, workflow-parity windows-latest, workflow-parity macos-latest, go windows/amd64, go darwin/arm64); real: generate_image failed: GENERATION_TIMEOUT: the job did not finish in 1800 s
+goal: 7 of 8 rows passed
+exit 1
+```
+
+With `HORUS_AUTOSTART=1`, `binary-only` and `go test ./...` now pass, so #164 is fixed. The image failed only because
+the owner's jobs used the same 6 GB GPU: the server log shows `rendering` for 1887 s, and the same image took 271 s in
+run 2 on a free GPU. This is no defect of horus (`GENERATION_TIMEOUT` is the documented limit
+`HORUS_GENERATE_TIMEOUT`, 1800 s), so T11 files no issue. The ComfyUI on port 8189 ended with the MCP server
+(`horus stop-comfyui` at 21:44:36: "was not running any more"; 0 listeners on 8189; 0 processes with `comfy8189`). The
+owner's ComfyUI kept running.
+
+**Run 4** (to 21:47:44), without `--real`, on a detached `HEAD` at `5a77a6d` (the newest `main`, after
+[PR #170](https://github.com/hieplam/horus/pull/170) and #171 of issue #150; ci.yml run 43885198979 green), with a new
+build and `HORUS_AUTOSTART=1`:
+
+```
+$ python tools/goal_check.py --phase 4 --server-cmd <worktree>\bin\horus.exe mcp
+PASS  release - release files ok; 2 pinned tests pass; CI: 1 jobs green (release-build); real part not run (needs --real on the PC after the release)
+PASS  install-line - install scripts ok; CI: 2 jobs green (install windows-latest, install macos-latest); real part not run (needs --real on the PC after the release)
+PASS  binary-only - 6 pinned tests pass
+PASS  full-setup - 7 pinned tests pass; horus errors -json lists 22 codes; real part not run (needs --real on the PC after the release)
+PASS  uninstall - 12 pinned tests pass; real part not run (needs --real on the PC after the release)
+PASS  register - 6 pinned tests pass; real part not run (needs --real on the PC after the release)
+PASS  readme - both install lines are in section 1 or 2; each README command is in fresh-machine.yml
+PASS  same-behaviour - contract: 37 of 37, 30 of 30 baseline checks pass; parity: 17 of 17; go test ./...: ok; archtest: ok, 0 allow list files; 310 Go test functions (baseline 250); 0 changed parity or golden files; CI: 6 jobs green (contract windows-latest, contract macos-latest, workflow-parity windows-latest, workflow-parity macos-latest, go windows/amd64, go darwin/arm64); real part not run (needs --real on the PC after the release)
+goal: 8 of 8 rows passed
+note: the real part did not run for release, install-line, full-setup, uninstall, register, same-behaviour (run with --real on the PC after the release)
+exit 0
+```
+
 **Decisions of T11.**
 
 | Decision | Why |
@@ -1114,7 +1168,9 @@ FAIL #146
 
 #146 is T10, the task of the owner: turn on a setting and merge the pull request of release-please (#163, whose body
 release-please writes). The owner closed it by hand after the release. It threatens no goal row (the row `release`
-passes on the release itself), so T11 files no issue for it.
+passes on the release itself), so T11 files no issue for it. Its done-proof is the release
+[`v0.1.0`](https://github.com/hieplam/horus/releases/tag/v0.1.0) with its 3 assets (`checksums.txt`,
+`horus-darwin-arm64`, `horus-windows-amd64.exe`), which the row `release` downloads and checks.
 
 ### Step 5: rows that fail
 

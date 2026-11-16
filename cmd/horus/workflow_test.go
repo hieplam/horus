@@ -58,7 +58,10 @@ func newSandbox(t *testing.T) *sandbox {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("HORUS_ROOT", root) // no .env of a real checkout is read
-	for _, k := range []string{"HORUS_MODELS_DIR", "HORUS_TEXT_ENCODER_DIR", "HORUS_COMFYUI_DIR", "HORUS_COMFYUI_URL"} {
+	// No setting of the machine reaches the test: clear each variable that
+	// internal/settings or a flag default reads, then set HORUS_ROOT.
+	for _, k := range []string{"HORUS_MODELS_DIR", "HORUS_TEXT_ENCODER_DIR", "HORUS_COMFYUI_DIR", "HORUS_COMFYUI_URL",
+		"HORUS_HOME", "HORUS_WORKFLOWS_DIR", "HORUS_OUTPUT_DIR", "HORUS_AUTOSTART", "HORUS_GENERATE_TIMEOUT"} {
 		t.Setenv(k, "")
 	}
 	settings.Reset()

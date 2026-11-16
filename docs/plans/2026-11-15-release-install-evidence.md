@@ -878,3 +878,13 @@ line). An uninstall that keeps the ComfyUI folder fails the check "the ComfyUI f
 file fails the row `readme`.
 
 **Ratchet.** Goal rows passed (`--no-ci`): 7 of 8 on `main` at `c04f0ea` → 8 of 8.
+
+## #164
+
+**What.** Four tests depended on the environment of the machine. `noClone` and `sandbox` in `internal/settings`, `newSandbox` in `cmd/horus` and `TestDoctorModelCheckLinesAndExitCode` in `internal/cli` now clear each `HORUS_*` variable that the code reads (`HORUS_AUTOSTART`, `HORUS_WORKFLOWS_DIR`, `HORUS_OUTPUT_DIR`, `HORUS_GENERATE_TIMEOUT` and the others). No product code and no assertion changed.
+
+**Red.** On `main` at `4ff6100`: `HORUS_AUTOSTART=1 go test -count=1 -run '^TestEnvFileOfTheUserFolderGivesASetting$' ./internal/settings` prints `--- FAIL`. A run of `go test ./...` with `HORUS_AUTOSTART=1`, `HORUS_COMFYUI_URL`, `HORUS_OUTPUT_DIR`, `HORUS_WORKFLOWS_DIR`, `HORUS_GENERATE_TIMEOUT` and `HORUS_HOME` set fails 4 tests more: `TestEnvironmentWinsOverDotEnvThenDefault`, `TestDoctorModelCheckLinesAndExitCode`, `TestDoctorThroughTheWiring` and `TestDoctorModelCheckOfAnUnknownWorkflow`.
+
+**Green.** `go test ./...` passes with that hostile environment and without it. The first test also passes with `HORUS_AUTOSTART=0`.
+
+**Ratchet.** Tests that fail with a hostile environment: 5 → 0.

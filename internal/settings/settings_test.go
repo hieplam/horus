@@ -19,6 +19,9 @@ func sandbox(t *testing.T, env string) string {
 	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(env), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	for _, k := range settingVars {
+		t.Setenv(k, "")
+	}
 	t.Setenv("HORUS_ROOT", dir)
 	Reset()
 	t.Cleanup(Reset)
@@ -166,6 +169,13 @@ func TestComfyDirDefaultIsTheFolderOfPlatform(t *testing.T) {
 	}
 }
 
+// settingVars is each environment variable that the package reads. A test of
+// a setting must not depend on the machine, so noClone clears all of them.
+var settingVars = []string{
+	"HORUS_HOME", "HORUS_ROOT", "HORUS_WORKFLOWS_DIR", "HORUS_OUTPUT_DIR",
+	"HORUS_COMFYUI_URL", "HORUS_COMFYUI_DIR", "HORUS_AUTOSTART", "HORUS_GENERATE_TIMEOUT",
+}
+
 // noClone makes this process a machine with only the program: a new home
 // folder, HORUS_HOME and HORUS_ROOT not set, and a current folder outside a
 // clone. It returns the home folder.
@@ -173,7 +183,7 @@ func noClone(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	useHome(t, home)
-	for _, k := range []string{"HORUS_HOME", "HORUS_ROOT", "HORUS_WORKFLOWS_DIR", "HORUS_OUTPUT_DIR", "HORUS_COMFYUI_URL"} {
+	for _, k := range settingVars {
 		t.Setenv(k, "")
 	}
 	cwd := filepath.Join(home, "somewhere")

@@ -987,3 +987,140 @@ in this run. Two observations, neither a defect of a goal row:
 - `horus uninstall -yes` prints `OK: removed the empty user folder <home>/horus` before the `OK` line of each item.
   The code (`internal/provision/uninstall.go`) removes the items first and the empty folder last. Only the report
   lines come after it. The order of the work is correct, so T11 files no issue.
+
+### Step 2: the goal tool with `--real` on the PC
+
+**What `--real` runs, read in `tools/goal_check.py` before the run.** `release` downloads the 3 assets with
+`gh release download` into `.scratch/release-assets/<tag>` and runs `horus-windows-amd64.exe version`. `install-line`,
+`full-setup` and `uninstall` read the fresh-machine run with `gh run list` and `gh run view`. `register` runs
+`horus register -client codex` and `codex mcp get horus` with `CODEX_HOME` in `.scratch/codex-home-<time>`. The code of
+`register -client codex` (`internal/provision/register.go`) runs only `codex mcp get` and `codex mcp add`.
+`same-behaviour` makes one image with the downloaded `horus-windows-amd64.exe mcp`, and it refuses a
+`HORUS_COMFYUI_URL` that does not name port 8189. No part runs `horus uninstall`, `horus workflow remove`,
+`horus setup -yes`, `horus install-comfyui`, `winget` or `brew`. The program on the PATH and the PATH stay as they were.
+
+**The settings (the port 8189 method of Phase 2, T7).** A second install folder `<scratch>\comfy8189`: a junction
+`python_embeded` to the owner's install, a folder `ComfyUI` with 22 junctions (each folder of the owner's `ComfyUI` except
+`user`, `input`, `output`, `temp`), 4 empty folders of its own and 36 copied small files. The folder is outside the
+worktree, so that no removal of the worktree can reach a junction. `HORUS_COMFYUI_DIR=<scratch>\comfy8189` and
+`HORUS_COMFYUI_URL=http://127.0.0.1:8189`. `HORUS_ROOT`, `HORUS_MODELS_DIR` and `HORUS_TEXT_ENCODER_DIR` are not set.
+The worktree has no `.env`. Before each run: `nvidia-smi` printed `0 MiB, 0 %`, no GPU process, no listener on port
+8188 or 8189. So the owner's ComfyUI did not run, and it got no job.
+
+**Run 1** (18:23:11 to 18:25:20), with also `HORUS_AUTOSTART=1` in the environment (as in Phase 2):
+
+```
+$ python tools/goal_check.py --phase 4 --real --server-cmd <worktree>\bin\horus.exe mcp
+PASS  release - release files ok; 2 pinned tests pass; CI: 1 jobs green (release-build); real: release v0.1.0: 3 assets, each SHA-256 equal to its line, 'horus 0.1.0'
+PASS  install-line - install scripts ok; CI: 2 jobs green (install windows-latest, install macos-latest); real: fresh-machine run 'fresh-machine source=release tag=v0.1.0' is green on windows-latest and macos-latest
+FAIL  binary-only - no passing test: TestEnvFileOfTheUserFolderGivesASetting (did not pass in internal/settings: FAIL, T2)
+PASS  full-setup - 7 pinned tests pass; horus errors -json lists 22 codes; real: fresh-machine run 'fresh-machine source=release tag=v0.1.0' is green on windows-latest and macos-latest
+PASS  uninstall - 12 pinned tests pass; real: fresh-machine run 'fresh-machine source=release tag=v0.1.0' is green on windows-latest and macos-latest
+PASS  register - 6 pinned tests pass; real: horus register -client codex, then codex mcp get horus exits 0 (CODEX_HOME <worktree>\.scratch\codex-home-20261116-182410)
+PASS  readme - both install lines are in section 1 or 2; each README command is in fresh-machine.yml
+FAIL  same-behaviour - contract: 37 of 37, 30 of 30 baseline checks pass; parity: 17 of 17; go test ./...: failed, FAIL; archtest: ok, 0 allow list files; 310 Go test functions (baseline 250); 0 changed parity or golden files; CI: no ci.yml run on commit f2754ae
+goal: 6 of 8 rows passed
+exit 1
+```
+
+Two causes:
+
+- `TestEnvFileOfTheUserFolderGivesASetting` fails when `HORUS_AUTOSTART` is set in the environment. The test writes
+  `HORUS_AUTOSTART=no` into `<HORUS_HOME>/.env`. Its helper `noClone` does not clear `HORUS_AUTOSTART`, and the
+  environment wins over `.env`. The same test alone prints `--- PASS` without the variable and `--- FAIL` with
+  `HORUS_AUTOSTART=1`. As a result, `go test ./...` fails too, so `same-behaviour` fails. This is a defect of the test,
+  not of the program. T11 filed it as [#164](https://github.com/hieplam/horus/issues/164), which blocks this task.
+- `CI: no ci.yml run on commit f2754ae`: the first evidence commit of T11 moved `HEAD` of the worktree while the run
+  worked. The tool reads the CI of `HEAD`, which is correct. Run 2 runs on `4ff6100`.
+
+**Run 2** (18:25:44 to 18:32:11), on a detached `HEAD` at `4ff6100` (`main`, the commit of `v0.1.0`), without
+`HORUS_AUTOSTART` (its default is `1`, so the backend still starts ComfyUI):
+
+```
+$ python tools/goal_check.py --phase 4 --real --server-cmd <worktree>\bin\horus.exe mcp
+PASS  release - release files ok; 2 pinned tests pass; CI: 1 jobs green (release-build); real: release v0.1.0: 3 assets, each SHA-256 equal to its line, 'horus 0.1.0'
+PASS  install-line - install scripts ok; CI: 2 jobs green (install windows-latest, install macos-latest); real: fresh-machine run 'fresh-machine source=release tag=v0.1.0' is green on windows-latest and macos-latest
+PASS  binary-only - 6 pinned tests pass
+PASS  full-setup - 7 pinned tests pass; horus errors -json lists 22 codes; real: fresh-machine run 'fresh-machine source=release tag=v0.1.0' is green on windows-latest and macos-latest
+PASS  uninstall - 12 pinned tests pass; real: fresh-machine run 'fresh-machine source=release tag=v0.1.0' is green on windows-latest and macos-latest
+PASS  register - 6 pinned tests pass; real: horus register -client codex, then codex mcp get horus exits 0 (CODEX_HOME <worktree>\.scratch\codex-home-20261116-182640)
+PASS  readme - both install lines are in section 1 or 2; each README command is in fresh-machine.yml
+PASS  same-behaviour - contract: 37 of 37, 30 of 30 baseline checks pass; parity: 17 of 17; go test ./...: ok; archtest: ok, 0 allow list files; 310 Go test functions (baseline 250); 0 changed parity or golden files; CI: 6 jobs green (contract windows-latest, contract macos-latest, workflow-parity windows-latest, workflow-parity macos-latest, go windows/amd64, go darwin/arm64); real: 1536x1024 <worktree>\.scratch\real-image\real-image-seed7-20261116-182740.png (seed 7, 271 s) (program of release v0.1.0)
+goal: 8 of 8 rows passed
+exit 0
+```
+
+**Decisions of T11.**
+
+| Decision | Why |
+|---|---|
+| The runs pass `--server-cmd <worktree>\bin\horus.exe mcp`, a build of `4ff6100`. | Without it, the contract part, `horus errors -json` and `register` run the `horus` of the PATH. That program is an older build that serves the owner's MCP sessions. The build of `main` proves the rows "on main". The real image always uses the downloaded release asset (the tool sets its own server command). |
+| Run 2 is the equivalent of the Green command: the same command on the commit of `main`, without `HORUS_AUTOSTART` in the environment. | `HORUS_AUTOSTART=1` is the default, so the image run is the same. The variable only showed the test defect #164, which is filed and blocks this task. The run weakens no row. |
+| The second install folder of the port 8189 method is outside the worktree. | A later `git worktree remove --force` must never meet a junction to the owner's install. |
+
+### Step 3: the PNG
+
+`<worktree>\.scratch\real-image\real-image-seed7-20261116-182740.png`, 1536x1024, 2421991 bytes. The released program
+`horus-windows-amd64.exe` of `v0.1.0` made it (subject `REAL_SUBJECT` of `tools/goal_check.py`, seed 7, 271 s with the
+cold start of ComfyUI).
+
+What it shows: on the left a mint-green server box, on the right a sky-blue server box. Each box has an open rack front
+with small lights and switches. Between them is one purple conveyor belt on a steel frame with rollers, and the belt goes
+from one box to the other. 4 yellow-orange envelopes lie on the belt. The image shows the subject. As in Phase 2 and
+Phase 3, the envelopes are more amber than sun-yellow, and the belt is a deeper purple than lilac. A small label on the
+frame has marks that look like text, a limit of the model.
+
+### Cleanup on the PC
+
+```
+$ <worktree>\.scratch\release-assets\v0.1.0\horus-windows-amd64.exe stop-comfyui   (the settings above; 18:32:26)
+The ComfyUI that horus started at http://127.0.0.1:8189 (process 11704) was not running any more.
+exit 0
+listeners on 8188 and 8189: 0
+processes with comfy8189 in the command line: 0
+nvidia-smi: 0 MiB, 0 %
+```
+
+The ComfyUI ended with the MCP server, as in Phase 2. The 23 junctions (1 + 22) were removed one at a time with
+`(Get-Item <junction>).Delete()`, after a check that each one is a junction. That call removes only the link. Then
+`dir /AL /S /B <scratch>\comfy8189` printed `File Not Found`, and a recursive listing found 0 links. Then the 43 files
+and the 8 folders were removed one by one, each folder after it was empty, with a non-recursive delete. No recursive
+delete ran. After the cleanup:
+
+```
+Test-Path D:\ComfyUI_windows_portable\ComfyUI\main.py               True
+Test-Path D:\ComfyUI_windows_portable\python_embeded\python.exe     True
+entries in D:\ComfyUI_windows_portable\ComfyUI\models               26
+%USERPROFILE%\ComfyUI-models:
+flux3-image-klein-int8-convrot.safetensors   5827874779 bytes
+qwen3vl_4b_int8_convrot.safetensors          4858559240 bytes
+flux2-vae.safetensors                         336211292 bytes
+sam3.1_multiplex_fp16.safetensors            1745546848 bytes
+mediapipe_face_fp32.safetensors                 5423900 bytes
+Test-Path <scratch>\comfy8189                                       False
+```
+
+The byte sizes of the 3 model files of `it-illustration` are equal to `workflows/it-illustration/models.json`.
+
+### Step 4: `epic.mjs check --dry-run` on every closed task
+
+```
+PASS #136 via PR #149    PASS #137 via PR #151    PASS #138 via PR #152    PASS #139 via PR #155
+PASS #140 via PR #153    PASS #141 via PR #158    PASS #142 via PR #156    PASS #143 via PR #160
+PASS #144 via PR #161    PASS #145 via PR #162    PASS #157 via PR #159
+FAIL #146
+- no merged pull request closes it (the PR body needs "Closes #146")
+```
+
+#146 is T10, the task of the owner: turn on a setting and merge the pull request of release-please (#163, whose body
+release-please writes). The owner closed it by hand after the release. It threatens no goal row (the row `release`
+passes on the release itself), so T11 files no issue for it.
+
+### Step 5: rows that fail
+
+None in run 2. Run 1 found [#164](https://github.com/hieplam/horus/issues/164): a test that depends on
+`HORUS_AUTOSTART` in the environment. It blocks T11. After the fix, T11 runs the Green command again with
+`HORUS_AUTOSTART=1` in the environment.
+
+**Ratchet.** Goal rows passed with `--real`: 7 of 8 before the release (the row `release` had no release) → 6 of 8 in
+run 1 (#164) → 8 of 8 in run 2.

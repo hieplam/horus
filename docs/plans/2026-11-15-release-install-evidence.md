@@ -1363,7 +1363,7 @@ downloaded, when its size matches `models.json` (README "Uninstall", setup "Unin
 
 | Finding | Goal row | Where |
 |---|---|---|
-| `release-as: 0.1.0` stays in `release-please-config.json`. The next release gets 0.1.0 again. | `release` | defect #150, moved into the epic, blocks #148 |
+| `release-as: 0.1.0` stays in `release-please-config.json`. The next release gets 0.1.0 again. | `release` | defect #150, moved into the epic, blocked #148. Fixed by PR #170 and #171 (section `## #150`), closed 2026-11-16 |
 | `horus doctor` prints `.mcp.json` FAIL lines on a machine with only the program | none | comment on follow-up #154 |
 | `horus -h` names only Claude Code for `register`. `uninstall -yes` prints the user folder line first. `workflow list` names `horus workflow install`. `AGENTS.md` says that a `feat` raises the minor version. | none | follow-up #166 |
 | Two `next_step` texts of the error table name "the horus repo" | none (the golden file must not change in this phase) | follow-up #167 |
@@ -1373,9 +1373,48 @@ downloaded, when its size matches `models.json` (README "Uninstall", setup "Unin
 
 Open follow-ups outside the epic that T12 read: #117, #119, #129, #154. None of them threatens a goal row.
 
-**Ratchet.** Open defects against the goal rows: 1 found (#150) → 0 when #150 is closed.
+**How #150 was proven fixed** (section `## #150`): `grep -c release-as release-please-config.json` prints `0`. The
+row `release` of the goal tool now fails on a pinned version (the test `test_a_pinned_version_fails_and_is_named`). The
+run of `release.yml` on `main` after the merge (run 43883698186) has no line `Setting version for . from release-as
+configuration`.
+
+**Ratchet.** Open defects against the goal rows: 1 found (#150) → 0 (#150 closed on 2026-11-16).
 
 ### Step 6: issue #4
 
-Issue #4 has the status of Phase 4, its check boxes, the decisions D55 and up, and the note that the owner moved
-Phase 5 to later. The follow-up for the real run on the Mac is #168.
+Issue #4 has the status of Phase 4 (done on 2026-11-17), its check boxes, the decisions D55 to D68, and the note that
+the owner moved Phase 5 to later. The follow-up for the real run on the Mac is #168.
+
+### Green
+
+On the branch of T12, rebased on `main` at `75c1813` (after #150 and T11), with a new build of the program
+(`go build -o bin/ ./cmd/horus`). No GPU work, no `--real`:
+
+```
+$ python tools/goal_check.py --phase 4 --no-ci --server-cmd <worktree>/bin/horus.exe mcp
+PASS  release - release files ok; 2 pinned tests pass; CI part skipped (--no-ci); real part not run (needs --real on the PC after the release)
+PASS  install-line - install scripts ok; CI part skipped (--no-ci); real part not run (needs --real on the PC after the release)
+PASS  binary-only - 6 pinned tests pass
+PASS  full-setup - 7 pinned tests pass; horus errors -json lists 22 codes; real part not run (needs --real on the PC after the release)
+PASS  uninstall - 12 pinned tests pass; real part not run (needs --real on the PC after the release)
+PASS  register - 6 pinned tests pass; real part not run (needs --real on the PC after the release)
+PASS  readme - both install lines are in section 1 or 2; each README command is in fresh-machine.yml
+PASS  same-behaviour - contract: 37 of 37, 30 of 30 baseline checks pass; parity: 17 of 17; go test ./...: ok; archtest: ok, 0 allow list files; 310 Go test functions (baseline 250); 0 changed parity or golden files; CI part skipped (--no-ci); real part not run (needs --real on the PC after the release)
+goal: 8 of 8 rows passed
+exit 0
+```
+
+The Green line with `--real` is proven by T11 (#147), run 5 on `5a77a6d` with `HORUS_AUTOSTART=1` (section `## T11`).
+The real image of that run was made by the released program of `v0.1.0`:
+
+```
+PASS  same-behaviour - ... real: 1536x1024 <worktree>\.scratch\real-image\real-image-seed7-20261116-222949.png (seed 7, 304 s) (program of release v0.1.0)
+goal: 8 of 8 rows passed
+exit 0
+```
+
+`75c1813` changes only the evidence log after `5a77a6d`, so run 5 holds for it.
+
+Open defects under the epic: `epic.mjs next 134 --dry-run` gives `"counts":{"total":16,"done":15,"inProgress":1,...}`.
+The one open task is #148 itself. `gh issue list --search "134 defect" --state open` finds only #134, #148 and #4,
+which are not defect issues.

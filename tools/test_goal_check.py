@@ -642,6 +642,18 @@ class ReleaseConfig(unittest.TestCase):
             self.assertEqual(len(problems), 1)
             self.assertIn(key, problems[0])
 
+    def test_a_pinned_version_fails_and_is_named(self):
+        for pin in (".", "0.1.0", "9.9.9"):
+            cfg = {k: True for k in g.RELEASE_SETTINGS}
+            cfg["packages"] = {".": {"release-as": "0.1.0" if pin == "." else pin}}
+            problems = g.release_config_problems(g.json.dumps(cfg))
+            self.assertEqual(len(problems), 1)
+            self.assertIn("release-as", problems[0])
+
+    def test_the_config_of_the_repository_pins_no_version(self):
+        text = (g.ROOT / g.RELEASE_FILES[0]).read_text(encoding="utf-8")
+        self.assertEqual(g.release_config_problems(text), [])
+
     def test_an_empty_or_broken_config_fails(self):
         self.assertEqual(len(g.release_config_problems("{}")), 2)
         self.assertEqual(g.release_config_problems("not json"), ["release-please-config.json is not JSON"])

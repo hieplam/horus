@@ -1178,7 +1178,12 @@ def release_config_problems(text: str) -> list[str]:
         cfg = json.loads(text)
     except ValueError:
         return ["release-please-config.json is not JSON"]
-    return [f"release-please-config.json has no {k}: true" for k in RELEASE_SETTINGS if True not in find_key(cfg, k)]
+    problems = [f"release-please-config.json has no {k}: true" for k in RELEASE_SETTINGS if True not in find_key(cfg, k)]
+    # A pinned version (release-as) makes release-please ignore the commits. After the first release it
+    # proposes the version of the pin again, and the tag exists (issue #150). So the key must not be there.
+    for pin in find_key(cfg, "release-as"):
+        problems.append(f"release-please-config.json pins the version with release-as: {pin!r}; remove the key after the first release")
+    return problems
 
 
 def release_files_part() -> tuple[bool, str]:

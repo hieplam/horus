@@ -914,3 +914,76 @@ file fails the row `readme`.
 ```
 
 The run before the fix (run 43860102939) had the line `⚠ Setting version for . from release-as configuration` between "Considering" and "No user facing commits". It opened no release pull request, because the commits were `ci` and `test` commits.
+
+## T11
+
+Task: [#147](https://github.com/hieplam/horus/issues/147). Verify on `main` (`4ff6100`, the commit of release
+`v0.1.0`), on the real release, on the PC. This task builds nothing.
+
+### Step 1: the fresh-machine run on the real release
+
+The release was published by the `GITHUB_TOKEN` of release-please, and GitHub starts no workflow from such a release.
+So the run did not start by itself. T11 started it by hand:
+
+```
+$ gh workflow run fresh-machine.yml -f source=release -f tag=v0.1.0
+https://github.com/hieplam/horus/actions/runs/43856502263
+```
+
+Run [43856502263](https://github.com/hieplam/horus/actions/runs/43856502263), title
+`fresh-machine source=release tag=v0.1.0`, conclusion `success`. This is the first run of the source `release` and of
+the job `by hand`:
+
+| Job | Result | Time |
+|---|---|---|
+| `assets` | skipped (the source is `release`) | |
+| `fresh windows-latest` | success | 11:17:59 to 11:21:43 |
+| `fresh macos-latest` | success | 11:18:00 to 11:20:24 |
+| `by hand windows-latest` | success | 11:18:00 to 11:18:38 |
+| `by hand macos-latest` | success | 11:18:00 to 11:18:08 |
+
+T11 read the log of each job. The lines that prove the rows (the home folder of the runner is `<home>`):
+
+```
+fresh windows   Installed <home>\AppData\Local\Programs\horus\horus.exe
+fresh windows   Added <home>\AppData\Local\Programs\horus to the PATH of the user. Open a new terminal.
+fresh windows   horus 0.1.0
+fresh windows   Plan: 4 step(s):  1. install ComfyUI in <home>\ComfyUI_windows_portable  2-4. download (3 model files)
+fresh windows   Checking SHA-256 ...  Unpacking (a few minutes) ...
+fresh windows   OK: ComfyUI v0.44.0 is installed in <home>\ComfyUI_windows_portable
+fresh windows   the plan has 3 steps, each one a model file download. No model file is downloaded by this workflow.
+fresh windows   OK: 4 REMOVE item(s) are gone.
+fresh windows   the program file is gone
+fresh windows   the ComfyUI folder is gone: <home>\ComfyUI_windows_portable
+fresh windows   a new shell does not find horus
+fresh macos     Downloading horus-darwin-arm64 from https://github.com/hieplam/horus/releases/latest/download
+fresh macos     Installed <home>/.local/bin/horus
+fresh macos     Added <home>/.local/bin to the PATH in <home>/.zprofile. Open a new terminal.
+fresh macos     horus 0.1.0
+fresh macos     Plan: 5 step(s):  1. install comfy-cli ...  2. install ComfyUI in <home>/horus  3-5. download
+fresh macos     OK: comfy-mcp is installed in <home>/.venvs/comfy-mcp
+fresh macos     OK: ComfyUI v0.44.0 is installed in <home>/horus
+fresh macos     the plan has 3 steps, each one a model file download. No model file is downloaded by this workflow.
+fresh macos     OK: 5 REMOVE item(s) are gone.
+fresh macos     the ComfyUI folder is gone: <home>/horus
+fresh macos     the venv of comfy-mcp is gone
+fresh macos     a new shell does not find horus
+by hand windows 985A407B88F1B164A8FFB6DA168B81C164688D21910D1CE95FE8F37B75012DB8
+by hand windows checksums.txt:1:985a407b88f1b164a8ffb6da168b81c164688d21910d1ce95fe8f37b75012db8  horus-windows-amd64.exe
+by hand windows the two hashes are equal
+by hand windows horus 0.1.0
+by hand macos   480596460801f1805f2696504c341d64b3869cedaabd42024a31f102ed27b84e  horus-darwin-arm64
+by hand macos   480596460801f1805f2696504c341d64b3869cedaabd42024a31f102ed27b84e  horus-darwin-arm64
+by hand macos   the two hashes are equal
+by hand macos   horus 0.1.0
+```
+
+The step that checks the version against the input `tag` passed on both runners (`horus 0.1.0` for `v0.1.0`).
+Each step of the workflow did what its name says, so T11 found no defect of the workflow and no defect of the product
+in this run. Two observations, neither a defect of a goal row:
+
+- `horus doctor` outside a clone prints 2 FAIL lines for `.mcp.json` (both runners, before and after the install).
+  This is the open issue [#154](https://github.com/hieplam/horus/issues/154), outside the 8 rows.
+- `horus uninstall -yes` prints `OK: removed the empty user folder <home>/horus` before the `OK` line of each item.
+  The code (`internal/provision/uninstall.go`) removes the items first and the empty folder last. Only the report
+  lines come after it. The order of the work is correct, so T11 files no issue.

@@ -23,7 +23,7 @@ Files in this folder:
 | `manifest.json` | The public contract for the horus MCP server: summary, sizes, subject rules, and the graph inputs that horus sets. |
 | `workflow.json` | The graph, in ComfyUI "UI" format. 10 nodes. Do not edit it by hand. |
 | `recipe.json` | A comfy-cli recipe that builds the same graph. |
-| `models.json` | The model files, with size and SHA-256. `horus workflow install` reads it. |
+| `models.json` | The model files, with size and SHA-256. `horus setup` and the tool `install_workflow` read it. |
 | `examples/` | Pictures made with this workflow. |
 
 ## Models and pairings
@@ -80,9 +80,23 @@ Rules for the subject:
 4. Never put hex colour codes such as `#2D7FF9` in the caption. The model draws them as text. Use colour names.
 5. If you want no text in the picture, say so in the caption. The model draws text badly.
 
-## Run it through MCP
+## Make an image
 
-MCP (Model Context Protocol) is how an agent calls tools. These tools come from the comfy MCP server.
+Every agent makes an image through the horus MCP server, in a clone of this repo
+and outside it. MCP (Model Context Protocol) is how an agent calls tools.
+
+1. `list_workflows`. Check that `it-illustration` shows `install_state: installed`. If it does not, call `install_workflow`. That tool asks the user to accept the license first.
+2. `describe_workflow(workflow="it-illustration")`. Read `subject.rules` and `subject.examples`.
+3. `generate_image(workflow="it-illustration", subject="...")`. Write the whole caption in `subject`. `seed`, `width`, `height` and `out_path` are optional. The call waits until the PNG is on disk (often 3 to 8 minutes) and returns its path.
+4. Open the PNG. Check that it matches the subject and the look that the caption asks for. When it does not, change one thing in the subject and call again.
+
+On `ok=false`, read `error.code`, `error.action_by` and `error.next_step`
+([error codes](../../docs/mcp.md#error-codes)).
+
+## Debug the graph (developers, in a clone)
+
+Use the comfy MCP server only to build, check or debug this graph, not to make an
+image for a user. The loop:
 
 1. `server_info`. Make sure that ComfyUI runs and the GPU shows.
 2. Copy `workflow.json` to a scratch folder. Never change the committed file.
@@ -91,9 +105,10 @@ MCP (Model Context Protocol) is how an agent calls tools. These tools come from 
 5. `run_workflow(wait=False)`. It returns a `prompt_id`.
 6. `job(action="wait", timeout_seconds=600)` with that `prompt_id`.
 7. `fetch_outputs` with the `prompt_id` and an output folder.
-8. Open the PNG. Check that it matches the subject and the look that the caption asks for. Change one thing in the subject and rerun when it is not.
 
-`run_workflow(wait=True)` has a budget of about 110 s. A model load alone can exceed it, so always use `wait=False`.
+`run_workflow(wait=True)` has a budget of about 110 s. A model load alone can
+exceed it, so always use `wait=False`. See
+[running workflows](../../docs/running-workflows.md).
 
 ## Run it without an agent
 
@@ -101,7 +116,7 @@ MCP (Model Context Protocol) is how an agent calls tools. These tools come from 
 horus run-illustration -subject "a message queue between two services" -seed 7 -out out/queue.png
 ```
 
-`horus run-illustration` uses the same code as the MCP tool `generate_image`. It reads `workflow.json`, converts it to the API format with the node definitions of the running server, sets the caption, seed and file prefix, submits the job, waits and saves the PNG. When ComfyUI does not answer, it starts ComfyUI (`HORUS_AUTOSTART=0` turns this off). It prints one JSON line:
+`horus run-illustration` uses the same code as the horus MCP tool `generate_image`. It reads `workflow.json`, converts it to the API format with the node definitions of the running server, sets the caption, seed and file prefix, submits the job, waits and saves the PNG. When ComfyUI does not answer, it starts ComfyUI (`HORUS_AUTOSTART=0` turns this off). It prints one JSON line:
 
 ```
 {"ok":true,"prompt_id":"...","out":"out/queue.png","seed":7,"steps":15,"width":1536,"height":1024,"execution_seconds":217.5,"comfy_output":"..."}
@@ -125,12 +140,14 @@ On failure it prints `{"ok":false,"error":...}` to stderr and exits with code 1.
 
 All runs on 2026-11-05. Graph: `workflow.json`, 15 steps, CFG 1, 1536x1024.
 
+Route "comfy MCP" is the loop of [debug the graph](#debug-the-graph-developers-in-a-clone). Route "Script" is `scripts/run-illustration.py`, which `horus run-illustration` replaced on 2026-11-10.
+
 | Route | Subject | Seed | Seconds | Result |
 |---|---|---|---|---|
-| MCP | Database with read replicas, hex codes in the house style | 1001 | 217.2 | Fails the check. The picture shows hex codes as text. A first attempt failed with `hostbuf_file_reader_read failed` and passed on the same input. Cause not verified. |
+| comfy MCP | Database with read replicas, hex codes in the house style | 1001 | 217.2 | Fails the check. The picture shows hex codes as text. A first attempt failed with `hostbuf_file_reader_read failed` and passed on the same input. Cause not verified. |
 | Script | Message queue | 2024 | 469.9 | Passes. Flat vector, on subject, no text. |
 | Script | Database with read replicas | 1001 | 262.4 | Passes after one retry. The first try drew the words "read replicas". |
-| MCP | Laptop, load balancer, three servers | 77 | 284.5 | Passes. Flat vector, on subject, no text. |
+| comfy MCP | Laptop, load balancer, three servers | 77 | 284.5 | Passes. Flat vector, on subject, no text. |
 
 Runs on 2026-11-06 through the horus MCP server (`generate_image`). A separate headless Claude Code agent (Sonnet,
 no file tools, only the horus tools) got a brief for 4 video images. It called `list_workflows`, `describe_workflow`,

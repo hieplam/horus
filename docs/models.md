@@ -39,7 +39,8 @@ license, the family, and the pairing rules.
 | VAE | `flux2-vae.safetensors` | `vae` | 336,211,292 | `868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3` |
 
 Total size: about 11 GB. Install it with
-`horus workflow install it-illustration` ([manage workflows](setup.md#manage-workflows-list-install-check-remove)).
+`horus setup it-illustration -yes` ([step 2 of setup](setup.md#step-2-set-up-the-workflow)), or let an agent call
+the tool `install_workflow`.
 
 ## Pairing rules
 

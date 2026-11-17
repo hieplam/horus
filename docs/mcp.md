@@ -43,13 +43,19 @@ sequenceDiagram
   participant S as horus mcp
   participant P as provision service
   participant D as Model files on disk
+  participant G as generate service
+  participant C as ComfyUI (127.0.0.1:8188)
   A->>S: call list_workflows
-  S->>S: read workflows/*/manifest.json (title, summary, sizes)
+  S->>S: read manifest.json of each folder in the workflows folder (title, summary, sizes)
   S->>P: list the workflows
   P->>D: check the size of each model file
   P-->>S: return the install state of each workflow
-  S-->>A: return the list: for each workflow, installed or not
+  S->>G: is ComfyUI running?
+  G->>C: ask GET /system_stats
+  G-->>S: return yes or no
+  S-->>A: return the list (installed or not, for each workflow) and backend_running
   A->>S: call describe_workflow
+  S->>S: read manifest.json of the workflow
   S->>P: check the model files of one workflow (size only)
   P->>D: check the size of each model file
   P-->>S: return the state of each model file
@@ -60,18 +66,30 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+  participant U as User
   participant A as Agent
   participant S as horus mcp
   participant P as provision service
   participant H as huggingface.co
   participant D as Model files on disk
   A->>S: call install_workflow
-  S->>P: install the model files of the workflow
-  P->>H: download each file (the token goes only in a header)
-  P->>D: write file.part, check size and SHA-256, rename to the final name
-  S-->>A: send a progress message every 5 s while P runs
-  P-->>S: return the result of each file
-  S-->>A: return installed, or an error code
+  S->>P: read the plan (changes nothing)
+  Note over S,P: A plan with a step that is not a model file goes to the next diagram.
+  S->>P: check the model files (size only)
+  alt every model file is present
+    S-->>A: return installed, already_installed=true
+  else a model file is missing
+    S-->>A: LICENSE_CONFIRMATION_REQUIRED, with the license, the size and the files
+    A->>U: show the license and the size
+    U-->>A: agree
+    A->>S: call again with accept_license=true
+    S->>P: install the model files of the workflow
+    P->>H: download each file (the token goes only in a header)
+    P->>D: write file.part, check size and SHA-256, rename to the final name
+    S-->>A: send a progress message every 5 s while P runs
+    P-->>S: return the result of each file
+    S-->>A: return installed, or an error code
+  end
   Note over S,P: If the agent cancels, the context ends the download. The .part file stays and the next install resumes it.
 ```
 
@@ -134,11 +152,17 @@ sequenceDiagram
   G->>C: send the graph with POST /prompt
   loop every 2 s until the job ends
     G->>C: ask GET /history/<id>: done yet?
+    S-->>A: send a progress message every 10 s
   end
-  G->>C: fetch the image with GET /view
-  G->>F: save the PNG
-  G-->>S: return the path and the seed
-  S-->>A: return the path of the PNG
+  alt the job ends with an image
+    G->>C: fetch the image with GET /view
+    G->>F: save the PNG
+    G-->>S: return the path and the seed
+    S-->>A: return the path of the PNG
+  else the job runs longer than HORUS_GENERATE_TIMEOUT, or the agent cancels
+    G->>C: remove the job: POST /interrupt (running) or POST /queue delete (waiting)
+    S-->>A: return GENERATION_TIMEOUT, or end the call (cancel)
+  end
 ```
 
 In this diagram the generate service never calls the provision service: a
@@ -156,11 +180,11 @@ horus register
 ```
 
 - `horus register -client codex` registers the server with Codex instead of Claude Code.
-- A developer of this repo builds the program with `go install ./cmd/horus`. The Go bin folder must be on the PATH: see [`setup.md`](setup.md#for-developers-build-from-a-clone). After a `git pull`, run `go install ./cmd/horus` again.
+- A developer of this repo builds the program with `go install ./cmd/horus`. The Go bin folder must be on the PATH: see [`setup.md`](setup.md#build-horus). After a `git pull`, run `go install ./cmd/horus` again.
 - In this repo, `.mcp.json` names the server as the command `horus` with the argument `mcp`, so an agent here finds it without `horus register`.
 - The same `.mcp.json` starts the comfy MCP server as `horus comfy-mcp`, on Windows and on macOS. `horus comfy-mcp` runs the program `comfy-mcp` of the venv of `horus install-comfy-mcp` (`<home>/.venvs/comfy-mcp`), else the `comfy-mcp` of the PATH, over the same standard input and output. It sets `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`, and `COMFY_BIN` to the `comfy` next to comfy-mcp when that program exists and `COMFY_BIN` is not set. Its exit code is the exit code of comfy-mcp. When it finds no comfy-mcp, it writes `comfy-mcp was not found in ... Fix: horus install-comfy-mcp` to the standard error and exits 1.
-- `horus register` adds the server `horus` to Claude Code. It runs `claude mcp add --scope user horus -e HORUS_ROOT=<repo root> -- <path of horus> mcp`. Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
-- `horus register -client codex` adds the server to Codex. It runs `codex mcp get horus`. When that exits 0, it prints a `SKIP` line. Else it runs `codex mcp add horus --env HORUS_ROOT=<repo root> -- <path of horus> mcp`. `-client claude` is the default. Another client name exits 2 and lists `claude, codex`.
+- `horus register` adds the server `horus` to Claude Code. It runs `claude mcp add --scope user horus -- <path of horus> mcp`. In a clone it also passes `-e HORUS_ROOT=<clone>`. Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
+- `horus register -client codex` adds the server to Codex. It runs `codex mcp get horus`. When that exits 0, it prints a `SKIP` line. Else it runs `codex mcp add horus -- <path of horus> mcp`, with `--env HORUS_ROOT=<clone>` in a clone. `-client claude` is the default. Another client name exits 2 and lists `claude, codex`.
 - `<repo root>` is the absolute path of the horus clone that holds the current folder, or the folder of `-root <repo folder>` (it must have `workflows/`). With no clone and no `-root`, the program has no repo root: `horus register` still works and passes no `HORUS_ROOT`. Use `-horus-path <path>` to register another `horus` program.
 - Another harness (an IDE) needs one stdio server entry: command `horus` (or its full path), argument `mcp`, and `HORUS_ROOT` when it starts outside this repo.
 
@@ -290,6 +314,11 @@ and change every field. The fields:
 
 The caller never sees `graph`: `describe_workflow` leaves it out.
 
+Also add the folder name to the `go:embed` line of
+[`workflows/embed.go`](../workflows/embed.go). The release program holds only
+the folders on that line. `go test ./workflows` fails when a folder with a
+`manifest.json` is not on it.
+
 ## Settings
 
 Each setting is an environment variable or a line in `.env`. The environment wins.
@@ -324,7 +353,7 @@ py -3.12 -m venv .scratch\test-venv
 
 On macOS and Linux, use `python3.12 -m venv .scratch/test-venv` and
 `.scratch/test-venv/bin/python`. Then, with `horus` on the PATH (see
-[`setup.md`](setup.md#for-developers-build-from-a-clone)):
+[`setup.md`](setup.md#build-horus)):
 
 ```
 .scratch\test-venv\Scripts\python tests\mcp_contract.py

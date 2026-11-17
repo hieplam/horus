@@ -9,7 +9,8 @@ thing is and what breaks when it is wrong. Agents read this page too.
 computer and shows a web page at `http://127.0.0.1:8188`. You build a workflow
 from nodes, and ComfyUI runs it.
 
-**If wrong.** If ComfyUI is not running, every tool call fails. Call
+**If wrong.** If ComfyUI is not running, `generate_image` of the horus MCP
+server starts it. The tools of the comfy MCP server fail: a developer calls
 `server_info` first to check.
 
 ## Node
@@ -153,16 +154,25 @@ Quantised files are smaller and use less memory.
 **If wrong.** A quantised file can need a special kernel or node. If the driver
 or the node is missing, the run fails. Quality can also drop a little.
 
-## MCP and the comfy MCP server
+## MCP, the horus MCP server and the comfy MCP server
 
 **What they are.** MCP is the Model Context Protocol. It lets an AI agent call
-tools. The comfy MCP server gives an agent tools to control ComfyUI, such as
-`server_info`, `validate_workflow`, and `run_workflow`. The file `.mcp.json`
-starts it as `horus comfy-mcp`, which runs the program `comfy-mcp` that
-`horus install-comfy-mcp` installs.
+tools. horus has two MCP servers:
 
-**If wrong.** If the client cannot start the server, it shows
-`CONNECTION_CLOSED`. See [running workflows](running-workflows.md#failure-modes).
+- The **horus MCP server** (`horus mcp`) is the image tool. Every agent makes
+  images with it: `list_workflows`, `describe_workflow`, `generate_image`. The
+  agent never sees ComfyUI. `horus register` adds it to Claude Code or Codex.
+  See [`mcp.md`](mcp.md).
+- The **comfy MCP server** gives a developer low-level tools to control ComfyUI,
+  such as `server_info`, `validate_workflow`, and `run_workflow`. Only an agent
+  in a clone of this repo has it: the file `.mcp.json` starts it as
+  `horus comfy-mcp`, which runs the program `comfy-mcp` that
+  `horus install-comfy-mcp` installs. It is for building and debugging a
+  workflow, not for making images for a user.
+
+**If wrong.** If the client cannot start a server, it shows the server as
+failed (`CONNECTION_CLOSED`). For `horus`, the program is not on the PATH. For
+`comfy-mcp`, see [running workflows](running-workflows.md#failure-modes).
 
 ## Slot
 

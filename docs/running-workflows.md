@@ -1,7 +1,12 @@
 # Running workflows
 
-This page describes the loop that an agent uses to run a workflow through the
-comfy MCP server. It also lists the failures that you can expect.
+This page is for a developer in a clone of this repo. It describes the loop that
+an agent uses to build, check and debug a workflow through the comfy MCP server.
+It also lists the failures that you can expect.
+
+To make an image for a user, do not use this loop. Call `generate_image` of the
+horus MCP server ([`mcp.md`](mcp.md)). Its errors are in
+[the error codes](mcp.md#error-codes).
 
 Terms: a *workflow* is a saved graph of nodes. The *comfy MCP server* is a
 program that gives an agent tools to control ComfyUI. A *slot* is one setting

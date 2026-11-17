@@ -35,7 +35,7 @@ flowchart TD
   subgraph D[Phase D: Prove]
     S13{Gate 13: validate_workflow} --> S14([14 Run async])
     S14 --> S15{Gate 15: look at the image}
-    S15 --> S16([16 Save: files, README, pull request])
+    S15 --> S16([16 Save: files, manifest, embed line, README, pull request])
   end
   G3 -- no --> S4
   G3 -- yes --> S12
@@ -259,10 +259,13 @@ result. See the failure table in
 ### 16. Save
 
 1. Put the workflow in `workflows/<name>/`.
-2. Run `horus sync-workflows` so that the ComfyUI Workflows pane shows it.
-3. Fill the Evidence section of the workflow README: date, hashes, node count, validation result, `prompt_id`, output file, and run time.
-4. Save the prompt under `prompts/<family>/`, with its result.
-5. Create a branch and open a pull request. Do not push to the main branch.
+2. Write `workflows/<name>/manifest.json`, so that the horus MCP server offers the workflow to agents. The [fields](mcp.md#add-a-workflow-to-the-server) say what to write. Write no style in it: the caller owns the look.
+3. Add the folder name to the `go:embed` line of `workflows/embed.go`, so that the release program holds the workflow. `go test ./workflows` fails when a folder with a `manifest.json` is not on that line.
+4. Run `horus sync-workflows` so that the ComfyUI Workflows pane shows it.
+5. Fill the Evidence section of the workflow README: date, hashes, node count, validation result, `prompt_id`, output file, and run time.
+6. Save the prompt under `prompts/<family>/`, with its result.
+7. Run `tests/mcp_contract.py`. It must end with all checks passed. It fails when a manifest adds a style.
+8. Create a branch and open a pull request. Do not push to the main branch.
 
 A workflow is not done until it has run end to end and the Evidence section
 is filled with real values.

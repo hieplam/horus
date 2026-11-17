@@ -5,12 +5,15 @@ Get your first image from a local AI model, with an AI agent at the controls.
 horus is a starter kit for engineers who are new to local image generation.
 It installs [ComfyUI](https://github.com/comfyanonymous/ComfyUI) on a Windows PC
 with an NVIDIA GPU or on a Mac with Apple Silicon, downloads one verified model set (FLUX 3 Image Klein), and
-gives an AI agent (Claude Code or Codex) the written rules it needs to drive
-ComfyUI for you through the comfy MCP server.
+gives an AI agent (Claude Code or Codex) one image tool: the horus MCP server.
 
-You describe the image. The agent reads this repo, builds or changes a
-workflow, checks it against your running ComfyUI, runs it, and shows you the
-result.
+You describe the image. The agent picks a workflow, writes the subject and
+calls `generate_image`. horus runs the job on your ComfyUI and returns the path
+of the PNG. The agent never sees ComfyUI.
+
+A new style needs a new workflow. An agent makes it in a clone of this repo,
+with the rules of this repo and the comfy MCP server (see
+[Work on this repo](#work-on-this-repo-developers)).
 
 ## Install horus
 
@@ -127,20 +130,26 @@ runs the plan.
 | Part | What it is |
 |---|---|
 | ComfyUI | The program that runs image models on your GPU. A job is a graph of nodes, called a workflow. |
-| comfy MCP server | A local process that gives an agent tools such as `validate_workflow` and `run_workflow`. MCP (Model Context Protocol) is the standard way an agent calls tools. |
-| horus MCP server | The image tool for other agents: `list_workflows`, `describe_workflow`, `install_workflow`, `uninstall_workflow`, `generate_image`. The caller names a workflow and a subject and gets a PNG path. horus adds no style: the caller writes the look in the subject. It never sees ComfyUI. See [`docs/mcp.md`](docs/mcp.md). |
-| This repo | The rules, the Go code of the `horus` program, the workflows and the saved prompts. The agent reads it. You run `horus`. |
+| horus MCP server | The image tool for agents, started as `horus mcp`. MCP (Model Context Protocol) is the standard way an agent calls tools. The tools: `list_workflows`, `describe_workflow`, `install_workflow`, `uninstall_workflow`, `generate_image`. The caller names a workflow and a subject and gets a PNG path. horus adds no style: the caller writes the look in the subject. The caller never sees ComfyUI. See [`docs/mcp.md`](docs/mcp.md). |
+| horus commands | The commands that you run: `horus setup`, `horus doctor`, `horus register`, `horus uninstall`. The horus MCP server and the commands are one program, `horus`. |
+| comfy MCP server | A separate program with low-level ComfyUI tools such as `validate_workflow` and `run_workflow`. Only an agent in a clone of this repo uses it, to build and debug a workflow. |
+| This repo | The rules, the Go code of the `horus` program, the workflows and the saved prompts. An agent reads it when it changes horus or makes a new workflow. To make images you need no clone: the program holds the workflows. |
 | Model files | Gigabytes of weights on disk. Never in git. Each file is checked by SHA-256. |
 
 ```mermaid
 flowchart LR
   you[You] -->|describe the image| agent[AI agent]
-  agent -->|reads rules| repo[horus repo]
-  agent -->|tool calls| mcp[comfy MCP server]
+  you -->|horus setup| cli[horus commands]
+  agent -->|list_workflows, generate_image| mcp[horus MCP server]
   mcp -->|HTTP :8188| comfy[ComfyUI]
-  comfy -->|loads| models[(Model files)]
-  repo -->|horus commands download and verify| models
+  cli -->|install| comfy
+  cli -->|download and verify| models[(Model files)]
+  comfy -->|loads| models
 ```
+
+The agent talks only to the horus MCP server. The horus MCP server sends HTTP
+requests to ComfyUI. The comfy MCP server is not on this path. The agent can
+also download the model files with the tool `install_workflow`, after you agree.
 
 ## Set up the machine
 
@@ -226,6 +235,20 @@ New to the words? Read [`docs/concepts.md`](docs/concepts.md) first.
 This section is for people who change the code of horus. A user who only wants
 images needs the install line above. Claude Code starts each MCP server itself,
 as a child program (a stdio server). The full setup is [`docs/setup.md`](docs/setup.md).
+
+In a clone, the file `.mcp.json` gives the agent two servers. The comfy MCP
+server is the low-level tool to build, check and debug a workflow. The horus MCP
+server is the same image tool that a user's agent gets. Both servers send HTTP
+requests to the same ComfyUI.
+
+```mermaid
+flowchart LR
+  agent[AI agent in a clone] -->|reads AGENTS.md and docs| repo[horus repo]
+  agent -->|server_info, validate_workflow, run_workflow| cmcp[comfy MCP server]
+  agent -->|generate_image| mcp[horus MCP server]
+  cmcp -->|HTTP :8188| comfy[ComfyUI]
+  mcp -->|HTTP :8188| comfy
+```
 
 1. Install Go 1.27.3 or newer, Python 3.12 and Claude Code. On Windows, Python
    needs the Python Launcher. On macOS, `brew install python@3.12 go uv` installs

@@ -43,13 +43,19 @@ sequenceDiagram
   participant S as horus mcp
   participant P as provision service
   participant D as Model files on disk
+  participant G as generate service
+  participant C as ComfyUI (127.0.0.1:8188)
   A->>S: call list_workflows
-  S->>S: read workflows/*/manifest.json (title, summary, sizes)
+  S->>S: read manifest.json of each folder in the workflows folder (title, summary, sizes)
   S->>P: list the workflows
   P->>D: check the size of each model file
   P-->>S: return the install state of each workflow
-  S-->>A: return the list: for each workflow, installed or not
+  S->>G: is ComfyUI running?
+  G->>C: ask GET /system_stats
+  G-->>S: return yes or no
+  S-->>A: return the list (installed or not, for each workflow) and backend_running
   A->>S: call describe_workflow
+  S->>S: read manifest.json of the workflow
   S->>P: check the model files of one workflow (size only)
   P->>D: check the size of each model file
   P-->>S: return the state of each model file
@@ -60,18 +66,30 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+  participant U as User
   participant A as Agent
   participant S as horus mcp
   participant P as provision service
   participant H as huggingface.co
   participant D as Model files on disk
   A->>S: call install_workflow
-  S->>P: install the model files of the workflow
-  P->>H: download each file (the token goes only in a header)
-  P->>D: write file.part, check size and SHA-256, rename to the final name
-  S-->>A: send a progress message every 5 s while P runs
-  P-->>S: return the result of each file
-  S-->>A: return installed, or an error code
+  S->>P: read the plan (changes nothing)
+  Note over S,P: A plan with a step that is not a model file goes to the next diagram.
+  S->>P: check the model files (size only)
+  alt every model file is present
+    S-->>A: return installed, already_installed=true
+  else a model file is missing
+    S-->>A: LICENSE_CONFIRMATION_REQUIRED, with the license, the size and the files
+    A->>U: show the license and the size
+    U-->>A: agree
+    A->>S: call again with accept_license=true
+    S->>P: install the model files of the workflow
+    P->>H: download each file (the token goes only in a header)
+    P->>D: write file.part, check size and SHA-256, rename to the final name
+    S-->>A: send a progress message every 5 s while P runs
+    P-->>S: return the result of each file
+    S-->>A: return installed, or an error code
+  end
   Note over S,P: If the agent cancels, the context ends the download. The .part file stays and the next install resumes it.
 ```
 
@@ -134,11 +152,17 @@ sequenceDiagram
   G->>C: send the graph with POST /prompt
   loop every 2 s until the job ends
     G->>C: ask GET /history/<id>: done yet?
+    S-->>A: send a progress message every 10 s
   end
-  G->>C: fetch the image with GET /view
-  G->>F: save the PNG
-  G-->>S: return the path and the seed
-  S-->>A: return the path of the PNG
+  alt the job ends with an image
+    G->>C: fetch the image with GET /view
+    G->>F: save the PNG
+    G-->>S: return the path and the seed
+    S-->>A: return the path of the PNG
+  else the job runs longer than HORUS_GENERATE_TIMEOUT, or the agent cancels
+    G->>C: remove the job: POST /interrupt (running) or POST /queue delete (waiting)
+    S-->>A: return GENERATION_TIMEOUT, or end the call (cancel)
+  end
 ```
 
 In this diagram the generate service never calls the provision service: a
@@ -289,6 +313,11 @@ and change every field. The fields:
 | `graph.inputs` | For each of `caption`, `seed`, `width`, `height`, `filename_prefix`: the node class and the input name that horus sets. Exactly one node of that class must exist. |
 
 The caller never sees `graph`: `describe_workflow` leaves it out.
+
+Also add the folder name to the `go:embed` line of
+[`workflows/embed.go`](../workflows/embed.go). The release program holds only
+the folders on that line. `go test ./workflows` fails when a folder with a
+`manifest.json` is not on it.
 
 ## Settings
 

@@ -89,6 +89,7 @@ README.md                         entry point for people: the install line, setu
 install.ps1, install.sh           the install scripts (the install line downloads them from main)
 release-please-config.json        the release tool; .github/workflows/release.yml builds and uploads the 3 release assets
 AGENTS.md                         this file
+.mcp.json                         the two MCP servers of an agent in a clone: comfy-mcp and horus
 ROADMAP.md                        what comes next
 docs/                             setup, style-to-workflow, concepts, running, models, mcp
 docs/specs/, docs/plans/          the spec, the plan and the evidence log of each phase
@@ -103,7 +104,7 @@ internal/comfy/                   adapter: the ComfyUI REST client (comfy/comfyt
 internal/download/                adapter: download with resume, size and SHA-256 check; the only code that reads HF_TOKEN
 internal/modelfiles/              adapter: find, check and remove model files, extra_model_paths.yaml
 internal/backend/                 adapter: Install, Start, Stop and Installed of a ComfyUI install (the Windows portable build; comfy-cli on macOS; backend/comfyclitest is the fake comfy for tests)
-internal/catalog/, graph/, herr/, settings/, platform/    base: manifests, graph conversion, error codes, settings, processes and OS facts
+internal/catalog/, graph/, herr/, settings/, platform/, version/    base: manifests, graph conversion, error codes, settings, processes and OS facts, the program version
 internal/archtest/                the test of the design rules
 scripts/                          lint-public.py (a Python check before a pull request), build-release.sh (builds the 3 release assets)
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), workflow_parity.py, requirements.txt

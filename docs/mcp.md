@@ -180,11 +180,11 @@ horus register
 ```
 
 - `horus register -client codex` registers the server with Codex instead of Claude Code.
-- A developer of this repo builds the program with `go install ./cmd/horus`. The Go bin folder must be on the PATH: see [`setup.md`](setup.md#for-developers-build-from-a-clone). After a `git pull`, run `go install ./cmd/horus` again.
+- A developer of this repo builds the program with `go install ./cmd/horus`. The Go bin folder must be on the PATH: see [`setup.md`](setup.md#build-horus). After a `git pull`, run `go install ./cmd/horus` again.
 - In this repo, `.mcp.json` names the server as the command `horus` with the argument `mcp`, so an agent here finds it without `horus register`.
 - The same `.mcp.json` starts the comfy MCP server as `horus comfy-mcp`, on Windows and on macOS. `horus comfy-mcp` runs the program `comfy-mcp` of the venv of `horus install-comfy-mcp` (`<home>/.venvs/comfy-mcp`), else the `comfy-mcp` of the PATH, over the same standard input and output. It sets `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`, and `COMFY_BIN` to the `comfy` next to comfy-mcp when that program exists and `COMFY_BIN` is not set. Its exit code is the exit code of comfy-mcp. When it finds no comfy-mcp, it writes `comfy-mcp was not found in ... Fix: horus install-comfy-mcp` to the standard error and exits 1.
-- `horus register` adds the server `horus` to Claude Code. It runs `claude mcp add --scope user horus -e HORUS_ROOT=<repo root> -- <path of horus> mcp`. Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
-- `horus register -client codex` adds the server to Codex. It runs `codex mcp get horus`. When that exits 0, it prints a `SKIP` line. Else it runs `codex mcp add horus --env HORUS_ROOT=<repo root> -- <path of horus> mcp`. `-client claude` is the default. Another client name exits 2 and lists `claude, codex`.
+- `horus register` adds the server `horus` to Claude Code. It runs `claude mcp add --scope user horus -- <path of horus> mcp`. In a clone it also passes `-e HORUS_ROOT=<clone>`. Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
+- `horus register -client codex` adds the server to Codex. It runs `codex mcp get horus`. When that exits 0, it prints a `SKIP` line. Else it runs `codex mcp add horus -- <path of horus> mcp`, with `--env HORUS_ROOT=<clone>` in a clone. `-client claude` is the default. Another client name exits 2 and lists `claude, codex`.
 - `<repo root>` is the absolute path of the horus clone that holds the current folder, or the folder of `-root <repo folder>` (it must have `workflows/`). With no clone and no `-root`, the program has no repo root: `horus register` still works and passes no `HORUS_ROOT`. Use `-horus-path <path>` to register another `horus` program.
 - Another harness (an IDE) needs one stdio server entry: command `horus` (or its full path), argument `mcp`, and `HORUS_ROOT` when it starts outside this repo.
 
@@ -353,7 +353,7 @@ py -3.12 -m venv .scratch\test-venv
 
 On macOS and Linux, use `python3.12 -m venv .scratch/test-venv` and
 `.scratch/test-venv/bin/python`. Then, with `horus` on the PATH (see
-[`setup.md`](setup.md#for-developers-build-from-a-clone)):
+[`setup.md`](setup.md#build-horus)):
 
 ```
 .scratch\test-venv\Scripts\python tests\mcp_contract.py

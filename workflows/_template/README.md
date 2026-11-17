@@ -51,7 +51,21 @@ list with `list_workflow_slots`. Node IDs differ for each workflow.
 | TBD | Width and height | TBD | TBD |
 | TBD | Steps | TBD | TBD |
 
-## Run through the MCP tools
+## Make an image
+
+Every agent makes an image with the horus MCP server:
+
+1. `list_workflows`. Check that this workflow is installed. If not, call `install_workflow`.
+2. `describe_workflow` with this workflow name. Read `subject.rules`.
+3. `generate_image` with this workflow name and the subject. It returns the path of the PNG.
+
+The server offers this workflow only when the folder has `manifest.json` and is
+on the `go:embed` line of `workflows/embed.go`
+([how](../../docs/style-to-workflow.md#16-save)).
+
+## Debug the graph (developers, in a clone)
+
+Use the comfy MCP tools only to build, check or debug the graph:
 
 1. `server_info`
 2. `list_workflow_slots` on a copy of `workflow.json`

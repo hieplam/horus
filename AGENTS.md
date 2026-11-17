@@ -1,23 +1,31 @@
 # horus: rules for AI agents
 
-You are an agent (Claude Code, Codex, or similar) that drives a local ComfyUI
-for a user. The user describes an outcome. You do the work through the comfy
-MCP tools and the `horus` program of this repo. The user does not need to know ComfyUI.
+You are an agent (Claude Code, Codex, or similar) in a clone of this repo. The
+user describes an outcome. The user does not need to know ComfyUI. There are two
+kinds of work:
+
+- **Make an image.** Call the horus MCP server: `list_workflows`,
+  `describe_workflow`, then `generate_image`. This is the only way to make an
+  image, in a clone and outside it. Never run the graph of a workflow through
+  the comfy MCP tools to make an image for the user.
+- **Build or debug a workflow, or change horus.** Use the comfy MCP tools and
+  the `horus` program of this repo.
 
 ## Read before you act
 
 | Task | Read |
 |---|---|
 | Set up or repair a machine | [`docs/setup.md`](docs/setup.md) |
-| `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed, or `horus` is not on the PATH. `.mcp.json` starts both servers through `horus` (`horus comfy-mcp` and `horus mcp`) on Windows and macOS. Run `horus doctor`, then the command that its FAIL line names (for `horus`: the install line of [step 0 of setup](docs/setup.md#step-0-install-the-horus-program), or `go install ./cmd/horus` in a clone, [how](docs/setup.md#for-developers-build-from-a-clone)). Then ask the user to restart `claude`. |
+| `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed, or `horus` is not on the PATH. `.mcp.json` starts both servers through `horus` (`horus comfy-mcp` and `horus mcp`) on Windows and macOS. Run `horus doctor`, then the command that its FAIL line names (for `horus`: the install line of [step 0 of setup](docs/setup.md#step-0-install-the-horus-program), or `go install ./cmd/horus` in a clone, [how](docs/setup.md#build-horus)). Then ask the user to restart `claude`. |
 | Install the horus program on a new machine | The install line of the [README](README.md#install-horus): `install.ps1` on Windows, `install.sh` on macOS. It checks the SHA-256 of the release asset. `horus version` prints the version. |
 | Set up one workflow on a machine | `horus setup <workflow>` prints the plan and changes nothing. `horus setup <workflow> -yes` runs the plan: ComfyUI first, then the model files. A plan can start with a system package step (7-Zip with `winget`, Python 3.12 with `brew`): it runs only with `-with-packages`. The older names (`check-setup`, `install-comfyui`, `workflow install`) still work. Use `doctor` and `setup`. |
 | Add horus to Claude Code or Codex | `horus register` (Claude Code) or `horus register -client codex`. |
 | Remove what horus installed | `horus uninstall` prints the plan and changes nothing. `horus uninstall -yes` deletes the model files, and a ComfyUI folder or a venv only when horus installed it (the file `horus-install.json`). It keeps `.env` and `outputs/`. **Never run `-yes` on a machine with data that you must keep, and never with the real home folder in a test: use a sandbox.** |
 | Stop the ComfyUI that horus started | `horus stop-comfyui`. It refuses a ComfyUI that a person started. |
-| Make an image with an existing workflow | `workflows/<name>/README.md` |
+| Make an image with an existing workflow | The horus MCP server: `list_workflows`, `describe_workflow`, `generate_image` ([`docs/mcp.md`](docs/mcp.md)). `workflows/<name>/README.md` shows how to write the subject. |
 | A new style, a new model, a new workflow | [`docs/style-to-workflow.md`](docs/style-to-workflow.md) |
-| A run fails | [`docs/running-workflows.md`](docs/running-workflows.md) |
+| `generate_image` or another horus tool fails | Read `error.code`, `error.action_by` and `error.next_step`. The codes: [`docs/mcp.md`](docs/mcp.md#error-codes) |
+| A comfy MCP run fails while you build a workflow | [`docs/running-workflows.md`](docs/running-workflows.md) |
 | Which model pairs with which | [`docs/models.md`](docs/models.md) |
 | Why this model, and GPU traps | [`docs/why-flux3-klein.md`](docs/why-flux3-klein.md) |
 | A term you must explain to the user | [`docs/concepts.md`](docs/concepts.md) |
@@ -29,14 +37,16 @@ For a tech or IT illustration, use
 [`workflows/it-illustration`](workflows/it-illustration/README.md). Its README
 tells you how to write the caption.
 
-**Two MCP servers.** The comfy MCP server (`comfy-mcp`) is the low-level tool
-for work on this repo: build, check and debug a workflow. The horus MCP server
-(`horus`, [`docs/mcp.md`](docs/mcp.md)) is the product for other agents: they
-call `list_workflows`, `describe_workflow` and `generate_image` and never see
-ComfyUI. When you change a workflow, keep its `manifest.json` true, because the
+**Two MCP servers.** The horus MCP server (`horus`, [`docs/mcp.md`](docs/mcp.md))
+is the product. Every agent makes images with it: it calls `list_workflows`,
+`describe_workflow` and `generate_image` and never sees ComfyUI. The comfy MCP
+server (`comfy-mcp`) is the low-level tool for work on this repo only: build,
+check and debug a workflow. A user's agent never gets it: `horus register` adds only `horus`. When you change a workflow, keep its `manifest.json` true, because the
 horus server shows it to every caller.
 
 ## Rules
+
+Rules 1 to 4 and 8 are for the comfy MCP tools.
 
 1. **Call `server_info` first**, before any other comfy MCP call.
 2. **Call `validate_workflow` before every `run_workflow`.** Read `valid`. Also

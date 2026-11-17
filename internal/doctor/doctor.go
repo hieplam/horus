@@ -4,6 +4,10 @@
 // Checks, in this order:
 //  1. ComfyUI is installed (the backend says so).
 //  2. The ComfyUI server answers.
+//
+// Checks 3, 4, 5 and 7 run only in a clone of the repo (Options.RepoRoot is
+// set). They check the comfy MCP server, which only a developer uses.
+//
 //  3. comfy-mcp is found: in the venv of install-comfy-mcp, or on the PATH.
 //  4. comfy-cli (the program "comfy") is found: where COMFY_BIN of the
 //     comfy-mcp entry points, or else next to comfy-mcp, or else on the
@@ -67,7 +71,8 @@ type Options struct {
 	ServerURL string
 	// VenvPath is the venv of install-comfy-mcp.
 	VenvPath string
-	// RepoRoot holds .mcp.json.
+	// RepoRoot holds .mcp.json. Empty means no clone: checks 3, 4, 5 and 7
+	// do not run.
 	RepoRoot string
 	// Home replaces ${USERPROFILE} and ${HOME} in .mcp.json when they are
 	// not set.
@@ -143,7 +148,7 @@ func (s *Service) Check(ctx context.Context, o Options) []Result {
 	if installed {
 		add(true, "ComfyUI folder", dir)
 	} else {
-		add(false, "ComfyUI folder", fmt.Sprintf("%s not found in %s. Fix: horus install-comfyui, or pass -comfyui-dir.",
+		add(false, "ComfyUI folder", fmt.Sprintf("%s not found in %s. Fix: horus setup <workflow> -yes, or pass -comfyui-dir.",
 			filepath.Join("ComfyUI", "main.py"), dir))
 	}
 
@@ -157,72 +162,79 @@ func (s *Service) Check(ctx context.Context, o Options) []Result {
 		add(false, "ComfyUI server", fmt.Sprintf("no answer at %s. Fix: horus start-comfyui", o.ServerURL))
 	}
 
-	// 3. comfy-mcp found.
-	mcpProg := ""
-	venvMCP := platform.VenvBin(o.VenvPath, "comfy-mcp")
-	fromVenv := platform.IsFile(venvMCP)
-	if fromVenv {
-		mcpProg = venvMCP
-		add(true, "comfy-mcp environment", venvMCP)
-	} else if p, err := look("comfy-mcp"); err == nil {
-		mcpProg = p
-		add(true, "comfy-mcp environment", p)
-	} else {
-		add(false, "comfy-mcp environment", fmt.Sprintf("comfy-mcp not found in %s or on the PATH. Fix: horus install-comfy-mcp", filepath.Dir(venvMCP)))
-	}
-
-	// 4 and 7 read .mcp.json.
+	// 3, 4, 5 and 7 check the tools of a clone: the comfy MCP server and
+	// .mcp.json. A user machine has no clone (RepoRoot is empty), and the
+	// agent there uses only the horus MCP server, so they do not run.
+	clone := o.RepoRoot != ""
+	// 4, 5 and 7 read .mcp.json.
 	mcpJSON := filepath.Join(o.RepoRoot, ".mcp.json")
 	getenv := o.envFunc()
 	entry := func(name string) (mcpEntry, error) { return readEntry(mcpJSON, name, getenv) }
-	comfyEntry, comfyErr := entry("comfy-mcp")
-
-	// 4. comfy-cli found: COMFY_BIN of the entry, else next to comfy-mcp.
-	// The comfy MCP server starts comfy-cli, so a missing program fails there.
-	comfyName := platform.ExeName("comfy")
-	switch {
-	case comfyErr == nil && comfyEntry.ComfyBin != "":
-		if p, ok := resolve(comfyEntry.ComfyBin, look); ok {
-			add(true, "comfy-cli", p)
+	if clone {
+		// 3. comfy-mcp found.
+		mcpProg := ""
+		venvMCP := platform.VenvBin(o.VenvPath, "comfy-mcp")
+		fromVenv := platform.IsFile(venvMCP)
+		if fromVenv {
+			mcpProg = venvMCP
+			add(true, "comfy-mcp environment", venvMCP)
+		} else if p, err := look("comfy-mcp"); err == nil {
+			mcpProg = p
+			add(true, "comfy-mcp environment", p)
 		} else {
-			add(false, "comfy-cli", fmt.Sprintf("COMFY_BIN of .mcp.json is '%s' and does not exist. Fix: horus install-comfy-mcp, or edit .mcp.json.", comfyEntry.ComfyBin))
+			add(false, "comfy-mcp environment", fmt.Sprintf("comfy-mcp not found in %s or on the PATH. Fix: horus install-comfy-mcp", filepath.Dir(venvMCP)))
 		}
-	case mcpProg == "":
-		add(false, "comfy-cli", "comfy-mcp is missing, so comfy-cli cannot be found. Fix: horus install-comfy-mcp")
-	default:
-		// horus comfy-mcp sets COMFY_BIN to the comfy next to comfy-mcp.
-		// Without that file, comfy-mcp runs the comfy of the PATH.
-		next := filepath.Join(filepath.Dir(mcpProg), comfyName)
-		if platform.IsFile(next) {
-			add(true, "comfy-cli", next)
-		} else if p, err := look("comfy"); err == nil {
-			add(true, "comfy-cli", p)
-		} else {
-			add(false, "comfy-cli", fmt.Sprintf("%s not found next to comfy-mcp or on the PATH. Fix: horus install-comfy-mcp", comfyName))
-		}
-	}
 
-	// 5. The comfy-mcp entry of .mcp.json.
-	if comfyErr != nil {
-		add(false, ".mcp.json", fmt.Sprintf("cannot read comfy-mcp entry in %s : %v", mcpJSON, comfyErr))
-	} else if p, ok := resolve(comfyEntry.Command, look); !ok {
-		fix := "horus install-comfy-mcp"
-		if comfyEntry.Command == "horus" {
-			fix = "put horus on the PATH"
+		comfyEntry, comfyErr := entry("comfy-mcp")
+
+		// 4. comfy-cli found: COMFY_BIN of the entry, else next to comfy-mcp.
+		// The comfy MCP server starts comfy-cli, so a missing program fails there.
+		comfyName := platform.ExeName("comfy")
+		switch {
+		case comfyErr == nil && comfyEntry.ComfyBin != "":
+			if p, ok := resolve(comfyEntry.ComfyBin, look); ok {
+				add(true, "comfy-cli", p)
+			} else {
+				add(false, "comfy-cli", fmt.Sprintf("COMFY_BIN of .mcp.json is '%s' and does not exist. Fix: horus install-comfy-mcp, or edit .mcp.json.", comfyEntry.ComfyBin))
+			}
+		case mcpProg == "":
+			add(false, "comfy-cli", "comfy-mcp is missing, so comfy-cli cannot be found. Fix: horus install-comfy-mcp")
+		default:
+			// horus comfy-mcp sets COMFY_BIN to the comfy next to comfy-mcp.
+			// Without that file, comfy-mcp runs the comfy of the PATH.
+			next := filepath.Join(filepath.Dir(mcpProg), comfyName)
+			if platform.IsFile(next) {
+				add(true, "comfy-cli", next)
+			} else if p, err := look("comfy"); err == nil {
+				add(true, "comfy-cli", p)
+			} else {
+				add(false, "comfy-cli", fmt.Sprintf("%s not found next to comfy-mcp or on the PATH. Fix: horus install-comfy-mcp", comfyName))
+			}
 		}
-		add(false, ".mcp.json", fmt.Sprintf("command is '%s' and does not exist. Fix: %s, or edit .mcp.json.", comfyEntry.Command, fix))
-	} else if isHorus(p) && strings.Join(comfyEntry.Args, " ") != "comfy-mcp" {
-		add(false, ".mcp.json", fmt.Sprintf("the entry runs `horus %s`, which is not the comfy MCP server. Fix: edit .mcp.json to run `horus comfy-mcp`.",
-			strings.Join(comfyEntry.Args, " ")))
-	} else {
-		detail := "command points at " + p
-		if len(comfyEntry.Args) > 0 {
-			detail += " " + strings.Join(comfyEntry.Args, " ")
+
+		// 5. The comfy-mcp entry of .mcp.json.
+		if comfyErr != nil {
+			add(false, ".mcp.json", fmt.Sprintf("cannot read comfy-mcp entry in %s : %v", mcpJSON, comfyErr))
+		} else if p, ok := resolve(comfyEntry.Command, look); !ok {
+			fix := "horus install-comfy-mcp"
+			if comfyEntry.Command == "horus" {
+				fix = "put horus on the PATH"
+			}
+			add(false, ".mcp.json", fmt.Sprintf("command is '%s' and does not exist. Fix: %s, or edit .mcp.json.", comfyEntry.Command, fix))
+		} else if isHorus(p) && strings.Join(comfyEntry.Args, " ") != "comfy-mcp" {
+			add(false, ".mcp.json", fmt.Sprintf("the entry runs `horus %s`, which is not the comfy MCP server. Fix: edit .mcp.json to run `horus comfy-mcp`.",
+				strings.Join(comfyEntry.Args, " ")))
+		} else {
+			detail := "command points at " + p
+			if len(comfyEntry.Args) > 0 {
+				detail += " " + strings.Join(comfyEntry.Args, " ")
+			}
+			if comfyEntry.ComfyBin != "" {
+				detail += ", COMFY_BIN at " + comfyEntry.ComfyBin
+			}
+			add(true, ".mcp.json", detail)
 		}
-		if comfyEntry.ComfyBin != "" {
-			detail += ", COMFY_BIN at " + comfyEntry.ComfyBin
-		}
-		add(true, ".mcp.json", detail)
+
 	}
 
 	// 6. horus is on the PATH.
@@ -232,13 +244,16 @@ func (s *Service) Check(ctx context.Context, o Options) []Result {
 		add(false, "horus on PATH", "horus not found on the PATH. Fix: put the folder of the horus program on the PATH.")
 	}
 
-	// 7. The horus entry of .mcp.json.
-	if e, err := entry("horus"); err != nil {
-		add(false, ".mcp.json horus", fmt.Sprintf("cannot read horus entry in %s : %v", mcpJSON, err))
-	} else if p, ok := resolve(e.Command, look); ok {
-		add(true, ".mcp.json horus", "command points at "+p)
-	} else {
-		add(false, ".mcp.json horus", fmt.Sprintf("command is '%s' and does not exist. Fix: put horus on the PATH, or edit .mcp.json.", e.Command))
+	if clone {
+		// 7. The horus entry of .mcp.json.
+		if e, err := entry("horus"); err != nil {
+			add(false, ".mcp.json horus", fmt.Sprintf("cannot read horus entry in %s : %v", mcpJSON, err))
+		} else if p, ok := resolve(e.Command, look); ok {
+			add(true, ".mcp.json horus", "command points at "+p)
+		} else {
+			add(false, ".mcp.json horus", fmt.Sprintf("command is '%s' and does not exist. Fix: put horus on the PATH, or edit .mcp.json.", e.Command))
+		}
+
 	}
 
 	// 8. The TCC check.

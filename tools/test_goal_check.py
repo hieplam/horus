@@ -1,4 +1,5 @@
-"""Unit tests of the CI judgement of goal_check.py. No network. Run: python -m unittest discover -s tools"""
+"""Unit tests of the goal check: the runner (goal_runner.py) and the suites (suites/). No network.
+Run: python -m unittest discover -s tools"""
 
 import argparse
 import tempfile
@@ -6,7 +7,30 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-import goal_check as g
+import goal_runner as r
+from suites import common, phase1, phase2, phase3, phase4
+
+MODULES = [phase4, phase3, phase2, phase1, common, r]
+
+
+def _defined_here(mod):
+    """The names that mod defines (not the names that it imports). Read once, before a test replaces a part."""
+    return {k for k, v in vars(mod).items()
+            if not k.startswith("__") and not (callable(v) and getattr(v, "__module__", mod.__name__) != mod.__name__)
+            and not isinstance(v, type(r))}
+
+
+OWNERS = {}
+for _mod in reversed(MODULES):
+    OWNERS.update({k: _mod for k in _defined_here(_mod)})
+
+
+def owner(name):
+    """The module that defines name. A suite uses a part of another module through that module,
+    so a test that replaces the part in its own module replaces it for every suite."""
+    if name not in OWNERS:
+        raise AttributeError(f"no module of the goal check defines {name}")
+    return OWNERS[name]
 
 
 def jobs(**overrides):
@@ -24,40 +48,40 @@ def jobs(**overrides):
 
 class JudgeJobs(unittest.TestCase):
     def test_all_green_passes_same_behaviour_and_process_tree(self):
-        self.assertTrue(g.judge_jobs(jobs(), g.SAME_BEHAVIOUR_JOBS)[0])
-        self.assertTrue(g.judge_jobs(jobs(), g.PROCESS_TREE_JOBS)[0])
+        self.assertTrue(r.judge_jobs(jobs(), common.SAME_BEHAVIOUR_JOBS)[0])
+        self.assertTrue(r.judge_jobs(jobs(), phase2.PROCESS_TREE_JOBS)[0])
 
     def test_red_parity_job_fails_same_behaviour_and_names_it(self):
-        ok, detail = g.judge_jobs(jobs(workflow_parity_macos_latest="failure"), g.SAME_BEHAVIOUR_JOBS)
+        ok, detail = r.judge_jobs(jobs(workflow_parity_macos_latest="failure"), common.SAME_BEHAVIOUR_JOBS)
         self.assertFalse(ok)
         self.assertIn("workflow-parity macos-latest", detail)
 
     def test_missing_darwin_job_fails_both_rows_and_names_it(self):
-        for required in (g.SAME_BEHAVIOUR_JOBS, g.PROCESS_TREE_JOBS):
-            ok, detail = g.judge_jobs(jobs(go_darwin_arm64=None), required)
+        for required in (common.SAME_BEHAVIOUR_JOBS, phase2.PROCESS_TREE_JOBS):
+            ok, detail = r.judge_jobs(jobs(go_darwin_arm64=None), required)
             self.assertFalse(ok)
             self.assertIn("go darwin/arm64 (missing)", detail)
 
     def test_running_and_cancelled_jobs_fail(self):
         running = jobs()
         running[2] = {"name": "workflow-parity windows-latest", "status": "in_progress", "conclusion": None}
-        ok, detail = g.judge_jobs(running, g.SAME_BEHAVIOUR_JOBS)
+        ok, detail = r.judge_jobs(running, common.SAME_BEHAVIOUR_JOBS)
         self.assertFalse(ok)
         self.assertIn("workflow-parity windows-latest (in_progress)", detail)
-        ok, detail = g.judge_jobs(jobs(go_windows_amd64="cancelled"), g.PROCESS_TREE_JOBS)
+        ok, detail = r.judge_jobs(jobs(go_windows_amd64="cancelled"), phase2.PROCESS_TREE_JOBS)
         self.assertFalse(ok)
         self.assertIn("go windows/amd64 (cancelled)", detail)
 
     def test_process_tree_ignores_a_red_parity_job(self):
-        self.assertTrue(g.judge_jobs(jobs(workflow_parity_macos_latest="failure"), g.PROCESS_TREE_JOBS)[0])
+        self.assertTrue(r.judge_jobs(jobs(workflow_parity_macos_latest="failure"), phase2.PROCESS_TREE_JOBS)[0])
 
     def test_empty_job_list_fails(self):
-        self.assertFalse(g.judge_jobs([], g.SAME_BEHAVIOUR_JOBS)[0])
-        self.assertFalse(g.judge_jobs([], g.PROCESS_TREE_JOBS)[0])
+        self.assertFalse(r.judge_jobs([], common.SAME_BEHAVIOUR_JOBS)[0])
+        self.assertFalse(r.judge_jobs([], phase2.PROCESS_TREE_JOBS)[0])
 
     def test_job_names_match_the_workflow_file(self):
         # The names that the tool looks for must be the names that ci.yml produces.
-        text = (g.ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        text = (r.ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         for fragment in ("name: go ${{ matrix.goos }}/${{ matrix.goarch }}", "name: contract ${{ matrix.os }}",
                          "name: workflow-parity ${{ matrix.os }}"):
             self.assertIn(fragment, text)
@@ -103,7 +127,7 @@ def ns(**kw):
 
 def all_pins():
     seen = {}
-    for pins in g.PINNED3.values():
+    for pins in phase3.PINNED3.values():
         for pkg, name, _ in pins:
             seen[(pkg, name)] = GOOD
     return seen
@@ -115,12 +139,12 @@ class GoStub(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.old_root = g.ROOT
-        g.ROOT = self.root
+        self.old_root = r.ROOT
+        r.ROOT = self.root
         (self.root / "go.mod").write_text("module stub\n\ngo 1.21\n", encoding="utf-8")
 
     def tearDown(self):
-        g.ROOT = self.old_root
+        r.ROOT = self.old_root
         self.tmp.cleanup()
 
     def module(self, tests, empty_pkgs=()):
@@ -138,22 +162,22 @@ class GoStub(unittest.TestCase):
                 (d / "x_test.go").write_text(f'package {name}\n\nimport "testing"\n{funcs}', encoding="utf-8")
 
 
-@unittest.skipUnless(g.go_exe(), "needs the go program")
+@unittest.skipUnless(r.go_exe(), "needs the go program")
 class PinnedTests(GoStub):
     def test_all_pinned_tests_pass(self):
         self.module(all_pins())
-        for row, pins in g.PINNED3.items():
-            ok, detail = g.pinned_tests(pins)
+        for row, pins in phase3.PINNED3.items():
+            ok, detail = r.pinned_tests(pins)
             self.assertTrue(ok, f"{row}: {detail}")
 
     def test_package_with_no_test_file_fails(self):  # issue #80 of Phase 2
         self.module({}, empty_pkgs=["internal/backend", "cmd/horus"])
-        ok, detail = g.pinned_tests(g.PINNED3["mac-backend"])
+        ok, detail = r.pinned_tests(phase3.PINNED3["mac-backend"])
         self.assertFalse(ok)
         self.assertIn("internal/backend has no test files", detail)
 
     def test_missing_package_fails(self):
-        ok, detail = g.pinned_tests(g.PINNED3["out-of-memory"])
+        ok, detail = r.pinned_tests(phase3.PINNED3["out-of-memory"])
         self.assertFalse(ok)
         self.assertIn("internal/comfy is missing", detail)
 
@@ -161,7 +185,7 @@ class PinnedTests(GoStub):
         tests = all_pins()
         del tests[("internal/backend", "TestComfyCLIStopRefusesAComfyUIThatHorusDidNotStart")]
         self.module(tests)
-        ok, detail = g.pinned_tests(g.PINNED3["mac-backend"])
+        ok, detail = r.pinned_tests(phase3.PINNED3["mac-backend"])
         self.assertFalse(ok)
         self.assertIn("TestComfyCLIStopRefusesAComfyUIThatHorusDidNotStart (not in internal/backend, T2)", detail)
 
@@ -169,7 +193,7 @@ class PinnedTests(GoStub):
         tests = all_pins()
         tests[("internal/platform", "TestInTCCFolder")] = ""
         self.module(tests)
-        ok, detail = g.pinned_tests(g.PINNED3["tcc-folders"])
+        ok, detail = r.pinned_tests(phase3.PINNED3["tcc-folders"])
         self.assertFalse(ok)
         self.assertIn("TestInTCCFolder (asserts nothing", detail)
 
@@ -177,7 +201,7 @@ class PinnedTests(GoStub):
         tests = all_pins()
         tests[("internal/comfy", "TestJobErrorOfTheMPSOutOfMemoryText")] = 't.Skip("later")\n\t' + GOOD
         self.module(tests)
-        ok, detail = g.pinned_tests(g.PINNED3["out-of-memory"])
+        ok, detail = r.pinned_tests(phase3.PINNED3["out-of-memory"])
         self.assertFalse(ok)
         self.assertIn("TestJobErrorOfTheMPSOutOfMemoryText (did not pass", detail)
 
@@ -185,7 +209,7 @@ class PinnedTests(GoStub):
         tests = all_pins()
         tests[("cmd/horus", "TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps")] = 't.Fatal("red")'
         self.module(tests)
-        ok, detail = g.pinned_tests(g.PINNED3["mac-setup"])
+        ok, detail = r.pinned_tests(phase3.PINNED3["mac-setup"])
         self.assertFalse(ok)
         self.assertIn("TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps (did not pass", detail)
 
@@ -194,39 +218,39 @@ class PinnedTests(GoStub):
         del tests[("internal/platform", "TestInTCCFolder")]
         tests[("internal/platform", "TestInTCCFolderOther")] = GOOD
         self.module(tests)
-        ok, detail = g.pinned_tests(g.PINNED3["tcc-folders"])
+        ok, detail = r.pinned_tests(phase3.PINNED3["tcc-folders"])
         self.assertFalse(ok)
         self.assertIn("TestInTCCFolder (not in internal/platform", detail)
 
 
-@unittest.skipUnless(g.go_exe(), "needs the go program")
+@unittest.skipUnless(r.go_exe(), "needs the go program")
 class Rows3OnGo(GoStub):
     def test_mac_backend_needs_the_darwin_job(self):
         self.module(all_pins())
-        old = g.ci_jobs
-        g._CI_CACHE.clear()
+        old = r.ci_jobs
+        r._CI_CACHE.clear()
         try:
-            g.ci_jobs = lambda sha: (jobs(go_darwin_arm64="failure"), "")
-            ok, detail = g.row3_mac_backend(ns(no_ci=False))
+            r.ci_jobs = lambda sha: (jobs(go_darwin_arm64="failure"), "")
+            ok, detail = phase3.row3_mac_backend(ns(no_ci=False))
             self.assertFalse(ok)
             self.assertIn("go darwin/arm64 (failure)", detail)
-            g._CI_CACHE.clear()
-            g.ci_jobs = lambda sha: (jobs(), "")
-            ok, detail = g.row3_mac_backend(ns(no_ci=False))
+            r._CI_CACHE.clear()
+            r.ci_jobs = lambda sha: (jobs(), "")
+            ok, detail = phase3.row3_mac_backend(ns(no_ci=False))
             self.assertTrue(ok, detail)
             self.assertIn("real part not run", detail)
         finally:
-            g.ci_jobs = old
-            g._CI_CACHE.clear()
+            r.ci_jobs = old
+            r._CI_CACHE.clear()
 
     def test_mac_backend_with_real_on_windows_fails_and_says_it_needs_macos(self):
         self.module(all_pins())
-        old = g.this_os
-        g.this_os = lambda: "win32"
+        old = r.this_os
+        r.this_os = lambda: "win32"
         try:
-            ok, detail = g.row3_mac_backend(ns(real=True))
+            ok, detail = phase3.row3_mac_backend(ns(real=True))
         finally:
-            g.this_os = old
+            r.this_os = old
         self.assertFalse(ok)
         self.assertIn("needs macOS", detail)
 
@@ -234,13 +258,13 @@ class Rows3OnGo(GoStub):
         tests = all_pins()
         del tests[("internal/settings", "TestComfyDirDefaultIsTheFolderOfPlatform")]
         self.module(tests)
-        ok, detail = g.row3_mac_setup(ns())
+        ok, detail = phase3.row3_mac_setup(ns())
         self.assertFalse(ok)
         self.assertIn("TestComfyDirDefaultIsTheFolderOfPlatform", detail)
 
     def test_tcc_folders_with_only_the_default_folder_test_names_the_warn_tests(self):  # the state after T1
         self.module({("internal/platform", "TestDefaultComfyDirOfEachOS"): GOOD})
-        ok, detail = g.row3_tcc(ns())
+        ok, detail = phase3.row3_tcc(ns())
         self.assertFalse(ok)
         for name in ("TestInTCCFolder", "TestTCCCheckWarnsForEachPathInATCCFolder", "TestDoctorWarnLinesKeepExitCodeZero"):
             self.assertIn(name, detail)
@@ -250,29 +274,29 @@ class Rows3OnGo(GoStub):
         tests = all_pins()
         tests[("cmd/horus", "TestImageMPSOutOfMemoryThroughTheAdapter")] = 'if 1 != 1 {\n\t\tt.Fatal("CUDA out of memory")\n\t}'
         self.module(tests)
-        ok, detail = g.row3_oom(ns())
+        ok, detail = phase3.row3_oom(ns())
         self.assertFalse(ok)
         self.assertIn("TestImageMPSOutOfMemoryThroughTheAdapter (has no text 'MPS backend out of memory'", detail)
         self.module(all_pins())
-        self.assertTrue(g.row3_oom(ns())[0])
+        self.assertTrue(phase3.row3_oom(ns())[0])
 
     def test_one_config_fails_on_the_old_mcp_json_and_on_missing_tests(self):
         self.module(all_pins())
         (self.root / ".mcp.json").write_text(OLD_MCP_JSON, encoding="utf-8")
-        ok, detail = g.row3_one_config(ns())
+        ok, detail = phase3.row3_one_config(ns())
         self.assertFalse(ok)
         self.assertIn("2 Windows-only paths", detail)
         (self.root / ".mcp.json").write_text(NEW_MCP_JSON, encoding="utf-8")
-        ok, detail = g.row3_one_config(ns())
+        ok, detail = phase3.row3_one_config(ns())
         self.assertTrue(ok, detail)
         (self.root / "cmd" / "horus" / "x_test.go").unlink()
-        ok, detail = g.row3_one_config(ns())
+        ok, detail = phase3.row3_one_config(ns())
         self.assertFalse(ok)
         self.assertIn("TestComfyMCPPassesTheStreamsComfyBinAndTheExitCode", detail)
 
     def test_one_config_without_mcp_json_fails(self):
         self.module(all_pins())
-        ok, detail = g.row3_one_config(ns())
+        ok, detail = phase3.row3_one_config(ns())
         self.assertFalse(ok)
         self.assertIn("missing: .mcp.json", detail)
 
@@ -280,20 +304,20 @@ class Rows3OnGo(GoStub):
 class McpJson(unittest.TestCase):
     def test_old_file_has_two_windows_only_paths_and_a_wrong_command(self):
         import json
-        self.assertEqual(g.windows_only_paths(json.loads(OLD_MCP_JSON)), 2)
-        problems = g.mcp_json_problems(OLD_MCP_JSON)
+        self.assertEqual(phase3.windows_only_paths(json.loads(OLD_MCP_JSON)), 2)
+        problems = phase3.mcp_json_problems(OLD_MCP_JSON)
         self.assertIn("2 Windows-only paths", problems)
         self.assertIn("the entry comfy-mcp is not `horus comfy-mcp`", problems)
 
     def test_new_file_has_no_problem(self):
-        self.assertEqual(g.mcp_json_problems(NEW_MCP_JSON), [])
+        self.assertEqual(phase3.mcp_json_problems(NEW_MCP_JSON), [])
 
     def test_a_path_command_without_windows_marks_still_fails(self):
         stub = NEW_MCP_JSON.replace('"command": "horus", "args": ["comfy-mcp"]', '"command": "comfy-mcp", "args": []')
-        self.assertEqual(g.mcp_json_problems(stub), ["the entry comfy-mcp is not `horus comfy-mcp`"])
+        self.assertEqual(phase3.mcp_json_problems(stub), ["the entry comfy-mcp is not `horus comfy-mcp`"])
 
     def test_not_json_fails(self):
-        self.assertTrue(g.mcp_json_problems("{"))
+        self.assertTrue(phase3.mcp_json_problems("{"))
 
 
 class SetupDoc(unittest.TestCase):
@@ -302,60 +326,61 @@ class SetupDoc(unittest.TestCase):
     HELP = {"internal/cli/setup.go": 'x := "HORUS_COMFYUI_DIR, then ~/ComfyUI_windows_portable"\n'}
 
     def test_the_four_lines_of_issue_91_and_no_macos_section_fail(self):
-        problems = g.setup_doc_problems(self.OLD, self.HELP)
+        problems = phase3.setup_doc_problems(self.OLD, self.HELP)
         self.assertEqual(problems, ["docs/setup.md:2", "docs/setup.md:3", "internal/cli/setup.go:1",
                                     "docs/setup.md has no macOS section"])
 
     def test_fixed_lines_without_a_macos_section_fail(self):
-        self.assertEqual(g.setup_doc_problems("# Set up Windows\nThree commands are Windows-only.\n", {}),
+        self.assertEqual(phase3.setup_doc_problems("# Set up Windows\nThree commands are Windows-only.\n", {}),
                          ["docs/setup.md has no macOS section"])
 
     def test_fixed_page_with_a_macos_section_passes(self):
-        self.assertEqual(g.setup_doc_problems("# Set up\n## Step 1 on macOS\n", {"internal/cli/setup.go": "<home>"}), [])
+        self.assertEqual(phase3.setup_doc_problems("# Set up\n## Step 1 on macOS\n", {"internal/cli/setup.go": "<home>"}), [])
 
     def test_row_reads_the_files_of_the_root(self):
         with tempfile.TemporaryDirectory() as tmp:
-            old, g.ROOT = g.ROOT, Path(tmp)
+            old, r.ROOT = r.ROOT, Path(tmp)
             try:
-                (g.ROOT / "docs").mkdir()
-                (g.ROOT / "internal" / "cli").mkdir(parents=True)
-                (g.ROOT / "docs" / "setup.md").write_text(self.OLD, encoding="utf-8")
-                (g.ROOT / "internal" / "cli" / "setup.go").write_text(self.HELP["internal/cli/setup.go"], encoding="utf-8")
-                ok, detail = g.row3_setup_doc(ns())
+                (r.ROOT / "docs").mkdir()
+                (r.ROOT / "internal" / "cli").mkdir(parents=True)
+                (r.ROOT / "docs" / "setup.md").write_text(self.OLD, encoding="utf-8")
+                (r.ROOT / "internal" / "cli" / "setup.go").write_text(self.HELP["internal/cli/setup.go"], encoding="utf-8")
+                ok, detail = phase3.row3_setup_doc(ns())
                 self.assertFalse(ok)
                 self.assertTrue(detail.startswith("3 lines that the commands contradict"), detail)
-                (g.ROOT / "docs" / "setup.md").write_text("# Set up\n## macOS\n", encoding="utf-8")
-                (g.ROOT / "internal" / "cli" / "setup.go").write_text("<home>/horus\n", encoding="utf-8")
-                self.assertTrue(g.row3_setup_doc(ns())[0])
-                (g.ROOT / "docs" / "setup.md").unlink()
-                self.assertEqual(g.row3_setup_doc(ns()), (False, "missing: docs/setup.md"))
+                (r.ROOT / "docs" / "setup.md").write_text("# Set up\n## macOS\n", encoding="utf-8")
+                (r.ROOT / "internal" / "cli" / "setup.go").write_text("<home>/horus\n", encoding="utf-8")
+                self.assertTrue(phase3.row3_setup_doc(ns())[0])
+                (r.ROOT / "docs" / "setup.md").unlink()
+                self.assertEqual(phase3.row3_setup_doc(ns()), (False, "missing: docs/setup.md"))
             finally:
-                g.ROOT = old
+                r.ROOT = old
 
 
 class Patch:
-    """Replace attributes of goal_check for one test, and put them back."""
+    """Replace parts of the goal check for one test, each in the module that defines it, and put them back."""
 
     def __init__(self, **kw):
         self.kw, self.old = kw, {}
 
     def __enter__(self):
         for k, v in self.kw.items():
-            self.old[k] = getattr(g, k)
-            setattr(g, k, v)
+            mod = owner(k)
+            self.old[k] = (mod, getattr(mod, k))
+            setattr(mod, k, v)
 
     def __exit__(self, *exc):
-        for k, v in self.old.items():
-            setattr(g, k, v)
+        for k, (mod, v) in self.old.items():
+            setattr(mod, k, v)
 
 
 class MacImage(unittest.TestCase):
     def test_without_real_fails(self):
-        self.assertEqual(g.row3_mac_image(ns()), (False, "needs --real on macOS"))
+        self.assertEqual(phase3.row3_mac_image(ns()), (False, "needs --real on macOS"))
 
     def test_real_on_windows_fails(self):
         with Patch(this_os=lambda: "win32"):
-            ok, detail = g.row3_mac_image(ns(real=True))
+            ok, detail = phase3.row3_mac_image(ns(real=True))
         self.assertFalse(ok)
         self.assertIn("needs macOS", detail)
 
@@ -363,7 +388,7 @@ class MacImage(unittest.TestCase):
         envelope = {"ok": True, "result": {"path": "x.png", "started_backend": False}}
         with Patch(this_os=lambda: "darwin", answers=lambda url: False,
                    real_image=lambda a: (True, "1536x1024 x.png", envelope)):
-            ok, detail = g.row3_mac_image(ns(real=True))
+            ok, detail = phase3.row3_mac_image(ns(real=True))
         self.assertFalse(ok)
         self.assertIn("started_backend is not true", detail)
 
@@ -372,7 +397,7 @@ class MacImage(unittest.TestCase):
         with Patch(this_os=lambda: "darwin", answers=lambda url: True, wait_for=lambda want, url, s: False,
                    run=lambda cmd, env=None, timeout=900: (1, "refused"),
                    real_image=lambda a: called.append(1)):
-            ok, detail = g.row3_mac_image(ns(real=True))
+            ok, detail = phase3.row3_mac_image(ns(real=True))
         self.assertFalse(ok)
         self.assertIn("horus did not start", detail)
         self.assertEqual(called, [])
@@ -381,7 +406,7 @@ class MacImage(unittest.TestCase):
         envelope = {"ok": True, "result": {"path": "x.png", "started_backend": True}}
         with Patch(this_os=lambda: "darwin", answers=lambda url: False,
                    real_image=lambda a: (True, "1536x1024 x.png", envelope)):
-            ok, detail = g.row3_mac_image(ns(real=True))
+            ok, detail = phase3.row3_mac_image(ns(real=True))
         self.assertTrue(ok, detail)
 
 
@@ -420,28 +445,28 @@ class RealMacBackend(unittest.TestCase):
     def test_start_stop_and_refusal_pass(self):
         fake = FakeMac()
         with fake.patch():
-            ok, detail = g.real_mac_backend(ns(real=True))
+            ok, detail = phase3.real_mac_backend(ns(real=True))
         self.assertTrue(ok, detail)
         self.assertFalse(fake.up)  # the hand-started ComfyUI is stopped at the end
 
     def test_a_stop_that_does_not_refuse_fails(self):
         fake = FakeMac(refuse=False)
         with fake.patch():
-            ok, detail = g.real_mac_backend(ns(real=True))
+            ok, detail = phase3.real_mac_backend(ns(real=True))
         self.assertFalse(ok)
         self.assertIn("did not refuse", detail)
 
     def test_a_start_that_starts_nothing_fails(self):
         fake = FakeMac(start=False)
         with fake.patch():
-            ok, detail = g.real_mac_backend(ns(real=True))
+            ok, detail = phase3.real_mac_backend(ns(real=True))
         self.assertFalse(ok)
         self.assertIn("horus start-comfyui", detail)
 
     def test_on_windows_it_runs_nothing(self):
         fake = FakeMac()
         with fake.patch(), Patch(this_os=lambda: "win32"):
-            ok, detail = g.real_mac_backend(ns(real=True))
+            ok, detail = phase3.real_mac_backend(ns(real=True))
         self.assertFalse(ok)
         self.assertEqual(fake.calls, [])
 
@@ -449,7 +474,7 @@ class RealMacBackend(unittest.TestCase):
 class RealDoctorRows(unittest.TestCase):
     def test_mac_setup_fails_with_horus_comfyui_dir_set(self):
         with Patch(this_os=lambda: "darwin"), unittest.mock.patch.dict("os.environ", {"HORUS_COMFYUI_DIR": "/x"}):
-            ok, detail = g.real_mac_setup(ns(real=True))
+            ok, detail = phase3.real_mac_setup(ns(real=True))
         self.assertFalse(ok)
         self.assertIn("HORUS_COMFYUI_DIR is set", detail)
 
@@ -460,12 +485,12 @@ class RealDoctorRows(unittest.TestCase):
                     return 0, "PASS  ComfyUI folder - ok\nAll checks passed.\n"
                 return 0, f"Plan: {steps} steps."
             return run
-        env = {k: v for k, v in g.os.environ.items() if k != "HORUS_COMFYUI_DIR"}
+        env = {k: v for k, v in r.os.environ.items() if k != "HORUS_COMFYUI_DIR"}
         with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch.dict("os.environ", env, clear=True):
             with Patch(ROOT=Path(tmp), this_os=lambda: "darwin", answers=lambda url: True, run=fake(2)):
-                self.assertFalse(g.real_mac_setup(ns(real=True))[0])
+                self.assertFalse(phase3.real_mac_setup(ns(real=True))[0])
             with Patch(ROOT=Path(tmp), this_os=lambda: "darwin", answers=lambda url: True, run=fake(0)):
-                ok, detail = g.real_mac_setup(ns(real=True))
+                ok, detail = phase3.real_mac_setup(ns(real=True))
                 self.assertTrue(ok, detail)
 
     def test_tcc_needs_a_warn_line_that_names_the_repo(self):
@@ -474,17 +499,17 @@ class RealDoctorRows(unittest.TestCase):
         out = {"text": "PASS  ComfyUI folder - ok\nAll checks passed.\n"}
         run = lambda cmd, env=None, timeout=900: (0, out["text"])
         with Patch(ROOT=repo, this_os=lambda: "darwin", answers=lambda url: True, run=run), \
-                unittest.mock.patch.object(g.Path, "home", lambda: home):
-            self.assertFalse(g.real_tcc(ns(real=True))[0])
+                unittest.mock.patch.object(r.Path, "home", lambda: home):
+            self.assertFalse(phase3.real_tcc(ns(real=True))[0])
             out["text"] = f"WARN  TCC folder - {repo} is inside ~/Desktop\nAll checks passed.\n"
-            ok, detail = g.real_tcc(ns(real=True))
+            ok, detail = phase3.real_tcc(ns(real=True))
             self.assertTrue(ok, detail)
             out["text"] += "FAIL  ComfyUI server - no answer\n"
-            self.assertFalse(g.real_tcc(ns(real=True))[0])
+            self.assertFalse(phase3.real_tcc(ns(real=True))[0])
 
     def test_one_config_fails_on_a_fail_line(self):
         with Patch(this_os=lambda: "win32", run=lambda cmd, env=None, timeout=900: (1, "FAIL  comfy-mcp - missing\n")):
-            ok, detail = g.real_one_config(ns(real=True))
+            ok, detail = phase3.real_one_config(ns(real=True))
         self.assertFalse(ok)
         self.assertIn("1 FAIL lines", detail)
 
@@ -492,10 +517,10 @@ class RealDoctorRows(unittest.TestCase):
 class TccFolder(unittest.TestCase):
     def test_inside_and_outside(self):
         home = str(Path(tempfile.gettempdir()) / "h")
-        self.assertTrue(g.in_tcc_folder(home + "/Desktop/horus", home))
-        self.assertTrue(g.in_tcc_folder(home + "/Downloads", home))
-        self.assertFalse(g.in_tcc_folder(home + "/horus", home))
-        self.assertFalse(g.in_tcc_folder(home + "/DesktopX/horus", home))
+        self.assertTrue(phase3.in_tcc_folder(home + "/Desktop/horus", home))
+        self.assertTrue(phase3.in_tcc_folder(home + "/Downloads", home))
+        self.assertFalse(phase3.in_tcc_folder(home + "/horus", home))
+        self.assertFalse(phase3.in_tcc_folder(home + "/DesktopX/horus", home))
 
 
 class SameBehaviour3(unittest.TestCase):
@@ -513,7 +538,7 @@ class SameBehaviour3(unittest.TestCase):
             if cmd[-1] == "./...":
                 return f["gotest"], "FAIL x" if f["gotest"] else "ok"
             return 0, "abc123"
-        g._CI_CACHE.clear()
+        r._CI_CACHE.clear()
         return Patch(row_contract=lambda a, *r: f["contract"], run=run, go_exe=lambda: "go",
                      go_test_ran=lambda p, n=None: f["archtest"], go_test_count=lambda: f["count"],
                      changed_contract_files=lambda base="": f["changed"], allow_files=lambda: f["allow"],
@@ -521,7 +546,7 @@ class SameBehaviour3(unittest.TestCase):
 
     def check(self, **kw):
         with self.facts(**kw):
-            return g.row3_same(ns(no_ci=False))
+            return phase3.row3_same(ns(no_ci=False))
 
     def test_all_good_passes(self):
         ok, detail = self.check()
@@ -538,33 +563,33 @@ class SameBehaviour3(unittest.TestCase):
     def test_real_on_windows_runs_the_phase_2_rows(self):
         with self.facts(), Patch(this_os=lambda: "win32", row2_backend=lambda a: (False, "needs the 8189 ComfyUI"),
                                  row2_commands=lambda a: (True, "0 FAIL lines")):
-            ok, detail = g.row3_same(ns(no_ci=False, real=True))
+            ok, detail = phase3.row3_same(ns(no_ci=False, real=True))
         self.assertFalse(ok)
         self.assertIn("backend: FAIL", detail)
 
 
 class JudgeJobsStrict(unittest.TestCase):
     def test_a_red_job_that_the_row_does_not_name_fails(self):  # the CI hole of issue #81
-        ok, detail = g.judge_jobs_strict(jobs(go_linux_amd64="failure"), g.MAC_BACKEND_JOBS)
+        ok, detail = r.judge_jobs_strict(jobs(go_linux_amd64="failure"), phase3.MAC_BACKEND_JOBS)
         self.assertFalse(ok)
         self.assertIn("go linux/amd64 (failure)", detail)
 
     def test_a_skipped_job_that_the_row_does_not_name_is_no_failure(self):
-        self.assertTrue(g.judge_jobs_strict(jobs(go_linux_amd64="skipped"), g.MAC_BACKEND_JOBS)[0])
+        self.assertTrue(r.judge_jobs_strict(jobs(go_linux_amd64="skipped"), phase3.MAC_BACKEND_JOBS)[0])
 
     def test_the_named_job_must_be_there(self):
-        ok, detail = g.judge_jobs_strict(jobs(go_darwin_arm64=None), g.MAC_BACKEND_JOBS)
+        ok, detail = r.judge_jobs_strict(jobs(go_darwin_arm64=None), phase3.MAC_BACKEND_JOBS)
         self.assertFalse(ok)
         self.assertIn("go darwin/arm64 (missing)", detail)
 
 
 class Main3(unittest.TestCase):
     def test_every_row_has_a_check_and_a_row_never_raises(self):
-        self.assertEqual(list(g.CHECKS3), g.ROWS3)
-        self.assertEqual(len(g.ROWS3), 8)
+        self.assertEqual(list(phase3.CHECKS), phase3.ROWS)
+        self.assertEqual(len(phase3.ROWS), 8)
 
     def test_every_pinned_name_is_unique_in_its_package_and_names_a_task(self):
-        for pins in g.PINNED3.values():
+        for pins in phase3.PINNED3.values():
             for pkg, name, task in pins:
                 self.assertRegex(name, r"^Test[A-Z]\w+$")
                 self.assertIn(task, ("T1", "T2", "T3", "T4", "T5"))
@@ -576,14 +601,14 @@ class Main3(unittest.TestCase):
 # ---------------------------------------------------------------------------------------------
 
 GOOD4 = 'if len("x") == 0 {\n\t\tt.Fatal("empty")\n\t}'
-README_GOOD = ("# horus\n\n## The parts\n\ntext\n\n## Install\n\n```\n" + g.INSTALL_LINES[0] + "\n```\n\n```powershell\n"
-               + g.INSTALL_LINES[1] + "\n```\n\n## Docs\n\n```\ngo install ./cmd/horus\n```\n")
-FRESH_GOOD = "run-name: x\n    run: " + g.INSTALL_LINES[0] + "\n    run: " + g.INSTALL_LINES[1] + "\n"
+README_GOOD = ("# horus\n\n## The parts\n\ntext\n\n## Install\n\n```\n" + phase4.INSTALL_LINES[0] + "\n```\n\n```powershell\n"
+               + phase4.INSTALL_LINES[1] + "\n```\n\n## Docs\n\n```\ngo install ./cmd/horus\n```\n")
+FRESH_GOOD = "run-name: x\n    run: " + phase4.INSTALL_LINES[0] + "\n    run: " + phase4.INSTALL_LINES[1] + "\n"
 
 
 def all_pins4(skip=()):
     seen = {}
-    for pins in g.PINNED4.values():
+    for pins in phase4.PINNED4.values():
         for pkg, name, _ in pins:
             if name not in skip:
                 seen[(pkg, name)] = GOOD4
@@ -605,13 +630,13 @@ def jobs4(**overrides):
 
 class Rows4Shape(unittest.TestCase):
     def test_eight_rows_each_with_a_check(self):
-        self.assertEqual(list(g.CHECKS4), g.ROWS4)
-        self.assertEqual(len(g.ROWS4), 8)
+        self.assertEqual(list(phase4.CHECKS), phase4.ROWS)
+        self.assertEqual(len(phase4.ROWS), 8)
 
     def test_every_pin_is_unique_and_names_a_task(self):
         seen = set()
-        for row, pins in g.PINNED4.items():
-            self.assertIn(row, g.ROWS4)
+        for row, pins in phase4.PINNED4.items():
+            self.assertIn(row, phase4.ROWS)
             for pkg, name, task in pins:
                 self.assertRegex(name, r"^Test[A-Z]\w+$")
                 self.assertIn(task, ("T1", "T2", "T4", "T5", "T6", "T7"))
@@ -619,44 +644,44 @@ class Rows4Shape(unittest.TestCase):
                 seen.add((pkg, name))
 
     def test_the_baseline_names_are_30_and_unique(self):
-        names = [ln for ln in g.CONTRACT_NAMES4.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        names = [ln for ln in phase4.CONTRACT_NAMES4.read_text(encoding="utf-8").splitlines() if ln.strip()]
         self.assertEqual(len(names), 30)
         self.assertEqual(len(set(names)), 30)
 
     def test_phase_4_is_a_choice_of_the_command_line(self):
-        code, out = g.run([g.sys.executable, "tools/goal_check.py", "--phase", "4", "--only", "nope"])
+        code, out = r.run([r.sys.executable, "tools/goal_check.py", "--phase", "4", "--only", "nope"])
         self.assertEqual(code, 2)
-        self.assertIn("unknown row(s) for this phase: nope", out)
+        self.assertIn("unknown row(s) for this suite: nope", out)
 
 
 class ReleaseConfig(unittest.TestCase):
     def test_good_config_passes(self):
         text = '{"release-type": "go", "bump-minor-pre-major": true, "packages": {".": {"bump-patch-for-minor-pre-major": true}}}'
-        self.assertEqual(g.release_config_problems(text), [])
+        self.assertEqual(phase4.release_config_problems(text), [])
 
     def test_each_missing_setting_fails_and_is_named(self):
-        for key in g.RELEASE_SETTINGS:
-            cfg = {k: True for k in g.RELEASE_SETTINGS}
+        for key in phase4.RELEASE_SETTINGS:
+            cfg = {k: True for k in phase4.RELEASE_SETTINGS}
             cfg[key] = False
-            problems = g.release_config_problems(g.json.dumps(cfg))
+            problems = phase4.release_config_problems(r.json.dumps(cfg))
             self.assertEqual(len(problems), 1)
             self.assertIn(key, problems[0])
 
     def test_a_pinned_version_fails_and_is_named(self):
         for pin in (".", "0.1.0", "9.9.9"):
-            cfg = {k: True for k in g.RELEASE_SETTINGS}
+            cfg = {k: True for k in phase4.RELEASE_SETTINGS}
             cfg["packages"] = {".": {"release-as": "0.1.0" if pin == "." else pin}}
-            problems = g.release_config_problems(g.json.dumps(cfg))
+            problems = phase4.release_config_problems(r.json.dumps(cfg))
             self.assertEqual(len(problems), 1)
             self.assertIn("release-as", problems[0])
 
     def test_the_config_of_the_repository_pins_no_version(self):
-        text = (g.ROOT / g.RELEASE_FILES[0]).read_text(encoding="utf-8")
-        self.assertEqual(g.release_config_problems(text), [])
+        text = (r.ROOT / phase4.RELEASE_FILES[0]).read_text(encoding="utf-8")
+        self.assertEqual(phase4.release_config_problems(text), [])
 
     def test_an_empty_or_broken_config_fails(self):
-        self.assertEqual(len(g.release_config_problems("{}")), 2)
-        self.assertEqual(g.release_config_problems("not json"), ["release-please-config.json is not JSON"])
+        self.assertEqual(len(phase4.release_config_problems("{}")), 2)
+        self.assertEqual(phase4.release_config_problems("not json"), ["release-please-config.json is not JSON"])
 
 
 class FileRows4(GoStub):
@@ -666,47 +691,47 @@ class FileRows4(GoStub):
         p.write_text(text, encoding="utf-8")
 
     def test_release_files_missing_then_present(self):
-        ok, detail = g.release_files_part()
+        ok, detail = phase4.release_files_part()
         self.assertFalse(ok)
-        for f in g.RELEASE_FILES:
+        for f in phase4.RELEASE_FILES:
             self.assertIn(f, detail)
-        self.put(g.RELEASE_FILES[0], '{"bump-minor-pre-major": true, "bump-patch-for-minor-pre-major": true}')
-        self.put(g.RELEASE_FILES[1], "{}")
-        self.put(g.RELEASE_FILES[2], "name: release")
-        self.assertTrue(g.release_files_part()[0])
+        self.put(phase4.RELEASE_FILES[0], '{"bump-minor-pre-major": true, "bump-patch-for-minor-pre-major": true}')
+        self.put(phase4.RELEASE_FILES[1], "{}")
+        self.put(phase4.RELEASE_FILES[2], "name: release")
+        self.assertTrue(phase4.release_files_part()[0])
 
     def test_release_config_without_the_settings_fails(self):
-        self.put(g.RELEASE_FILES[0], "{}")
-        self.put(g.RELEASE_FILES[1], "{}")
-        self.put(g.RELEASE_FILES[2], "name: release")
-        ok, detail = g.release_files_part()
+        self.put(phase4.RELEASE_FILES[0], "{}")
+        self.put(phase4.RELEASE_FILES[1], "{}")
+        self.put(phase4.RELEASE_FILES[2], "name: release")
+        ok, detail = phase4.release_files_part()
         self.assertFalse(ok)
         self.assertIn("bump-minor-pre-major", detail)
 
     def test_install_scripts_missing_empty_and_good(self):
-        ok, detail = g.install_files_part()
+        ok, detail = phase4.install_files_part()
         self.assertFalse(ok)
         self.assertIn("missing: install.sh", detail)
         self.put("install.sh", "")  # an empty script is a stub
         self.put("install.ps1", "")
-        ok, detail = g.install_files_part()
+        ok, detail = phase4.install_files_part()
         self.assertFalse(ok)
         self.assertIn("install.sh does not mention sha256", detail)
         self.put("install.sh", "sha256sum ... checksums.txt")
         self.put("install.ps1", "Get-FileHash -Algorithm SHA256 ... checksums.txt")
-        self.assertTrue(g.install_files_part()[0])
+        self.assertTrue(phase4.install_files_part()[0])
 
 
-@unittest.skipUnless(g.go_exe(), "needs the go program")
+@unittest.skipUnless(r.go_exe(), "needs the go program")
 class Rows4OnGo(FileRows4):
     def test_each_go_row_passes_with_all_pins_and_fails_without_one(self):
-        rows = {"binary-only": g.row4_binary_only, "uninstall": g.row4_uninstall, "register": g.row4_register}
+        rows = {"binary-only": phase4.row4_binary_only, "uninstall": phase4.row4_uninstall, "register": phase4.row4_register}
         self.module(all_pins4())
         for name, check in rows.items():
             ok, detail = check(ns(phase=4))
             self.assertTrue(ok, f"{name}: {detail}")
         for name, check in rows.items():
-            victim = g.PINNED4[name][0]
+            victim = phase4.PINNED4[name][0]
             self.module(all_pins4(skip=(victim[1],)))
             ok, detail = check(ns(phase=4))
             self.assertFalse(ok, name)
@@ -715,7 +740,7 @@ class Rows4OnGo(FileRows4):
 
     def test_an_empty_package_fails_the_row(self):
         self.module({}, empty_pkgs=["internal/provision", "internal/backend", "internal/platform", "cmd/horus"])
-        ok, detail = g.row4_uninstall(ns(phase=4))
+        ok, detail = phase4.row4_uninstall(ns(phase=4))
         self.assertFalse(ok)
         self.assertIn("internal/provision has no test files", detail)
 
@@ -723,70 +748,70 @@ class Rows4OnGo(FileRows4):
         tests = all_pins4()
         tests[("internal/cli", "TestRegisterAnotherClientNameExitsTwo")] = ""
         self.module(tests)
-        ok, detail = g.row4_register(ns(phase=4))
+        ok, detail = phase4.row4_register(ns(phase=4))
         self.assertFalse(ok)
         self.assertIn("TestRegisterAnotherClientNameExitsTwo (asserts nothing", detail)
 
     def test_release_needs_files_pins_and_the_ci_job(self):
         self.module(all_pins4())
-        self.put(g.RELEASE_FILES[0], '{"bump-minor-pre-major": true, "bump-patch-for-minor-pre-major": true}')
-        self.put(g.RELEASE_FILES[1], "{}")
-        self.put(g.RELEASE_FILES[2], "name: release")
-        old = g.ci_jobs
-        g._CI_CACHE.clear()
+        self.put(phase4.RELEASE_FILES[0], '{"bump-minor-pre-major": true, "bump-patch-for-minor-pre-major": true}')
+        self.put(phase4.RELEASE_FILES[1], "{}")
+        self.put(phase4.RELEASE_FILES[2], "name: release")
+        old = r.ci_jobs
+        r._CI_CACHE.clear()
         try:
-            g.ci_jobs = lambda sha: (jobs4(release_build=None), "")
-            ok, detail = g.row4_release(ns(phase=4, no_ci=False))
+            r.ci_jobs = lambda sha: (jobs4(release_build=None), "")
+            ok, detail = phase4.row4_release(ns(phase=4, no_ci=False))
             self.assertFalse(ok)
             self.assertIn("release-build (missing)", detail)
-            g._CI_CACHE.clear()
-            g.ci_jobs = lambda sha: (jobs4(), "")
-            ok, detail = g.row4_release(ns(phase=4, no_ci=False))
+            r._CI_CACHE.clear()
+            r.ci_jobs = lambda sha: (jobs4(), "")
+            ok, detail = phase4.row4_release(ns(phase=4, no_ci=False))
             self.assertTrue(ok, detail)
             self.assertIn("real part not run", detail)
-            (self.root / g.RELEASE_FILES[2]).unlink()
-            g._CI_CACHE.clear()
-            self.assertFalse(g.row4_release(ns(phase=4, no_ci=False))[0])
+            (self.root / phase4.RELEASE_FILES[2]).unlink()
+            r._CI_CACHE.clear()
+            self.assertFalse(phase4.row4_release(ns(phase=4, no_ci=False))[0])
         finally:
-            g.ci_jobs = old
-            g._CI_CACHE.clear()
+            r.ci_jobs = old
+            r._CI_CACHE.clear()
 
     def test_install_line_needs_both_install_jobs(self):
         self.put("install.sh", "sha256 checksums.txt")
         self.put("install.ps1", "SHA256 checksums.txt")
-        old = g.ci_jobs
-        g._CI_CACHE.clear()
+        old = r.ci_jobs
+        r._CI_CACHE.clear()
         try:
-            g.ci_jobs = lambda sha: (jobs4(install_macos_latest="failure"), "")
-            ok, detail = g.row4_install_line(ns(phase=4, no_ci=False))
+            r.ci_jobs = lambda sha: (jobs4(install_macos_latest="failure"), "")
+            ok, detail = phase4.row4_install_line(ns(phase=4, no_ci=False))
             self.assertFalse(ok)
             self.assertIn("install macos-latest (failure)", detail)
-            g._CI_CACHE.clear()
-            g.ci_jobs = lambda sha: (jobs4(), "")
-            self.assertTrue(g.row4_install_line(ns(phase=4, no_ci=False))[0])
+            r._CI_CACHE.clear()
+            r.ci_jobs = lambda sha: (jobs4(), "")
+            self.assertTrue(phase4.row4_install_line(ns(phase=4, no_ci=False))[0])
         finally:
-            g.ci_jobs = old
-            g._CI_CACHE.clear()
+            r.ci_jobs = old
+            r._CI_CACHE.clear()
 
     def test_full_setup_needs_the_pins_and_22_codes(self):
         self.module(all_pins4())
         with Patch(error_codes_part=lambda a: (True, "horus errors -json lists 22 codes")):
-            self.assertTrue(g.row4_full_setup(ns(phase=4))[0])
+            self.assertTrue(phase4.row4_full_setup(ns(phase=4))[0])
         with Patch(error_codes_part=lambda a: (False, "horus errors -json lists 21 codes, needs 22")):
-            ok, detail = g.row4_full_setup(ns(phase=4))
+            ok, detail = phase4.row4_full_setup(ns(phase=4))
         self.assertFalse(ok)
         self.assertIn("21 codes", detail)
         self.module(all_pins4(skip=("TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps",)))
         with Patch(error_codes_part=lambda a: (True, "22")):
-            ok, detail = g.row4_full_setup(ns(phase=4))
+            ok, detail = phase4.row4_full_setup(ns(phase=4))
         self.assertFalse(ok)
         self.assertIn("TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps", detail)
 
 
 class ErrorCodes4(unittest.TestCase):
     def count(self, n):
-        with Patch(run=lambda cmd, env=None, timeout=900: (0, g.json.dumps([{}] * n)), horus_exe=lambda a: g.sys.executable):
-            return g.error_codes_part(ns(phase=4))
+        with Patch(run=lambda cmd, env=None, timeout=900: (0, r.json.dumps([{}] * n)), horus_exe=lambda a: r.sys.executable):
+            return phase4.error_codes_part(ns(phase=4))
 
     def test_22_codes_pass_and_21_codes_fail(self):
         self.assertTrue(self.count(22)[0])
@@ -795,49 +820,49 @@ class ErrorCodes4(unittest.TestCase):
         self.assertIn("lists 21 codes, needs 22", detail)
 
     def test_a_program_that_is_not_found_fails(self):
-        ok, detail = g.error_codes_part(ns(phase=4, server_cmd=["horus-not-there-xyz"]))
+        ok, detail = phase4.error_codes_part(ns(phase=4, server_cmd=["horus-not-there-xyz"]))
         self.assertFalse(ok)
         self.assertIn("program not found", detail)
 
 
 class ReadmeRow(FileRows4):
     def test_good_readme_and_workflow_pass(self):
-        self.assertEqual(g.readme_problems(README_GOOD, FRESH_GOOD), [])
+        self.assertEqual(phase4.readme_problems(README_GOOD, FRESH_GOOD), [])
 
     def test_install_line_in_section_3_fails(self):  # the Stub check of task T8
-        late = "# horus\n\n## One\n\ntext\n\n## Two\n\ntext\n\n## Three\n\n```\n" + g.INSTALL_LINES[0] + "\n" + g.INSTALL_LINES[1] + "\n```\n"
-        problems = g.readme_problems(late, FRESH_GOOD)
+        late = "# horus\n\n## One\n\ntext\n\n## Two\n\ntext\n\n## Three\n\n```\n" + phase4.INSTALL_LINES[0] + "\n" + phase4.INSTALL_LINES[1] + "\n```\n"
+        problems = phase4.readme_problems(late, FRESH_GOOD)
         self.assertEqual(len(problems), 2)
         self.assertIn("install.sh", problems[0])
         self.assertIn("install.ps1", problems[1])
 
     def test_a_readme_without_the_install_lines_fails(self):
-        self.assertEqual(len(g.readme_problems("# horus\n\n## One\n\ntext\n", FRESH_GOOD)), 2)
+        self.assertEqual(len(phase4.readme_problems("# horus\n\n## One\n\ntext\n", FRESH_GOOD)), 2)
 
     def test_a_missing_workflow_is_named(self):
-        self.assertEqual(g.readme_problems(README_GOOD, None), ["missing: .github/workflows/fresh-machine.yml"])
+        self.assertEqual(phase4.readme_problems(README_GOOD, None), ["missing: .github/workflows/fresh-machine.yml"])
 
     def test_a_readme_command_that_the_workflow_lacks_fails(self):
         readme = README_GOOD.replace("\n```\n\n```powershell", "\nhorus setup it-illustration\n```\n\n```powershell", 1)
-        problems = g.readme_problems(readme, FRESH_GOOD)
+        problems = phase4.readme_problems(readme, FRESH_GOOD)
         self.assertEqual(len(problems), 1)
         self.assertIn("horus setup it-illustration", problems[0])
-        self.assertEqual(g.readme_problems(readme, FRESH_GOOD + "run: horus setup it-illustration\n"), [])
+        self.assertEqual(phase4.readme_problems(readme, FRESH_GOOD + "run: horus setup it-illustration\n"), [])
 
     def test_commands_only_from_shell_blocks(self):
         text = "```mermaid\nA --> B\n```\n```bash\n$ horus doctor\n# a comment\n\nhorus -h\n```\n"
-        self.assertEqual(g.fence_commands(text), ["horus doctor", "horus -h"])
+        self.assertEqual(phase4.fence_commands(text), ["horus doctor", "horus -h"])
 
     def test_the_row_reads_the_files(self):
-        ok, detail = g.row4_readme(ns(phase=4))
+        ok, detail = phase4.row4_readme(ns(phase=4))
         self.assertFalse(ok)
         self.assertIn("missing: README.md", detail)
         self.put("README.md", README_GOOD)
-        ok, detail = g.row4_readme(ns(phase=4))
+        ok, detail = phase4.row4_readme(ns(phase=4))
         self.assertFalse(ok)
         self.assertIn("missing: .github/workflows/fresh-machine.yml", detail)
-        self.put(g.FRESH_WORKFLOW, FRESH_GOOD)
-        self.assertTrue(g.row4_readme(ns(phase=4))[0])
+        self.put(phase4.FRESH_WORKFLOW, FRESH_GOOD)
+        self.assertTrue(phase4.row4_readme(ns(phase=4))[0])
 
 
 class Checksums(unittest.TestCase):
@@ -850,31 +875,31 @@ class Checksums(unittest.TestCase):
 
     def write(self, wrong=False):
         lines = []
-        for name in g.RELEASE_ASSETS[:2]:
+        for name in phase4.RELEASE_ASSETS[:2]:
             (self.dir / name).write_bytes(name.encode())
-            sha = g.sha256_of(self.dir / name)
-            lines.append(f"{'0' * 64 if wrong and name == g.RELEASE_ASSETS[1] else sha}  {name}")
+            sha = r.sha256_of(self.dir / name)
+            lines.append(f"{'0' * 64 if wrong and name == phase4.RELEASE_ASSETS[1] else sha}  {name}")
         (self.dir / "checksums.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def test_equal_checksums_pass(self):
         self.write()
-        self.assertEqual(g.checksum_problems(self.dir), [])
+        self.assertEqual(phase4.checksum_problems(self.dir), [])
 
     def test_a_wrong_line_fails_and_names_the_file(self):
         self.write(wrong=True)
-        problems = g.checksum_problems(self.dir)
+        problems = phase4.checksum_problems(self.dir)
         self.assertEqual(len(problems), 1)
         self.assertIn("horus-darwin-arm64", problems[0])
 
     def test_a_missing_checksums_file_and_a_missing_program_fail(self):
-        self.assertEqual(g.checksum_problems(self.dir), ["checksums.txt is missing"])
+        self.assertEqual(phase4.checksum_problems(self.dir), ["checksums.txt is missing"])
         self.write()
-        (self.dir / g.RELEASE_ASSETS[0]).unlink()
-        self.assertIn("was not downloaded", g.checksum_problems(self.dir)[0])
+        (self.dir / phase4.RELEASE_ASSETS[0]).unlink()
+        self.assertIn("was not downloaded", phase4.checksum_problems(self.dir)[0])
 
     def test_parse_checksums_reads_both_formats(self):
         sha = "ab" * 32
-        self.assertEqual(g.parse_checksums(f"{sha}  a.exe\n{sha} *b\nbad line\n"), {"a.exe": sha, "b": sha})
+        self.assertEqual(phase4.parse_checksums(f"{sha}  a.exe\n{sha} *b\nbad line\n"), {"a.exe": sha, "b": sha})
 
 
 class FreshRun(unittest.TestCase):
@@ -882,8 +907,8 @@ class FreshRun(unittest.TestCase):
             {"databaseId": 2, "displayTitle": "fresh-machine source=release tag=v0.1.0", "conclusion": "success"}]
 
     def judge(self, runs=None, jobs=None, tag="v0.1.0"):
-        jobs = jobs if jobs is not None else [{"name": f"fresh {o}", "conclusion": "success"} for o in g.CI_OSES]
-        return g.judge_fresh(runs if runs is not None else self.RUNS, lambda i: jobs, tag)
+        jobs = jobs if jobs is not None else [{"name": f"fresh {o}", "conclusion": "success"} for o in common.CI_OSES]
+        return phase4.judge_fresh(runs if runs is not None else self.RUNS, lambda i: jobs, tag)
 
     def test_a_green_release_run_of_the_newest_tag_passes(self):
         ok, detail = self.judge()
@@ -903,17 +928,17 @@ class FreshRun(unittest.TestCase):
 
 class RealParts4(unittest.TestCase):
     def test_real_part_not_run_without_real_and_run_with_it(self):
-        ok, detail = g.with_real4(ns(phase=4), True, "x", lambda a: (False, "no release"))
+        ok, detail = phase4.with_real4(ns(phase=4), True, "x", lambda a: (False, "no release"))
         self.assertTrue(ok)
         self.assertIn("real part not run", detail)
-        ok, detail = g.with_real4(ns(phase=4, real=True), True, "x", lambda a: (False, "no release"))
+        ok, detail = phase4.with_real4(ns(phase=4, real=True), True, "x", lambda a: (False, "no release"))
         self.assertFalse(ok)
         self.assertEqual(detail, "x; real: no release")
-        self.assertEqual(g.with_real4(ns(phase=4, real=True), False, "x", lambda a: (True, "y")), (False, "x"))
+        self.assertEqual(phase4.with_real4(ns(phase=4, real=True), False, "x", lambda a: (True, "y")), (False, "x"))
 
     def test_a_row_with_real_fails_when_there_is_no_release(self):
         with Patch(release_assets=lambda a: (None, "", "no release")):
-            ok, detail = g.real_release(ns(phase=4, real=True))
+            ok, detail = phase4.real_release(ns(phase=4, real=True))
         self.assertFalse(ok)
         self.assertEqual(detail, "no release")
 
@@ -921,7 +946,7 @@ class RealParts4(unittest.TestCase):
         def must_not_run(a):
             raise AssertionError("must not run")
         with Patch(this_os=lambda: "win32", comfy_url=lambda: "http://127.0.0.1:8188", real_image=must_not_run):
-            ok, detail = g.real_same4(ns(phase=4, real=True))
+            ok, detail = phase4.real_same4(ns(phase=4, real=True))
         self.assertFalse(ok)
         self.assertIn("port 8189", detail)
 
@@ -933,12 +958,12 @@ class RealParts4(unittest.TestCase):
             return True, "1536x1024 x.png", {}
         with Patch(this_os=lambda: "win32", comfy_url=lambda: "http://127.0.0.1:8189", real_image=image,
                    release_assets=lambda a: (Path("rel"), "v0.1.0", ""), checksum_problems=lambda f: []):
-            ok, detail = g.real_same4(ns(phase=4, real=True))
+            ok, detail = phase4.real_same4(ns(phase=4, real=True))
         self.assertTrue(ok, detail)
-        self.assertEqual(seen["cmd"], [str(Path("rel") / g.RELEASE_ASSETS[0]), "mcp"])
+        self.assertEqual(seen["cmd"], [str(Path("rel") / phase4.RELEASE_ASSETS[0]), "mcp"])
         with Patch(this_os=lambda: "win32", comfy_url=lambda: "http://127.0.0.1:8189", real_image=image,
                    release_assets=lambda a: (Path("rel"), "v0.1.0", ""), checksum_problems=lambda f: ["x differs"]):
-            self.assertFalse(g.real_same4(ns(phase=4, real=True))[0])
+            self.assertFalse(phase4.real_same4(ns(phase=4, real=True))[0])
 
 
 class SameBehaviour4(unittest.TestCase):
@@ -956,7 +981,7 @@ class SameBehaviour4(unittest.TestCase):
             if cmd[-1] == "./...":
                 return f["gotest"], "FAIL x" if f["gotest"] else "ok"
             return 0, "abc123"
-        g._CI_CACHE.clear()
+        r._CI_CACHE.clear()
         return Patch(contract_names_part=lambda a: f["contract"], run=run, go_exe=lambda: "go",
                      go_test_ran=lambda p, n=None: f["archtest"], go_test_count=lambda: f["count"],
                      frozen_files4=lambda: f["changed"], allow_files=lambda: f["allow"],
@@ -964,7 +989,7 @@ class SameBehaviour4(unittest.TestCase):
 
     def check(self, **kw):
         with self.facts(**kw):
-            return g.row4_same(ns(phase=4, no_ci=False))
+            return phase4.row4_same(ns(phase=4, no_ci=False))
 
     def test_all_good_passes(self):
         ok, detail = self.check()
@@ -985,25 +1010,25 @@ class ContractNames(unittest.TestCase):
 
     def run_with(self, out, code=0):
         with Patch(run=lambda cmd, env=None, timeout=900: (code, out)):
-            return g.contract_names_part(ns(phase=4, server_cmd=[g.sys.executable, "mcp"]))
+            return phase4.contract_names_part(ns(phase=4, server_cmd=[r.sys.executable, "mcp"]))
 
     def names(self):
-        return [ln for ln in g.CONTRACT_NAMES4.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        return [ln for ln in phase4.CONTRACT_NAMES4.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
     def new_checks(self, n):
         return "".join(f"PASS  new {i}\n" for i in range(n))
 
     def test_the_baseline_names_and_more_checks_pass(self):
-        n = g.CONTRACT_CHECKS
+        n = common.CONTRACT_CHECKS
         out = "".join(f"PASS  {name}\n" for name in self.names()) + self.new_checks(n - 30) + f"contract: {n} of {n} passed\n"
         self.assertTrue(self.run_with(out)[0])
 
     def test_fewer_checks_than_after_t5_fail(self):
-        n = g.CONTRACT_CHECKS - 1
+        n = common.CONTRACT_CHECKS - 1
         out = "".join(f"PASS  {name}\n" for name in self.names()) + self.new_checks(n - 30) + f"contract: {n} of {n} passed\n"
         ok, detail = self.run_with(out)
         self.assertFalse(ok)
-        self.assertIn(f"needs {g.CONTRACT_CHECKS} or more checks", detail)
+        self.assertIn(f"needs {common.CONTRACT_CHECKS} or more checks", detail)
 
     def test_a_removed_name_fails_even_when_the_count_is_high(self):
         names = self.names()[1:]
@@ -1023,15 +1048,15 @@ class RowContract(unittest.TestCase):
 
     def run_with(self, out, code=0):
         with Patch(run=lambda cmd, env=None, timeout=900: (code, out)):
-            return g.row_contract(ns(phase=1, no_ci=True, server_cmd=[g.sys.executable, "mcp"]))
+            return common.row_contract(ns(phase=1, no_ci=True, server_cmd=[r.sys.executable, "mcp"]))
 
     def test_all_checks_pass(self):
-        n = g.CONTRACT_CHECKS
+        n = common.CONTRACT_CHECKS
         ok, detail = self.run_with(f"contract: {n} of {n} passed\n")
         self.assertTrue(ok, detail)
 
     def test_the_old_count_or_a_failed_check_fails(self):
-        n = g.CONTRACT_CHECKS
+        n = common.CONTRACT_CHECKS
         for out, code in (("contract: 30 of 30 passed\n", 0), (f"contract: {n - 1} of {n} passed\n", 1), ("crash", 1)):
             ok, detail = self.run_with(out, code)
             self.assertFalse(ok, f"{out!r} passed: {detail}")

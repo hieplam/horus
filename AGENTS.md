@@ -118,7 +118,7 @@ internal/catalog/, graph/, herr/, settings/, platform/, version/    base: manife
 internal/archtest/                the test of the design rules
 scripts/                          lint-public.py (a Python check before a pull request), build-release.sh (builds the 3 release assets)
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), workflow_parity.py, requirements.txt
-tools/                            goal_check.py: the goal check of each phase
+tools/                            the goal check: goal_check.py (the command), goal_runner.py (runs the rows of one suite), suites/ (one file with the goal rows of each spec; common.py holds the checks that suites share)
 workflows/embed.go                the go:embed line: the program holds each workflow folder (add a new folder there)
 workflows/<name>/                 manifest.json, workflow.json, models.json, README.md, examples/
 workflows/_template/README.md     template for a new workflow README

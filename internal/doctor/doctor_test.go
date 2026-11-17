@@ -435,3 +435,22 @@ func TestAWarnIsNotAFailedCheck(t *testing.T) {
 		t.Error("a Warn counts as failed")
 	}
 }
+
+// TestNoCloneSkipsTheCloneChecks: a user machine has no clone (RepoRoot is
+// empty) and no comfy MCP server. The user's agent uses only the horus MCP
+// server, so comfy-mcp, comfy-cli and .mcp.json are not checked there.
+func TestNoCloneSkipsTheCloneChecks(t *testing.T) {
+	r := newRig(t)
+	r.opts.RepoRoot = ""
+	r.opts.VenvPath = filepath.Join(t.TempDir(), "no-venv")
+	rs := r.check()
+	want := []string{"ComfyUI folder", "ComfyUI server", "horus on PATH"}
+	if Failed(rs) != 0 || len(rs) != len(want) {
+		t.Fatalf("%d results, %d failed, want %d results and 0 failed:\n%s", len(rs), Failed(rs), len(want), text(rs))
+	}
+	for i, w := range want {
+		if rs[i].Name != w {
+			t.Errorf("check %d is %q, want %q", i+1, rs[i].Name, w)
+		}
+	}
+}

@@ -152,6 +152,22 @@ Python 3.12 with `pip install -r tests/requirements.txt` ([how](docs/mcp.md#test
 - **Work that fits in one pull request needs no spec and no epic.** Its pull
   request still has a `## Verify` section.
 
+## Pages that agents read
+
+These rules are for `AGENTS.md`, each README and each page in `docs/` that
+tells an agent what to do.
+
+1. **Give only the rule of today.** Write the page as if the rule was always
+   there. Do not write what the rule was before, when it changed, or which
+   record made it. An agent follows what a page says, so a line about the old
+   way can send it to the old way. The history of a rule goes in its ADR.
+2. **Put a check in a hook, not in a sentence.** If an agent must run a command
+   after it changes a file, add a hook in `.claude/settings.json` that runs the
+   command. Give the script a flag for that one part, as
+   `scripts/lint-public.py --adr` does. CI stays the gate, because a hook does
+   not run for a file that a shell command writes, and it does not run in each
+   agent program.
+
 ## Pull request titles and merges
 
 The title of a pull request follows the Conventional Commits format:

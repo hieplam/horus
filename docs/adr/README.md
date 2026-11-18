@@ -1,10 +1,9 @@
 # Architecture Decision Records
 
 An Architecture Decision Record (ADR) is one short file for one decision. It
-has three sections: Context, Decision and Consequences (the format of Michael
-Nygard). This folder is the only place for a decision that later work must
-follow. [ADR 0020](0020-one-place-for-each-record-of-feature-work.md) says
-where the other records of feature work go.
+has three sections: Context, Decision and Consequences. This folder is the
+only place for a decision that later work must follow. Do not undo a decision
+without a new record.
 
 ## Rules
 
@@ -18,8 +17,16 @@ where the other records of feature work go.
 - Never change the Decision section of an accepted ADR. To change a decision,
   add a new ADR and set the status of the old one to `Superseded by NNNN`.
 - Add one row to the index below.
-- `python scripts/lint-public.py` checks the numbers, the parts of each record
-  and the index.
+
+## The check
+
+`python scripts/lint-public.py --adr` checks that each number is used one
+time, that each record has its five parts, and that the index links each
+record. You do not need to remember it:
+
+- In Claude Code, a hook runs it after each Write or Edit of a file in this
+  folder (`.claude/settings.json`). A finding comes back to the agent at once.
+- CI runs it on each pull request, as a part of `scripts/lint-public.py`.
 
 ## Index
 
@@ -45,36 +52,3 @@ where the other records of feature work go.
 | [0018](0018-real-runs-on-the-owners-machines.md) | How a real run uses the owner's machines and the CI runners | Accepted |
 | [0019](0019-register-for-claude-code-and-codex.md) | `horus register` serves Claude Code and Codex | Accepted |
 | [0020](0020-one-place-for-each-record-of-feature-work.md) | One place for each record of feature work: ADR, spec, issue, pull request | Accepted |
-
-## The old decision ids of issue #4
-
-Until 2026-11-18 the decisions were rows D0 to D68 in the decision log of
-[issue #4](https://github.com/hieplam/horus/issues/4). Old code comments,
-issues and pull requests use those ids. This table gives the ADR that holds
-each one.
-
-| Old id | ADR | | Old id | ADR | | Old id | ADR |
-|---|---|---|---|---|---|---|---|
-| D0 | 0001 | | D23 | 0001 | | D46 | 0017 |
-| D1 | 0001 | | D24 | 0010 | | D47 | 0007 |
-| D2 | 0003 | | D25 | 0018 | | D48 | 0007 |
-| D3 | 0003 | | D26 | 0006 | | D49 | 0007 |
-| D4 | 0004 | | D27 | 0006 | | D50 | 0010 |
-| D5 | 0007 | | D28 | 0006, 0005 | | D51 | 0010 |
-| D6 | 0007 | | D29 | 0002 | | D52 | 0014 |
-| D7 | 0005 | | D30 | 0015 | | D53 | 0009 |
-| D8 | 0002 | | D31 | 0013 | | D54 | 0007 |
-| D9 | 0016 | | D32 | 0016 | | D55 | 0003 |
-| D10 | 0013 | | D33 | 0012 | | D56 | 0011 |
-| D11 | 0002 | | D34 | 0015 | | D57 | 0011 |
-| D12 | 0002 | | D35 | 0015 | | D58 | 0018 |
-| D13 | 0001 | | D36 | 0013 | | D59 | 0014 |
-| D14 | 0002 | | D37 | 0007, 0008 | | D60 | 0013 |
-| D15 | 0001 | | D38 | 0010 | | D61 | 0015 |
-| D16 | 0002 | | D39 | 0006 | | D62 | 0009, 0016 |
-| D17 | 0007 | | D40 | 0018 | | D63 | 0011 |
-| D18 | 0009 | | D41 | 0018 | | D64 | 0011 |
-| D19 | 0002 | | D42 | 0007 | | D65 | 0012 |
-| D20 | 0007 | | D43 | 0009 | | D66 | 0019 |
-| D21 | 0002 | | D44 | 0008 | | D67 | 0018 |
-| D22 | 0001 | | D45 | 0010 | | D68 | 0018 |

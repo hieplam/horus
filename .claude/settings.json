@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if python3 -c '' >/dev/null 2>&1; then python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/adr-check.py\"; else python \"$CLAUDE_PROJECT_DIR/.claude/hooks/adr-check.py\"; fi",
+            "timeout": 30,
+            "statusMessage": "Checking the decision records"
+          }
+        ]
+      }
+    ]
+  }
+}

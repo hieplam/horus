@@ -40,8 +40,13 @@ Each record has one place.
 - Work that fits in one pull request needs no spec and no epic.
 - When a task decision changes a rule for later work, the same pull request
   adds an ADR.
-- `scripts/lint-public.py` checks the ADR folder: unique numbers, the five
-  parts of each record, and the index.
+- `python scripts/lint-public.py --adr` checks the ADR folder: unique numbers,
+  the five parts of each record, and the index. A Claude Code hook
+  (`.claude/settings.json`) runs it after each Write or Edit of a file in
+  `docs/adr/`, and CI runs it on each pull request. The agent does not need to
+  remember the check.
+- `AGENTS.md` and `docs/adr/README.md` give only the rule of today. The
+  history of the rule is in this record.
 
 For the epic-loop skill: the task bodies come from files in a scratch folder
 (`"body"` in the manifest of `epic.mjs create`). The manifest has no `plan`
@@ -61,3 +66,36 @@ and no `evidence` entry, and `epic.mjs check <task>` runs without `--evidence`.
   The body of each issue holds a copy of its plan section.
 - To reverse this decision, restore `docs/plans/` from commit `763b1bd` and
   remove the rule from `AGENTS.md`.
+
+## The old decision ids of issue #4
+
+Until 2026-11-18 the decisions were rows D0 to D68 in the decision log of
+[issue #4](https://github.com/hieplam/horus/issues/4). Old code comments,
+issues and pull requests use those ids. This table gives the ADR that holds
+each one. Each of those ADRs lists its old ids in its header.
+
+| Old id | ADR | | Old id | ADR | | Old id | ADR |
+|---|---|---|---|---|---|---|---|
+| D0 | 0001 | | D23 | 0001 | | D46 | 0017 |
+| D1 | 0001 | | D24 | 0010 | | D47 | 0007 |
+| D2 | 0003 | | D25 | 0018 | | D48 | 0007 |
+| D3 | 0003 | | D26 | 0006 | | D49 | 0007 |
+| D4 | 0004 | | D27 | 0006 | | D50 | 0010 |
+| D5 | 0007 | | D28 | 0006, 0005 | | D51 | 0010 |
+| D6 | 0007 | | D29 | 0002 | | D52 | 0014 |
+| D7 | 0005 | | D30 | 0015 | | D53 | 0009 |
+| D8 | 0002 | | D31 | 0013 | | D54 | 0007 |
+| D9 | 0016 | | D32 | 0016 | | D55 | 0003 |
+| D10 | 0013 | | D33 | 0012 | | D56 | 0011 |
+| D11 | 0002 | | D34 | 0015 | | D57 | 0011 |
+| D12 | 0002 | | D35 | 0015 | | D58 | 0018 |
+| D13 | 0001 | | D36 | 0013 | | D59 | 0014 |
+| D14 | 0002 | | D37 | 0007, 0008 | | D60 | 0013 |
+| D15 | 0001 | | D38 | 0010 | | D61 | 0015 |
+| D16 | 0002 | | D39 | 0006 | | D62 | 0009, 0016 |
+| D17 | 0007 | | D40 | 0018 | | D63 | 0011 |
+| D18 | 0009 | | D41 | 0018 | | D64 | 0011 |
+| D19 | 0002 | | D42 | 0007 | | D65 | 0012 |
+| D20 | 0007 | | D43 | 0009 | | D66 | 0019 |
+| D21 | 0002 | | D44 | 0008 | | D67 | 0018 |
+| D22 | 0001 | | D45 | 0010 | | D68 | 0018 |

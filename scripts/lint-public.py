@@ -2,6 +2,7 @@
 """Check that the repo is safe to publish.
 
 Usage: python scripts/lint-public.py [--extra-words FILE]
+       python scripts/lint-public.py --adr      (only the decision records, fast)
 
 Checks every tracked or untracked (not ignored) text file for:
   - absolute user paths (C:\\Users\\<name>, /Users/<name>, /home/<name>)
@@ -89,7 +90,14 @@ def adr_findings(adr: Path) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--extra-words", type=Path)
+    ap.add_argument("--adr", action="store_true", help="check only the decision records in docs/adr")
     args = ap.parse_args()
+    if args.adr:
+        findings = adr_findings(ROOT / "docs" / "adr")
+        for f in findings:
+            print(f)
+        print(f"lint-public --adr: {len(findings)} finding(s)")
+        return 0 if not findings else 1
     words: list[str] = []
     if args.extra_words:
         words = [w.strip().lower() for w in args.extra_words.read_text(encoding="utf-8").splitlines() if w.strip()]

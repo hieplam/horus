@@ -33,6 +33,7 @@ kinds of work:
 | The flags of a `horus` command | `horus <command> -h` |
 | Why horus does something in a specific way, or the history of a rule | The decision records: [`docs/adr/README.md`](docs/adr/README.md). Do not undo a decision without a new record. |
 | Start feature work, or record a decision, a plan or a proof | [Feature work](#feature-work-one-place-for-each-record) below |
+| Write or run the oracle of a goal row of a spec | [Goal suites](#goal-suites) below |
 | Offer a workflow to other agents | Add `workflows/<name>/manifest.json` ([fields](docs/mcp.md#add-a-workflow-to-the-server)) |
 
 For a tech or IT illustration, use
@@ -98,12 +99,14 @@ README.md                         entry point for people: the install line, setu
 install.ps1, install.sh           the install scripts (the install line downloads them from main)
 release-please-config.json        the release tool; .github/workflows/release.yml builds and uploads the 3 release assets
 AGENTS.md                         this file
-.claude/settings.json, .claude/hooks/    the Claude Code hook that checks docs/adr after each Write or Edit
+.claude/settings.json, .claude/hooks/    the Claude Code hooks: one refuses an edit of a frozen goal suite, one checks docs/adr after each Write or Edit
 .mcp.json                         the two MCP servers of an agent in a clone: comfy-mcp and horus
 ROADMAP.md                        what comes next
 docs/                             setup, style-to-workflow, concepts, running, models, mcp
 docs/adr/                         the decision records (ADRs): one file for one decision, README.md is the index
-docs/specs/                       the spec of each phase: the ratified goal rows and the design
+docs/specs/                       the spec of each piece of work: the ratified goal rows and the design
+goals/<spec stem>/                the goal suite of one spec: one test function for each goal row (go test -tags goal)
+goals/link_test.go                the link check: each suite has a spec, each goal row has a function
 cmd/horus/                        wiring: main.go (the command table) and wiring.go (creates the adapters and gives them to the services)
 internal/cli/                     handler: one file for each command group (flags in, text out)
 internal/mcpserver/               handler: the 5 MCP tools, the envelope, the progress notifications
@@ -117,9 +120,8 @@ internal/modelfiles/              adapter: find, check and remove model files, e
 internal/backend/                 adapter: Install, Start, Stop and Installed of a ComfyUI install (the Windows portable build; comfy-cli on macOS; backend/comfyclitest is the fake comfy for tests)
 internal/catalog/, graph/, herr/, settings/, platform/, version/    base: manifests, graph conversion, error codes, settings, processes and OS facts, the program version
 internal/archtest/                the test of the design rules
-scripts/                          lint-public.py (a Python check before a pull request: private data, dead links, the ADR folder), build-release.sh (builds the 3 release assets)
+scripts/                          lint-public.py (a Python check before a pull request: private data, dead links, the ADR folder), frozen-suites.py (refuses a change to a frozen goal suite), build-release.sh (builds the 3 release assets)
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), workflow_parity.py, requirements.txt
-tools/                            goal_check.py: the goal check of each phase
 workflows/embed.go                the go:embed line: the program holds each workflow folder (add a new folder there)
 workflows/<name>/                 manifest.json, workflow.json, models.json, README.md, examples/
 workflows/_template/README.md     template for a new workflow README
@@ -138,6 +140,7 @@ Python 3.12 with `pip install -r tests/requirements.txt` ([how](docs/mcp.md#test
 |---|---|
 | A decision that later work must follow | An Architecture Decision Record (ADR): one short file in `docs/adr/`, added in the pull request of the work that it decides ([rules](docs/adr/README.md#rules)) |
 | The goal of a phase: the terms, the ratified goal rows, the design, the standing rules | A spec, `docs/specs/<date>-<topic>.md`, merged before the issues. It has no task list and no decision table: it links the ADRs |
+| The oracle of each goal row | A goal suite, `goals/<spec stem>/`, added in the pull request of the spec ([rules](#goal-suites)) |
 | The plan: the tasks, their order and the Verify block of each task | GitHub issues: the epic and one issue for each task |
 | The proof of a task: Red, Green and Stub check with the literal output | The `## Verify` section of the pull request that closes the task |
 | A decision of one task (a design gap, a standing rule) | A `## Decisions` section in the body of that pull request |
@@ -148,9 +151,44 @@ Python 3.12 with `pip install -r tests/requirements.txt` ([how](docs/mcp.md#test
   `epic.mjs check <task>` without `--evidence`.
 - **A task that changes behaviour also changes the docs for that behaviour**, in
   the same pull request. Make a docs-only task only for a document with no code
-  change, for example the spec.
+  change, for example a page in `docs/`.
 - **Work that fits in one pull request needs no spec and no epic.** Its pull
-  request still has a `## Verify` section.
+  request still has a `## Verify` section. When the owner ratifies goal rows
+  for such work, rule 8 of the goal suites applies.
+
+## Goal suites
+
+A goal suite holds the oracle of each goal row of one spec. `go test` runs it.
+[`goals/2026-11-18-goal-suites`](goals/2026-11-18-goal-suites/suite_test.go)
+is an example.
+
+1. **A spec with a `## Ratified goal` table has a suite**, the folder
+   `goals/<spec stem>/`, added in the pull request of the spec. The spec stem
+   is the file name of the spec without `.md`.
+2. **One test function for each row.** The row `same-behaviour` is
+   `TestSameBehaviour`. Each file starts with `//go:build goal`.
+3. **A row that is not built yet fails**: `t.Fatal("not built: <what is missing>")`.
+   A part that needs the GPU machine calls `t.Skip` and says what it needs.
+4. **A suite tests horus from the outside.** It imports only the Go standard
+   library. It starts programs (`horus`, `go test -run`, `gh`, the Python
+   tests) and reads files.
+5. **Run only the suite of your spec**:
+   `go test -tags goal -v ./goals/<spec stem>`. Put the output in the
+   `## Verify` section, with the count of `--- PASS` lines before and after.
+   The count can only rise.
+6. **The last pull request of the work** shows each row as PASS and adds the
+   block `> **Record of a finished phase.**` to the spec, as its last change.
+   The suite is then frozen.
+7. **Never edit a frozen suite.** A change to a finished feature gets a new
+   spec and a new suite.
+8. **Work that fits in one pull request** gets a suite only when the owner
+   ratifies goal rows for it. Then the pull request also adds a short spec
+   with the goal table.
+
+`go test ./goals` checks rules 1, 2 and 4 on each pull request, and CI compiles
+each suite with `go vet -tags goal ./goals/...`. For rule 7, a hook refuses a
+Write or an Edit of a file of a frozen suite, and the CI step
+`scripts/frozen-suites.py --base` fails a pull request that changes one.
 
 ## Pages that agents read
 

@@ -13,7 +13,7 @@ name: fresh-machine
 # ComfyUI (about 2 GB on Windows, PyTorch on macOS) runs, because the plan of
 # horus setup it-illustration must have only model file steps after it.
 #
-# The run-name is read by tools/goal_check.py: fresh-machine source=<source> tag=<tag>.
+# A goal suite can read the run-name: fresh-machine source=<source> tag=<tag>.
 # A run by hand for a release gives the tag (for example v0.1.0) in the input "tag".
 
 run-name: fresh-machine source=${{ github.event_name == 'release' && 'release' || inputs.source || 'build' }} tag=${{ github.event.release.tag_name || inputs.tag || 'none' }}

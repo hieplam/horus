@@ -18,6 +18,8 @@ jobs:
           - { os: ubuntu-latest, goos: linux, goarch: amd64 }
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # the frozen suite step reads the base commit of the pull request (HEAD^1)
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -29,6 +31,8 @@ jobs:
           CGO_ENABLED: "0"
         run: go build -o bin/ ./cmd/horus
       - run: go vet ./...
+      - name: Each goal suite compiles (no goal row runs)
+        run: go vet -tags goal ./goals/...
       - run: go test ./...
       - name: gofmt prints nothing
         if: matrix.goos == 'linux'
@@ -36,9 +40,12 @@ jobs:
       - name: lint-public finds nothing
         if: matrix.goos == 'linux'
         run: python3 scripts/lint-public.py
+      - name: No change to a frozen goal suite
+        if: matrix.goos == 'linux' && github.event_name == 'pull_request'
+        run: python3 scripts/frozen-suites.py --base HEAD^1
 
   contract:
-    # tools/goal_check.py reads the jobs whose name starts with "contract" and has the system name.
+    # A goal suite can read the jobs whose name starts with "contract" and has the system name.
     name: contract ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -86,7 +93,7 @@ jobs:
           grep -q "parity: 17 of 17 cases equal" parity.log
 
   release-build:
-    # The same build script as the release job, with no upload. tools/goal_check.py reads this job name.
+    # The same build script as the release job, with no upload. A goal suite can read this job name.
     name: release-build
     runs-on: ubuntu-latest
     steps:
@@ -110,7 +117,7 @@ jobs:
           if-no-files-found: error
 
   install:
-    # tools/goal_check.py reads the jobs "install windows-latest" and "install macos-latest".
+    # A goal suite can read the jobs "install windows-latest" and "install macos-latest".
     # The job runs the install script by the pipe of the install line. A local server
     # (python -m http.server) gives the release files of job release-build, so the test
     # reaches no real release.

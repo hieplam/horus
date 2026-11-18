@@ -103,6 +103,7 @@ var planted = map[string][]string{
 	"internal/nolayer/x.go":              {RuleDirection}, // a package with no layer
 	"cmd/horus/wiring.go":                nil,             // the wiring imports every package
 	"internal/catalog/catalog_x_test.go": nil,             // a package imports itself
+	"goals/2026-01-02-x/row_test.go":     nil,             // a goal suite is a test package with no line in the table
 
 	// token
 	"internal/catalog/token.go":         {RuleToken},

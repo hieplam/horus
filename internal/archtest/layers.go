@@ -1,5 +1,7 @@
 package archtest
 
+import "strings"
+
 // The layers of the spec docs/specs/2026-11-11-restructure.md.
 const (
 	wiring  = "wiring"
@@ -35,6 +37,17 @@ var layers = map[string]string{
 	"internal/archtest":             test,
 	"internal/comfy/comfytest":      test,
 	"internal/backend/comfyclitest": test,
+	"goals":                         test, // the link check of the goal suites
+}
+
+// layerOf gives the layer of a package. Each goal suite (goals/<spec stem>)
+// is a test package, so a new suite needs no line in the table.
+func layerOf(pkg string) (string, bool) {
+	if strings.HasPrefix(pkg, "goals/") {
+		return test, true
+	}
+	layer, ok := layers[pkg]
+	return layer, ok
 }
 
 // mayImport gives, for each layer, the layers of the module that its

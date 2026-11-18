@@ -1,5 +1,18 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if python3 -c '' >/dev/null 2>&1; then python3 \"$CLAUDE_PROJECT_DIR/scripts/frozen-suites.py\" --hook; else python \"$CLAUDE_PROJECT_DIR/scripts/frozen-suites.py\" --hook; fi",
+            "timeout": 30,
+            "statusMessage": "Checking for a frozen goal suite"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",

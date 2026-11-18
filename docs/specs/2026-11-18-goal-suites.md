@@ -4,6 +4,10 @@ Date: 2026-11-18. The decision record:
 [ADR 0021](../adr/0021-goal-suites-are-go-test-packages.md). This work fits in
 one pull request, so it has no epic.
 
+> **Record of a finished phase.** All 6 goal rows passed on 2026-11-18. The
+> suite `goals/2026-11-18-goal-suites/` is frozen: nobody edits it. A change to
+> the goal suites gets a new spec and a new suite.
+
 ## What this work delivers
 
 Each spec gets a goal suite: one Go test package that holds the oracle of each

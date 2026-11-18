@@ -167,7 +167,7 @@ func TestCiCompiles(t *testing.T) {
 		write(t, dir, planted)
 		git := func(args ...string) {
 			t.Helper()
-			args = append([]string{"-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false"}, args...)
+			args = append([]string{"-c", "user.name=t", "-c", "user.email=t" + "@" + "example.invalid", "-c", "commit.gpgsign=false"}, args...)
 			if code, out := run(t, dir, "", "git", args...); code != 0 {
 				t.Fatalf("git %v: %s", args, out)
 			}

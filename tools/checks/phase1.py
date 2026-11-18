@@ -1,13 +1,5 @@
-"""Phase 1: the Go port (docs/specs/2026-11-10-go-port.md).
-
-The 8 goal rows: contract, graph, workflow-cli, downloader, setup-commands, builds, real-image,
-no-python. Unless --no-ci, the row contract needs the job "contract <os>" on windows-latest and
-macos-latest of the newest ci.yml run on HEAD. The row real-image passes only with --real: a MCP
-client starts the server command, calls generate_image for it-illustration with the subject of the
-contract test and seed 7 at the default size, and reads the width and the height from the PNG header.
-The server reads its settings from the environment and the .env file of its repo root (HORUS_ROOT),
-and it can start ComfyUI. One image takes 3 to 8 minutes, longer after a cold start.
-"""
+"""The checks that only the suite phase1 needs (tools/suites/phase1.toml): the Go port,
+docs/specs/2026-11-10-go-port.md."""
 
 from __future__ import annotations
 
@@ -17,12 +9,8 @@ import os
 import re
 import sys
 
-import goal_runner as r
-from suites import common
+from checks import base as r
 
-TITLE = "the Go port"
-SPEC = "docs/specs/2026-11-10-go-port.md"
-REAL_WHERE = "on the Mac and on the PC"
 SETUP_COMMANDS = ["installcomfyui", "startcomfyui", "installcomfymcp", "checksetup",
                   "syncworkflows", "newworkflow", "register", "runillustration"]
 # The package of a setup command that moved out of internal/scripts in Phase 2.
@@ -88,11 +76,6 @@ def row_builds(a: argparse.Namespace) -> tuple[bool, str]:
     return True, "3 of 3 build"
 
 
-def row_real(a: argparse.Namespace) -> tuple[bool, str]:
-    ok, detail, _ = common.real_image(a)
-    return ok, detail
-
-
 def row_no_python(a: argparse.Namespace) -> tuple[bool, str]:
     code, out = r.run(["git", "ls-files"], timeout=60)
     if code != 0:
@@ -126,7 +109,3 @@ def row_no_python(a: argparse.Namespace) -> tuple[bool, str]:
     return True, "0 lines left"
 
 
-ROWS = ["contract", "graph", "workflow-cli", "downloader", "setup-commands", "builds", "real-image", "no-python"]
-CHECKS = {"contract": lambda a: common.row_contract(a),"graph": row_graph, "workflow-cli": row_workflow_cli,
-          "downloader": row_downloader, "setup-commands": row_setup, "builds": row_builds,
-          "real-image": row_real, "no-python": row_no_python}

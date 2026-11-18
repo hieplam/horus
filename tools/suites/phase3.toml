@@ -1,0 +1,136 @@
+# Phase 3: horus on macOS through comfy-cli. Tasks T1 to T5 write the pinned tests with exactly these names.
+
+title = "horus on macOS through comfy-cli"
+spec = "docs/specs/2026-11-12-macos-backend.md"
+real_where = "on the Mac and on the PC"
+real_needs = "on macOS"
+
+[[rows]]
+name = "mac-backend"
+stop_at_fail = true
+
+[[rows.parts]]
+check = "go_pinned_tests"
+pins = [
+  ["internal/backend", "TestComfyCLIIsTheBackendOfDarwin", "T1"],
+  ["internal/backend", "TestComfyCLIInstallRunsTheCommandOfTheSpec", "T1"],
+  ["internal/backend", "TestComfyCLIInstallSkipsWhenComfyUIIsInstalled", "T1"],
+  ["internal/backend", "TestComfyCLIInstallNamesBothFixesWhenComfyIsMissing", "T1"],
+  ["internal/backend", "TestComfyCLIStartRunsLaunchAndTheServerAnswers", "T2"],
+  ["internal/backend", "TestComfyCLIStartFailsWhenComfyUIIsNotInstalled", "T2"],
+  ["internal/backend", "TestComfyCLIStopRunsStopAndTheServerEnds", "T2"],
+  ["internal/backend", "TestComfyCLIStopRefusesAComfyUIThatHorusDidNotStart", "T2"],
+  ["internal/backend", "TestComfyCLIStopWithAStaleStateRunsNoStop", "T2"],
+  ["cmd/horus", "TestGenerateStartsComfyUIThroughTheComfyCLIBackend", "T2"],
+]
+
+[[rows.parts]]
+check = "ci_green"
+jobs = ["go darwin/arm64"]
+
+[rows.real]
+check = "phase3.real_mac_backend"
+
+[[rows]]
+name = "mac-setup"
+
+[[rows.parts]]
+check = "go_pinned_tests"
+pins = [
+  ["internal/platform", "TestDefaultComfyDirOfEachOS", "T1"],
+  ["internal/settings", "TestComfyDirDefaultIsTheFolderOfPlatform", "T1"],
+  ["cmd/horus", "TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps", "T3"],
+]
+
+[rows.real]
+check = "phase3.real_mac_setup"
+
+[[rows]]
+name = "mac-image"
+
+[[rows.parts]]
+check = "phase3.row3_mac_image"
+
+[[rows]]
+name = "tcc-folders"
+
+[[rows.parts]]
+check = "go_pinned_tests"
+pins = [
+  ["internal/platform", "TestDefaultComfyDirOfEachOS", "T1"],
+  ["internal/platform", "TestInTCCFolder", "T3"],
+  ["internal/doctor", "TestTCCCheckWarnsForEachPathInATCCFolder", "T3"],
+  ["internal/cli", "TestDoctorWarnLinesKeepExitCodeZero", "T3"],
+]
+
+[rows.real]
+check = "phase3.real_tcc"
+
+[[rows]]
+name = "out-of-memory"
+
+[[rows.parts]]
+check = "go_pinned_tests"
+pins = [
+  ["internal/comfy", "TestJobErrorOfTheMPSOutOfMemoryText", "T4"],
+  ["cmd/horus", "TestImageMPSOutOfMemoryThroughTheAdapter", "T4"],
+]
+texts = { TestJobErrorOfTheMPSOutOfMemoryText = "MPS backend out of memory", TestImageMPSOutOfMemoryThroughTheAdapter = "MPS backend out of memory" }
+
+[[rows]]
+name = "one-config"
+
+[[rows.parts]]
+check = "phase3.mcp_json_part"
+
+[[rows.parts]]
+check = "go_pinned_tests"
+pins = [
+  ["internal/cli", "TestDoctorUsesHorusComfyUIURLWithoutTheFlag", "T3"],
+  ["cmd/horus", "TestComfyMCPPassesTheStreamsComfyBinAndTheExitCode", "T5"],
+]
+
+[rows.real]
+check = "phase3.real_one_config"
+needs = "on Windows and on macOS"
+
+[[rows]]
+name = "one-setup-doc"
+
+[[rows.parts]]
+check = "phase3.row3_setup_doc"
+
+[[rows]]
+name = "same-behaviour"
+
+[[rows.parts]]
+check = "contract"
+ci = false
+label = "contract: "
+
+[[rows.parts]]
+check = "parity"
+
+[[rows.parts]]
+check = "go_test_all"
+
+[[rows.parts]]
+check = "archtest"
+
+[[rows.parts]]
+check = "test_count"
+baseline = 215  # Go test functions at 943d430, main before the first task of Phase 3
+
+[[rows.parts]]
+check = "no_changes"
+commit = "943d430"
+paths = ["tests/mcp_contract.py", "tests/workflow_parity.py", "tests/fixtures", "*golden*"]
+what = "contract files"
+
+[[rows.parts]]
+check = "ci_green"
+jobs = ["contract windows-latest", "contract macos-latest", "workflow-parity windows-latest", "workflow-parity macos-latest", "go windows/amd64", "go darwin/arm64"]
+
+[rows.real]
+check = "phase3.real_same"
+needs = "on Windows"

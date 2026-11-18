@@ -1,0 +1,71 @@
+# Phase 2: the three layers. The rows backend and commands pass only with --real on the owner's PC.
+
+title = "the three layers"
+spec = "docs/specs/2026-11-11-restructure.md"
+real_where = "on the Mac and on the PC"
+
+[[rows]]
+name = "layout"
+
+[[rows.parts]]
+check = "phase2.row2_layout"
+
+[[rows]]
+name = "same-behaviour"
+
+[[rows.parts]]
+check = "contract"
+ci = ["contract windows-latest", "contract macos-latest", "workflow-parity windows-latest", "workflow-parity macos-latest", "go windows/amd64", "go darwin/arm64"]
+label = "contract: "
+
+[[rows.parts]]
+check = "parity"
+
+[[rows.parts]]
+check = "go_test_all"
+
+[[rows.parts]]
+check = "test_count"
+baseline = 157  # Go test functions at 3e27da4, main before the first move task
+
+[[rows.parts]]
+check = "no_changes"
+commit = "3e27da4"
+paths = ["tests/mcp_contract.py", "tests/workflow_parity.py", "tests/fixtures", "*golden*"]
+what = "contract files"
+
+[[rows]]
+name = "os-boundary"
+
+[[rows.parts]]
+check = "phase2.row2_archtest"
+
+[[rows]]
+name = "direction"
+
+[[rows.parts]]
+check = "phase2.row2_archtest"
+
+[[rows]]
+name = "process-tree"
+
+[[rows.parts]]
+check = "phase2.row2_process_tree"
+
+[[rows]]
+name = "backend"
+
+[[rows.parts]]
+check = "phase2.row2_backend"
+
+[[rows]]
+name = "token"
+
+[[rows.parts]]
+check = "phase2.row2_archtest"
+
+[[rows]]
+name = "commands"
+
+[[rows.parts]]
+check = "phase2.row2_commands"

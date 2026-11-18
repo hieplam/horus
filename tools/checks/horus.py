@@ -1,8 +1,8 @@
-"""The checks of this repo that more than one suite uses. This module is no suite.
+"""The checks of this repo that more than one suite uses.
 
 The contract test (tests/mcp_contract.py), the parity test (tests/workflow_parity.py), the tests of
 internal/archtest, a real image through the horus MCP server, and the ComfyUI and horus programs of
-the real parts.
+the real parts. tools/checks/parts.py gives them to the suite files as check types.
 """
 
 from __future__ import annotations
@@ -17,14 +17,12 @@ import sys
 import time
 from pathlib import Path
 
-import goal_runner as r
+from checks import base as r
 
 CI_OSES = ["windows-latest", "macos-latest"]
-# The CI jobs that the oracle of a row names. The names are the `name:` of the jobs of
-# .github/workflows/ci.yml with the matrix filled in.
+# CI jobs: the `name:` of the jobs of .github/workflows/ci.yml with the matrix filled in.
 GO_JOBS = ["go windows/amd64", "go darwin/arm64"]  # they run go test ./..., so also the tree test of internal/platform
 CONTRACT_JOBS = [f"contract {o}" for o in CI_OSES]
-SAME_BEHAVIOUR_JOBS = (CONTRACT_JOBS + [f"workflow-parity {o}" for o in CI_OSES] + GO_JOBS)
 CONTRACT_CHECKS = 37  # checks of tests/mcp_contract.py: 30 until Phase 4, 37 after task T5 of Phase 4 (setup through MCP)
 PARITY_CASES = 17  # cases of tests/workflow_parity.py
 ARCHTEST_DIR = "internal/archtest"
@@ -64,6 +62,16 @@ def row_contract(a: argparse.Namespace, ci_required: list[str] | None = None) ->
         return True, detail + "; CI part skipped (--no-ci)"
     ci_ok, ci = r.ci_part_lenient(ci_required or CONTRACT_JOBS)
     return ci_ok, f"{detail}; {ci}"
+
+
+def contract_check(a: argparse.Namespace, ci: list[str] | bool | None = None, label: str = "") -> tuple[bool, str]:
+    """row_contract as a part. ci: a list of CI jobs (lenient, skipped with --no-ci), None for the
+    contract jobs, or False for the local part only (with no word about CI). label starts the detail."""
+    if ci is False:
+        ok, detail = row_contract(argparse.Namespace(**{**vars(a), "no_ci": True}))
+        return ok, label + detail.replace("; CI part skipped (--no-ci)", "")
+    ok, detail = row_contract(a, ci or None)
+    return ok, label + detail
 
 
 def parity_part(timeout: int = 900) -> tuple[bool, str]:
@@ -107,11 +115,6 @@ def changed_files(base: str, paths: list[str]) -> list[str] | str:
     if code != 0:
         return f"git diff against {base} failed: {r.last_line(out)}"
     return [ln for ln in out.splitlines() if ln.strip() and not ln.startswith("R100")]
-
-
-def changed_contract_files(base: str) -> list[str] | str:
-    """Files of the contract (the two Python tests, fixtures and golden files) that differ from the baseline."""
-    return changed_files(base, ["tests/mcp_contract.py", "tests/workflow_parity.py", "tests/fixtures", "*golden*"])
 
 
 def changed_part(changed: list[str] | str, what: str) -> tuple[bool, str]:

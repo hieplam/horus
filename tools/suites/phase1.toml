@@ -1,0 +1,53 @@
+# Phase 1: the Go port. The row real-image passes only with --real on the GPU machine.
+
+title = "the Go port"
+spec = "docs/specs/2026-11-10-go-port.md"
+real_where = "on the Mac and on the PC"
+
+[[rows]]
+name = "contract"
+
+[[rows.parts]]
+check = "contract"
+
+[[rows]]
+name = "graph"
+
+[[rows.parts]]
+check = "phase1.row_graph"
+
+[[rows]]
+name = "workflow-cli"
+
+[[rows.parts]]
+check = "phase1.row_workflow_cli"
+
+[[rows]]
+name = "downloader"
+
+[[rows.parts]]
+check = "phase1.row_downloader"
+
+[[rows]]
+name = "setup-commands"
+
+[[rows.parts]]
+check = "phase1.row_setup"
+
+[[rows]]
+name = "builds"
+
+[[rows.parts]]
+check = "phase1.row_builds"
+
+[[rows]]
+name = "real-image"
+
+[[rows.parts]]
+check = "mcp_image"
+
+[[rows]]
+name = "no-python"
+
+[[rows.parts]]
+check = "phase1.row_no_python"

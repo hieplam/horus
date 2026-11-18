@@ -1,5 +1,5 @@
-"""Unit tests of the goal check: the runner (goal_runner.py) and the suites (suites/). No network.
-Run: python -m unittest discover -s tools"""
+"""Unit tests of the goal check: the checks (checks/) and the suites (suites/*.toml) of Phases 1 to 4.
+No network. Run: python -m unittest discover -s tools"""
 
 import argparse
 import tempfile
@@ -7,10 +7,34 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-import goal_runner as r
-from suites import common, phase1, phase2, phase3, phase4
+import goal_runner as runner
+from checks import base as r
+from checks import horus as common
+from checks import parts, phase1, phase2, phase3, phase4
 
-MODULES = [phase4, phase3, phase2, phase1, common, r]
+MODULES = [phase4, phase3, phase2, phase1, common, parts, r, runner]
+SUITES = {n: runner.load_suite(n) for n in runner.suite_names()}
+
+
+def row(suite, name):
+    """The check of a row of a suite file, as a function of the options."""
+    return lambda a: runner.check_row(SUITES[suite], runner.row_of(SUITES[suite], name), a)
+
+
+def part(suite, name, check):
+    """The first part of a row with this check type."""
+    return next(p for p in runner.row_of(SUITES[suite], name)["parts"] if p["check"] == check)
+
+
+def pins(suite, name):
+    """The pins of the row, as (package folder, test name, task)."""
+    return [tuple(p) for p in part(suite, name, "go_pinned_tests")["pins"]]
+
+
+def pinned_map(suite):
+    """{row: pins} for each row of the suite with a go_pinned_tests part."""
+    return {x["name"]: pins(suite, x["name"]) for x in SUITES[suite]["rows"]
+            if any(p["check"] == "go_pinned_tests" for p in x["parts"])}
 
 
 def _defined_here(mod):
@@ -33,6 +57,21 @@ def owner(name):
     return OWNERS[name]
 
 
+class OneNameOneItem(unittest.TestCase):
+    def test_no_name_is_defined_in_two_modules_of_the_goal_check(self):
+        seen, both = {}, []
+        for mod in MODULES:
+            for k in _defined_here(mod) - {"annotations"}:
+                if k in seen:
+                    both.append(f"{k} ({seen[k].__name__}, {mod.__name__})")
+                seen[k] = mod
+        self.assertEqual(both, [], "a test replaces a part by its name, so each name needs one module")
+
+
+SAME_BEHAVIOUR_JOBS = part("phase4", "same-behaviour", "ci_green")["jobs"]
+MAC_BACKEND_JOBS = part("phase3", "mac-backend", "ci_green")["jobs"]
+
+
 def jobs(**overrides):
     """All 7 jobs of ci.yml green, with the given conclusions changed. A value None removes the job."""
     names = ["contract windows-latest", "contract macos-latest", "workflow-parity windows-latest",
@@ -48,16 +87,16 @@ def jobs(**overrides):
 
 class JudgeJobs(unittest.TestCase):
     def test_all_green_passes_same_behaviour_and_process_tree(self):
-        self.assertTrue(r.judge_jobs(jobs(), common.SAME_BEHAVIOUR_JOBS)[0])
+        self.assertTrue(r.judge_jobs(jobs(), SAME_BEHAVIOUR_JOBS)[0])
         self.assertTrue(r.judge_jobs(jobs(), phase2.PROCESS_TREE_JOBS)[0])
 
     def test_red_parity_job_fails_same_behaviour_and_names_it(self):
-        ok, detail = r.judge_jobs(jobs(workflow_parity_macos_latest="failure"), common.SAME_BEHAVIOUR_JOBS)
+        ok, detail = r.judge_jobs(jobs(workflow_parity_macos_latest="failure"), SAME_BEHAVIOUR_JOBS)
         self.assertFalse(ok)
         self.assertIn("workflow-parity macos-latest", detail)
 
     def test_missing_darwin_job_fails_both_rows_and_names_it(self):
-        for required in (common.SAME_BEHAVIOUR_JOBS, phase2.PROCESS_TREE_JOBS):
+        for required in (SAME_BEHAVIOUR_JOBS, phase2.PROCESS_TREE_JOBS):
             ok, detail = r.judge_jobs(jobs(go_darwin_arm64=None), required)
             self.assertFalse(ok)
             self.assertIn("go darwin/arm64 (missing)", detail)
@@ -65,7 +104,7 @@ class JudgeJobs(unittest.TestCase):
     def test_running_and_cancelled_jobs_fail(self):
         running = jobs()
         running[2] = {"name": "workflow-parity windows-latest", "status": "in_progress", "conclusion": None}
-        ok, detail = r.judge_jobs(running, common.SAME_BEHAVIOUR_JOBS)
+        ok, detail = r.judge_jobs(running, SAME_BEHAVIOUR_JOBS)
         self.assertFalse(ok)
         self.assertIn("workflow-parity windows-latest (in_progress)", detail)
         ok, detail = r.judge_jobs(jobs(go_windows_amd64="cancelled"), phase2.PROCESS_TREE_JOBS)
@@ -76,7 +115,7 @@ class JudgeJobs(unittest.TestCase):
         self.assertTrue(r.judge_jobs(jobs(workflow_parity_macos_latest="failure"), phase2.PROCESS_TREE_JOBS)[0])
 
     def test_empty_job_list_fails(self):
-        self.assertFalse(r.judge_jobs([], common.SAME_BEHAVIOUR_JOBS)[0])
+        self.assertFalse(r.judge_jobs([], SAME_BEHAVIOUR_JOBS)[0])
         self.assertFalse(r.judge_jobs([], phase2.PROCESS_TREE_JOBS)[0])
 
     def test_job_names_match_the_workflow_file(self):
@@ -127,7 +166,7 @@ def ns(**kw):
 
 def all_pins():
     seen = {}
-    for pins in phase3.PINNED3.values():
+    for pins in pinned_map("phase3").values():
         for pkg, name, _ in pins:
             seen[(pkg, name)] = GOOD
     return seen
@@ -166,18 +205,18 @@ class GoStub(unittest.TestCase):
 class PinnedTests(GoStub):
     def test_all_pinned_tests_pass(self):
         self.module(all_pins())
-        for row, pins in phase3.PINNED3.items():
+        for row, pins in pinned_map("phase3").items():
             ok, detail = r.pinned_tests(pins)
             self.assertTrue(ok, f"{row}: {detail}")
 
     def test_package_with_no_test_file_fails(self):  # issue #80 of Phase 2
         self.module({}, empty_pkgs=["internal/backend", "cmd/horus"])
-        ok, detail = r.pinned_tests(phase3.PINNED3["mac-backend"])
+        ok, detail = r.pinned_tests(pins("phase3", "mac-backend"))
         self.assertFalse(ok)
         self.assertIn("internal/backend has no test files", detail)
 
     def test_missing_package_fails(self):
-        ok, detail = r.pinned_tests(phase3.PINNED3["out-of-memory"])
+        ok, detail = r.pinned_tests(pins("phase3", "out-of-memory"))
         self.assertFalse(ok)
         self.assertIn("internal/comfy is missing", detail)
 
@@ -185,7 +224,7 @@ class PinnedTests(GoStub):
         tests = all_pins()
         del tests[("internal/backend", "TestComfyCLIStopRefusesAComfyUIThatHorusDidNotStart")]
         self.module(tests)
-        ok, detail = r.pinned_tests(phase3.PINNED3["mac-backend"])
+        ok, detail = r.pinned_tests(pins("phase3", "mac-backend"))
         self.assertFalse(ok)
         self.assertIn("TestComfyCLIStopRefusesAComfyUIThatHorusDidNotStart (not in internal/backend, T2)", detail)
 
@@ -193,7 +232,7 @@ class PinnedTests(GoStub):
         tests = all_pins()
         tests[("internal/platform", "TestInTCCFolder")] = ""
         self.module(tests)
-        ok, detail = r.pinned_tests(phase3.PINNED3["tcc-folders"])
+        ok, detail = r.pinned_tests(pins("phase3", "tcc-folders"))
         self.assertFalse(ok)
         self.assertIn("TestInTCCFolder (asserts nothing", detail)
 
@@ -201,7 +240,7 @@ class PinnedTests(GoStub):
         tests = all_pins()
         tests[("internal/comfy", "TestJobErrorOfTheMPSOutOfMemoryText")] = 't.Skip("later")\n\t' + GOOD
         self.module(tests)
-        ok, detail = r.pinned_tests(phase3.PINNED3["out-of-memory"])
+        ok, detail = r.pinned_tests(pins("phase3", "out-of-memory"))
         self.assertFalse(ok)
         self.assertIn("TestJobErrorOfTheMPSOutOfMemoryText (did not pass", detail)
 
@@ -209,7 +248,7 @@ class PinnedTests(GoStub):
         tests = all_pins()
         tests[("cmd/horus", "TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps")] = 't.Fatal("red")'
         self.module(tests)
-        ok, detail = r.pinned_tests(phase3.PINNED3["mac-setup"])
+        ok, detail = r.pinned_tests(pins("phase3", "mac-setup"))
         self.assertFalse(ok)
         self.assertIn("TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps (did not pass", detail)
 
@@ -218,7 +257,7 @@ class PinnedTests(GoStub):
         del tests[("internal/platform", "TestInTCCFolder")]
         tests[("internal/platform", "TestInTCCFolderOther")] = GOOD
         self.module(tests)
-        ok, detail = r.pinned_tests(phase3.PINNED3["tcc-folders"])
+        ok, detail = r.pinned_tests(pins("phase3", "tcc-folders"))
         self.assertFalse(ok)
         self.assertIn("TestInTCCFolder (not in internal/platform", detail)
 
@@ -231,12 +270,12 @@ class Rows3OnGo(GoStub):
         r._CI_CACHE.clear()
         try:
             r.ci_jobs = lambda sha: (jobs(go_darwin_arm64="failure"), "")
-            ok, detail = phase3.row3_mac_backend(ns(no_ci=False))
+            ok, detail = row("phase3", "mac-backend")(ns(no_ci=False))
             self.assertFalse(ok)
             self.assertIn("go darwin/arm64 (failure)", detail)
             r._CI_CACHE.clear()
             r.ci_jobs = lambda sha: (jobs(), "")
-            ok, detail = phase3.row3_mac_backend(ns(no_ci=False))
+            ok, detail = row("phase3", "mac-backend")(ns(no_ci=False))
             self.assertTrue(ok, detail)
             self.assertIn("real part not run", detail)
         finally:
@@ -248,7 +287,7 @@ class Rows3OnGo(GoStub):
         old = r.this_os
         r.this_os = lambda: "win32"
         try:
-            ok, detail = phase3.row3_mac_backend(ns(real=True))
+            ok, detail = row("phase3", "mac-backend")(ns(real=True))
         finally:
             r.this_os = old
         self.assertFalse(ok)
@@ -258,13 +297,13 @@ class Rows3OnGo(GoStub):
         tests = all_pins()
         del tests[("internal/settings", "TestComfyDirDefaultIsTheFolderOfPlatform")]
         self.module(tests)
-        ok, detail = phase3.row3_mac_setup(ns())
+        ok, detail = row("phase3", "mac-setup")(ns())
         self.assertFalse(ok)
         self.assertIn("TestComfyDirDefaultIsTheFolderOfPlatform", detail)
 
     def test_tcc_folders_with_only_the_default_folder_test_names_the_warn_tests(self):  # the state after T1
         self.module({("internal/platform", "TestDefaultComfyDirOfEachOS"): GOOD})
-        ok, detail = phase3.row3_tcc(ns())
+        ok, detail = row("phase3", "tcc-folders")(ns())
         self.assertFalse(ok)
         for name in ("TestInTCCFolder", "TestTCCCheckWarnsForEachPathInATCCFolder", "TestDoctorWarnLinesKeepExitCodeZero"):
             self.assertIn(name, detail)
@@ -274,29 +313,29 @@ class Rows3OnGo(GoStub):
         tests = all_pins()
         tests[("cmd/horus", "TestImageMPSOutOfMemoryThroughTheAdapter")] = 'if 1 != 1 {\n\t\tt.Fatal("CUDA out of memory")\n\t}'
         self.module(tests)
-        ok, detail = phase3.row3_oom(ns())
+        ok, detail = row("phase3", "out-of-memory")(ns())
         self.assertFalse(ok)
         self.assertIn("TestImageMPSOutOfMemoryThroughTheAdapter (has no text 'MPS backend out of memory'", detail)
         self.module(all_pins())
-        self.assertTrue(phase3.row3_oom(ns())[0])
+        self.assertTrue(row("phase3", "out-of-memory")(ns())[0])
 
     def test_one_config_fails_on_the_old_mcp_json_and_on_missing_tests(self):
         self.module(all_pins())
         (self.root / ".mcp.json").write_text(OLD_MCP_JSON, encoding="utf-8")
-        ok, detail = phase3.row3_one_config(ns())
+        ok, detail = row("phase3", "one-config")(ns())
         self.assertFalse(ok)
         self.assertIn("2 Windows-only paths", detail)
         (self.root / ".mcp.json").write_text(NEW_MCP_JSON, encoding="utf-8")
-        ok, detail = phase3.row3_one_config(ns())
+        ok, detail = row("phase3", "one-config")(ns())
         self.assertTrue(ok, detail)
         (self.root / "cmd" / "horus" / "x_test.go").unlink()
-        ok, detail = phase3.row3_one_config(ns())
+        ok, detail = row("phase3", "one-config")(ns())
         self.assertFalse(ok)
         self.assertIn("TestComfyMCPPassesTheStreamsComfyBinAndTheExitCode", detail)
 
     def test_one_config_without_mcp_json_fails(self):
         self.module(all_pins())
-        ok, detail = phase3.row3_one_config(ns())
+        ok, detail = row("phase3", "one-config")(ns())
         self.assertFalse(ok)
         self.assertIn("missing: .mcp.json", detail)
 
@@ -541,12 +580,12 @@ class SameBehaviour3(unittest.TestCase):
         r._CI_CACHE.clear()
         return Patch(row_contract=lambda a, *r: f["contract"], run=run, go_exe=lambda: "go",
                      go_test_ran=lambda p, n=None: f["archtest"], go_test_count=lambda: f["count"],
-                     changed_contract_files=lambda base="": f["changed"], allow_files=lambda: f["allow"],
+                     changed_files=lambda base, paths: f["changed"], allow_files=lambda: f["allow"],
                      ci_jobs=lambda sha: (f["jobs"], ""))
 
     def check(self, **kw):
         with self.facts(**kw):
-            return phase3.row3_same(ns(no_ci=False))
+            return row("phase3", "same-behaviour")(ns(no_ci=False))
 
     def test_all_good_passes(self):
         ok, detail = self.check()
@@ -563,33 +602,34 @@ class SameBehaviour3(unittest.TestCase):
     def test_real_on_windows_runs_the_phase_2_rows(self):
         with self.facts(), Patch(this_os=lambda: "win32", row2_backend=lambda a: (False, "needs the 8189 ComfyUI"),
                                  row2_commands=lambda a: (True, "0 FAIL lines")):
-            ok, detail = phase3.row3_same(ns(no_ci=False, real=True))
+            ok, detail = row("phase3", "same-behaviour")(ns(no_ci=False, real=True))
         self.assertFalse(ok)
         self.assertIn("backend: FAIL", detail)
 
 
 class JudgeJobsStrict(unittest.TestCase):
     def test_a_red_job_that_the_row_does_not_name_fails(self):  # the CI hole of issue #81
-        ok, detail = r.judge_jobs_strict(jobs(go_linux_amd64="failure"), phase3.MAC_BACKEND_JOBS)
+        ok, detail = r.judge_jobs_strict(jobs(go_linux_amd64="failure"), MAC_BACKEND_JOBS)
         self.assertFalse(ok)
         self.assertIn("go linux/amd64 (failure)", detail)
 
     def test_a_skipped_job_that_the_row_does_not_name_is_no_failure(self):
-        self.assertTrue(r.judge_jobs_strict(jobs(go_linux_amd64="skipped"), phase3.MAC_BACKEND_JOBS)[0])
+        self.assertTrue(r.judge_jobs_strict(jobs(go_linux_amd64="skipped"), MAC_BACKEND_JOBS)[0])
 
     def test_the_named_job_must_be_there(self):
-        ok, detail = r.judge_jobs_strict(jobs(go_darwin_arm64=None), phase3.MAC_BACKEND_JOBS)
+        ok, detail = r.judge_jobs_strict(jobs(go_darwin_arm64=None), MAC_BACKEND_JOBS)
         self.assertFalse(ok)
         self.assertIn("go darwin/arm64 (missing)", detail)
 
 
 class Main3(unittest.TestCase):
     def test_every_row_has_a_check_and_a_row_never_raises(self):
-        self.assertEqual(list(phase3.CHECKS), phase3.ROWS)
-        self.assertEqual(len(phase3.ROWS), 8)
+        self.assertEqual(len(SUITES["phase3"]["rows"]), 8)
+        for x in SUITES["phase3"]["rows"]:
+            self.assertTrue(x["parts"], x["name"])
 
     def test_every_pinned_name_is_unique_in_its_package_and_names_a_task(self):
-        for pins in phase3.PINNED3.values():
+        for pins in pinned_map("phase3").values():
             for pkg, name, task in pins:
                 self.assertRegex(name, r"^Test[A-Z]\w+$")
                 self.assertIn(task, ("T1", "T2", "T3", "T4", "T5"))
@@ -608,7 +648,7 @@ FRESH_GOOD = "run-name: x\n    run: " + phase4.INSTALL_LINES[0] + "\n    run: " 
 
 def all_pins4(skip=()):
     seen = {}
-    for pins in phase4.PINNED4.values():
+    for pins in pinned_map("phase4").values():
         for pkg, name, _ in pins:
             if name not in skip:
                 seen[(pkg, name)] = GOOD4
@@ -630,13 +670,14 @@ def jobs4(**overrides):
 
 class Rows4Shape(unittest.TestCase):
     def test_eight_rows_each_with_a_check(self):
-        self.assertEqual(list(phase4.CHECKS), phase4.ROWS)
-        self.assertEqual(len(phase4.ROWS), 8)
+        self.assertEqual(len(SUITES["phase4"]["rows"]), 8)
+        for x in SUITES["phase4"]["rows"]:
+            self.assertTrue(x["parts"], x["name"])
 
     def test_every_pin_is_unique_and_names_a_task(self):
         seen = set()
-        for row, pins in phase4.PINNED4.items():
-            self.assertIn(row, phase4.ROWS)
+        for row, pins in pinned_map("phase4").items():
+            self.assertIn(row, [x["name"] for x in SUITES["phase4"]["rows"]])
             for pkg, name, task in pins:
                 self.assertRegex(name, r"^Test[A-Z]\w+$")
                 self.assertIn(task, ("T1", "T2", "T4", "T5", "T6", "T7"))
@@ -725,13 +766,13 @@ class FileRows4(GoStub):
 @unittest.skipUnless(r.go_exe(), "needs the go program")
 class Rows4OnGo(FileRows4):
     def test_each_go_row_passes_with_all_pins_and_fails_without_one(self):
-        rows = {"binary-only": phase4.row4_binary_only, "uninstall": phase4.row4_uninstall, "register": phase4.row4_register}
+        rows = {"binary-only": row("phase4", "binary-only"), "uninstall": row("phase4", "uninstall"), "register": row("phase4", "register")}
         self.module(all_pins4())
         for name, check in rows.items():
             ok, detail = check(ns(phase=4))
             self.assertTrue(ok, f"{name}: {detail}")
         for name, check in rows.items():
-            victim = phase4.PINNED4[name][0]
+            victim = pins("phase4", name)[0]
             self.module(all_pins4(skip=(victim[1],)))
             ok, detail = check(ns(phase=4))
             self.assertFalse(ok, name)
@@ -740,7 +781,7 @@ class Rows4OnGo(FileRows4):
 
     def test_an_empty_package_fails_the_row(self):
         self.module({}, empty_pkgs=["internal/provision", "internal/backend", "internal/platform", "cmd/horus"])
-        ok, detail = phase4.row4_uninstall(ns(phase=4))
+        ok, detail = row("phase4", "uninstall")(ns(phase=4))
         self.assertFalse(ok)
         self.assertIn("internal/provision has no test files", detail)
 
@@ -748,7 +789,7 @@ class Rows4OnGo(FileRows4):
         tests = all_pins4()
         tests[("internal/cli", "TestRegisterAnotherClientNameExitsTwo")] = ""
         self.module(tests)
-        ok, detail = phase4.row4_register(ns(phase=4))
+        ok, detail = row("phase4", "register")(ns(phase=4))
         self.assertFalse(ok)
         self.assertIn("TestRegisterAnotherClientNameExitsTwo (asserts nothing", detail)
 
@@ -761,17 +802,17 @@ class Rows4OnGo(FileRows4):
         r._CI_CACHE.clear()
         try:
             r.ci_jobs = lambda sha: (jobs4(release_build=None), "")
-            ok, detail = phase4.row4_release(ns(phase=4, no_ci=False))
+            ok, detail = row("phase4", "release")(ns(phase=4, no_ci=False))
             self.assertFalse(ok)
             self.assertIn("release-build (missing)", detail)
             r._CI_CACHE.clear()
             r.ci_jobs = lambda sha: (jobs4(), "")
-            ok, detail = phase4.row4_release(ns(phase=4, no_ci=False))
+            ok, detail = row("phase4", "release")(ns(phase=4, no_ci=False))
             self.assertTrue(ok, detail)
             self.assertIn("real part not run", detail)
             (self.root / phase4.RELEASE_FILES[2]).unlink()
             r._CI_CACHE.clear()
-            self.assertFalse(phase4.row4_release(ns(phase=4, no_ci=False))[0])
+            self.assertFalse(row("phase4", "release")(ns(phase=4, no_ci=False))[0])
         finally:
             r.ci_jobs = old
             r._CI_CACHE.clear()
@@ -783,12 +824,12 @@ class Rows4OnGo(FileRows4):
         r._CI_CACHE.clear()
         try:
             r.ci_jobs = lambda sha: (jobs4(install_macos_latest="failure"), "")
-            ok, detail = phase4.row4_install_line(ns(phase=4, no_ci=False))
+            ok, detail = row("phase4", "install-line")(ns(phase=4, no_ci=False))
             self.assertFalse(ok)
             self.assertIn("install macos-latest (failure)", detail)
             r._CI_CACHE.clear()
             r.ci_jobs = lambda sha: (jobs4(), "")
-            self.assertTrue(phase4.row4_install_line(ns(phase=4, no_ci=False))[0])
+            self.assertTrue(row("phase4", "install-line")(ns(phase=4, no_ci=False))[0])
         finally:
             r.ci_jobs = old
             r._CI_CACHE.clear()
@@ -796,14 +837,14 @@ class Rows4OnGo(FileRows4):
     def test_full_setup_needs_the_pins_and_22_codes(self):
         self.module(all_pins4())
         with Patch(error_codes_part=lambda a: (True, "horus errors -json lists 22 codes")):
-            self.assertTrue(phase4.row4_full_setup(ns(phase=4))[0])
+            self.assertTrue(row("phase4", "full-setup")(ns(phase=4))[0])
         with Patch(error_codes_part=lambda a: (False, "horus errors -json lists 21 codes, needs 22")):
-            ok, detail = phase4.row4_full_setup(ns(phase=4))
+            ok, detail = row("phase4", "full-setup")(ns(phase=4))
         self.assertFalse(ok)
         self.assertIn("21 codes", detail)
         self.module(all_pins4(skip=("TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps",)))
         with Patch(error_codes_part=lambda a: (True, "22")):
-            ok, detail = phase4.row4_full_setup(ns(phase=4))
+            ok, detail = row("phase4", "full-setup")(ns(phase=4))
         self.assertFalse(ok)
         self.assertIn("TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps", detail)
 
@@ -928,13 +969,13 @@ class FreshRun(unittest.TestCase):
 
 class RealParts4(unittest.TestCase):
     def test_real_part_not_run_without_real_and_run_with_it(self):
-        ok, detail = phase4.with_real4(ns(phase=4), True, "x", lambda a: (False, "no release"))
+        ok, detail = r.join_real(ns(phase=4), True, "x", lambda a: (False, "no release"), "on the PC after the release")
         self.assertTrue(ok)
         self.assertIn("real part not run", detail)
-        ok, detail = phase4.with_real4(ns(phase=4, real=True), True, "x", lambda a: (False, "no release"))
+        ok, detail = r.join_real(ns(phase=4, real=True), True, "x", lambda a: (False, "no release"), "on the PC after the release")
         self.assertFalse(ok)
         self.assertEqual(detail, "x; real: no release")
-        self.assertEqual(phase4.with_real4(ns(phase=4, real=True), False, "x", lambda a: (True, "y")), (False, "x"))
+        self.assertEqual(r.join_real(ns(phase=4, real=True), False, "x", lambda a: (True, "y"), "on the PC after the release"), (False, "x"))
 
     def test_a_row_with_real_fails_when_there_is_no_release(self):
         with Patch(release_assets=lambda a: (None, "", "no release")):
@@ -984,12 +1025,12 @@ class SameBehaviour4(unittest.TestCase):
         r._CI_CACHE.clear()
         return Patch(contract_names_part=lambda a: f["contract"], run=run, go_exe=lambda: "go",
                      go_test_ran=lambda p, n=None: f["archtest"], go_test_count=lambda: f["count"],
-                     frozen_files4=lambda: f["changed"], allow_files=lambda: f["allow"],
+                     changed_files=lambda base, paths: f["changed"], allow_files=lambda: f["allow"],
                      ci_jobs=lambda sha: (f["jobs"], ""))
 
     def check(self, **kw):
         with self.facts(**kw):
-            return phase4.row4_same(ns(phase=4, no_ci=False))
+            return row("phase4", "same-behaviour")(ns(phase=4, no_ci=False))
 
     def test_all_good_passes(self):
         ok, detail = self.check()

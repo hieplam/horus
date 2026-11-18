@@ -1,0 +1,153 @@
+# Phase 4: release, install line, full setup and uninstall. Tasks T1 to T7 write the pinned tests with
+# exactly these names. A task may rename a pin only by changing this file in its own pull request.
+
+title = "release, install line, full setup and uninstall"
+spec = "docs/specs/2026-11-15-release-install.md"
+real_where = "on the PC after the release"
+real_needs = "on the PC after the release"
+
+[[rows]]
+name = "release"
+
+[[rows.parts]]
+check = "phase4.release_files_part"
+
+[[rows.parts]]
+check = "go_pinned_tests"
+pins = [
+  ["cmd/horus", "TestVersionPrintsTheVersionOfTheLinkerFlag", "T1"],
+  ["internal/mcpserver", "TestServerInfoVersionIsTheVersionOfTheBuild", "T1"],
+]
+
+[[rows.parts]]
+check = "ci_green"
+jobs = ["release-build"]
+
+[rows.real]
+check = "phase4.real_release"
+
+[[rows]]
+name = "install-line"
+
+[[rows.parts]]
+check = "phase4.install_files_part"
+
+[[rows.parts]]
+check = "ci_green"
+jobs = ["install windows-latest", "install macos-latest"]
+
+[rows.real]
+check = "phase4.real_fresh"
+
+[[rows]]
+name = "binary-only"
+
+[[rows.parts]]
+check = "go_pinned_tests"
+pins = [
+  ["cmd/horus", "TestWorkflowListWithoutAClonePrintsTheBuiltInWorkflows", "T2"],
+  ["cmd/horus", "TestListWorkflowsOfTheMCPServerWithoutAClonePrintsTheBuiltInWorkflows", "T2"],
+  ["internal/settings", "TestEnvFileOfTheUserFolderGivesASetting", "T2"],
+  ["internal/settings", "TestOutputDirWithoutACloneIsTheOutputsFolderOfTheUserFolder", "T2"],
+  ["internal/settings", "TestHorusWorkflowsDirReplacesTheBuiltInWorkflows", "T2"],
+  ["internal/settings", "TestAFolderWithOnlyAWorkflowsFolderIsNotAClone", "T2"],
+]
+
+[[rows]]
+name = "full-setup"
+
+[[rows.parts]]
+check = "go_pinned_tests"
+pins = [
+  ["internal/provision", "TestPlanOfAnEmptyMachineListsTheStepsInTheOrderOfTheSpec", "T4"],
+  ["internal/provision", "TestPlanWithoutAPackageManagerHasAStepForAPerson", "T4"],
+  ["cmd/horus", "TestSetupYesWithoutWithPackagesRunsNoProgramAndExitsOne", "T4"],
+  ["cmd/horus", "TestSetupYesWithPackagesRunsTheFakePackageManagerThenAPlanHasZeroSteps", "T4"],
+  ["cmd/horus", "TestSetupYesWithoutAPackageManagerRunsNothingAndExitsOne", "T4"],
+  ["internal/mcpserver", "TestInstallWorkflowWithoutAcceptSetupAnswersSetupConfirmationRequired", "T5"],
+  ["internal/mcpserver", "TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps", "T5"],
+]
+
+[[rows.parts]]
+check = "phase4.error_codes_part"
+
+[rows.real]
+check = "phase4.real_fresh"
+
+[[rows]]
+name = "uninstall"
+
+[[rows.parts]]
+check = "go_pinned_tests"
+pins = [
+  ["internal/provision", "TestUninstallPlanWithoutYesChangesNothing", "T7"],
+  ["internal/provision", "TestUninstallYesRemovesEachRemoveItem", "T7"],
+  ["internal/provision", "TestUninstallKeepsAFolderWithoutAnInstallRecord", "T7"],
+  ["internal/provision", "TestUninstallKeepsTheEnvFileAndTheOutputsFolder", "T7"],
+  ["internal/provision", "TestUninstallModelsLeavesComfyUIAndTheRegistration", "T7"],
+  ["internal/provision", "TestUninstallMCPLeavesTheFiles", "T7"],
+  ["internal/provision", "TestUninstallKeepsAComfyUIThatAnswersAndHorusDidNotStart", "T7"],
+  ["internal/provision", "TestUninstallRunsMCPRemoveOfBothClients", "T7"],
+  ["internal/backend", "TestInstallWritesTheInstallRecord", "T7"],
+  ["internal/platform", "TestPathEntryOfTheInstallerIsRemoved", "T7"],
+  ["internal/platform", "TestTheProgramFileRemovesItself", "T7"],
+  ["cmd/horus", "TestSetupThenUninstallLeavesOnlyTheKeptItems", "T7"],
+]
+
+[rows.real]
+check = "phase4.real_fresh"
+
+[[rows]]
+name = "register"
+
+[[rows.parts]]
+check = "go_pinned_tests"
+pins = [
+  ["internal/provision", "TestRegisterClaudeRunsMCPAddWithTheArgumentsOfTheSpec", "T6"],
+  ["internal/provision", "TestRegisterClaudeSkipsOnASecondRun", "T6"],
+  ["internal/provision", "TestRegisterCodexRunsMCPAddWithTheArgumentsOfTheSpec", "T6"],
+  ["internal/provision", "TestRegisterCodexSkipsWhenMCPGetExitsZero", "T6"],
+  ["internal/provision", "TestRegisterPassesNoHorusRootWithoutARepoRoot", "T6"],
+  ["internal/cli", "TestRegisterAnotherClientNameExitsTwo", "T6"],
+]
+
+[rows.real]
+check = "phase4.real_register"
+
+[[rows]]
+name = "readme"
+
+[[rows.parts]]
+check = "phase4.row4_readme"
+
+[[rows]]
+name = "same-behaviour"
+
+[[rows.parts]]
+check = "phase4.contract_names_part"
+
+[[rows.parts]]
+check = "parity"
+
+[[rows.parts]]
+check = "go_test_all"
+
+[[rows.parts]]
+check = "archtest"
+
+[[rows.parts]]
+check = "test_count"
+baseline = 250  # Go test functions at 38c1838, main before the first task of Phase 4
+
+[[rows.parts]]
+check = "no_changes"
+commit = "38c1838"
+paths = ["tests/workflow_parity.py", "tests/fixtures", "*golden*"]
+what = "parity or golden files"
+
+[[rows.parts]]
+check = "ci_green"
+jobs = ["contract windows-latest", "contract macos-latest", "workflow-parity windows-latest", "workflow-parity macos-latest", "go windows/amd64", "go darwin/arm64"]
+
+[rows.real]
+check = "phase4.real_same4"

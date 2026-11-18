@@ -1,17 +1,10 @@
-"""Phase 4: release, install line, full setup and uninstall (docs/specs/2026-11-15-release-install.md).
-
-The 8 goal rows: release, install-line, binary-only, full-setup, uninstall, register, readme,
-same-behaviour. The Go rows run the tests that PINNED4 pins by name, as Phase 3 does. A row whose
-code does not exist yet fails and its detail names what is missing (a file, a test name, a CI job, a
-code count). Unless --no-ci, release needs the CI job "release-build" and install-line the jobs
-"install <os>". Without --real, a row stands on its part without --real and its detail says "real
-part not run". With --real (on the PC, after the release), release downloads the 3 assets of the
-newest release and checks each SHA-256 and "horus version". install-line, full-setup and uninstall
-need the newest run of fresh-machine.yml with source=release (run-name "fresh-machine source=release
-tag=<tag>") green on both runners. register runs the real codex with CODEX_HOME in a scratch folder.
-same-behaviour makes one real image from the downloaded Windows asset (HORUS_COMFYUI_URL must name
-port 8189).
-"""
+"""The checks that only the suite phase4 needs (tools/suites/phase4.toml): release, install line,
+full setup and uninstall, docs/specs/2026-11-15-release-install.md. With --real (on the PC, after the
+release), real_release downloads the 3 assets of the newest release and checks each SHA-256 and
+"horus version". real_fresh needs the newest run of fresh-machine.yml with source=release (run-name
+"fresh-machine source=release tag=<tag>") green on both runners. real_register runs the real codex
+with CODEX_HOME in a scratch folder. real_same4 makes one real image from the downloaded Windows asset
+(HORUS_COMFYUI_URL must name port 8189)."""
 
 from __future__ import annotations
 
@@ -24,79 +17,20 @@ import sys
 import time
 from pathlib import Path
 
-import goal_runner as r
-from suites import common
+from checks import base as r
+from checks import horus
 
-TITLE = "release, install line, full setup and uninstall"
-SPEC = "docs/specs/2026-11-15-release-install.md"
-REAL_WHERE = "on the PC after the release"
-BASELINE_COMMIT4 = "38c1838"  # main before the first task of Phase 4; the parity test and the golden files are compared with it
-BASELINE_TESTS4 = 250  # Go test functions at BASELINE_COMMIT4 (go test -list . ./...)
-CONTRACT_NAMES4 = r.TOOLS / "phase4_contract_checks.txt"  # the 30 contract checks at BASELINE_COMMIT4, one name per line
+CONTRACT_NAMES4 = r.TOOLS / "phase4_contract_checks.txt"  # the 30 contract checks before Phase 4 (commit 38c1838), one name per line
 ERROR_CODES4 = 22  # horus errors -json after T5 (21 at the baseline)
 REAL_PORT4 = "8189"  # a real image of Phase 4 uses this port only: the ComfyUI of the owner on 8188 gets no job
 RELEASE_ASSETS = ["horus-windows-amd64.exe", "horus-darwin-arm64", "checksums.txt"]
 RELEASE_FILES = ["release-please-config.json", ".release-please-manifest.json", ".github/workflows/release.yml"]
 RELEASE_SETTINGS = ["bump-minor-pre-major", "bump-patch-for-minor-pre-major"]  # the two 0.x settings of release-please
-RELEASE_JOBS = ["release-build"]
-INSTALL_JOBS = [f"install {o}" for o in common.CI_OSES]
 INSTALL_SCRIPTS = ["install.sh", "install.ps1"]
 INSTALL_LINES = ["curl -fsSL https://raw.githubusercontent.com/hieplam/horus/main/install.sh | sh",
                  "irm https://raw.githubusercontent.com/hieplam/horus/main/install.ps1 | iex"]
 FRESH_WORKFLOW = ".github/workflows/fresh-machine.yml"
-# The Go tests that the rows of Phase 4 pin: (package folder, test name, the task that writes it).
-# Tasks T1 to T7 write tests with exactly these names (the list is in the evidence log, section T0).
-# A task may rename a pin only by changing this table in its own pull request.
-PINNED4 = {
-    "release": [
-        ("cmd/horus", "TestVersionPrintsTheVersionOfTheLinkerFlag", "T1"),
-        ("internal/mcpserver", "TestServerInfoVersionIsTheVersionOfTheBuild", "T1"),
-    ],
-    "binary-only": [
-        ("cmd/horus", "TestWorkflowListWithoutAClonePrintsTheBuiltInWorkflows", "T2"),
-        ("cmd/horus", "TestListWorkflowsOfTheMCPServerWithoutAClonePrintsTheBuiltInWorkflows", "T2"),
-        ("internal/settings", "TestEnvFileOfTheUserFolderGivesASetting", "T2"),
-        ("internal/settings", "TestOutputDirWithoutACloneIsTheOutputsFolderOfTheUserFolder", "T2"),
-        ("internal/settings", "TestHorusWorkflowsDirReplacesTheBuiltInWorkflows", "T2"),
-        ("internal/settings", "TestAFolderWithOnlyAWorkflowsFolderIsNotAClone", "T2"),
-    ],
-    "full-setup": [
-        ("internal/provision", "TestPlanOfAnEmptyMachineListsTheStepsInTheOrderOfTheSpec", "T4"),
-        ("internal/provision", "TestPlanWithoutAPackageManagerHasAStepForAPerson", "T4"),
-        ("cmd/horus", "TestSetupYesWithoutWithPackagesRunsNoProgramAndExitsOne", "T4"),
-        ("cmd/horus", "TestSetupYesWithPackagesRunsTheFakePackageManagerThenAPlanHasZeroSteps", "T4"),
-        ("cmd/horus", "TestSetupYesWithoutAPackageManagerRunsNothingAndExitsOne", "T4"),
-        ("internal/mcpserver", "TestInstallWorkflowWithoutAcceptSetupAnswersSetupConfirmationRequired", "T5"),
-        ("internal/mcpserver", "TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps", "T5"),
-    ],
-    "uninstall": [
-        ("internal/provision", "TestUninstallPlanWithoutYesChangesNothing", "T7"),
-        ("internal/provision", "TestUninstallYesRemovesEachRemoveItem", "T7"),
-        ("internal/provision", "TestUninstallKeepsAFolderWithoutAnInstallRecord", "T7"),
-        ("internal/provision", "TestUninstallKeepsTheEnvFileAndTheOutputsFolder", "T7"),
-        ("internal/provision", "TestUninstallModelsLeavesComfyUIAndTheRegistration", "T7"),
-        ("internal/provision", "TestUninstallMCPLeavesTheFiles", "T7"),
-        ("internal/provision", "TestUninstallKeepsAComfyUIThatAnswersAndHorusDidNotStart", "T7"),
-        ("internal/provision", "TestUninstallRunsMCPRemoveOfBothClients", "T7"),
-        ("internal/backend", "TestInstallWritesTheInstallRecord", "T7"),
-        ("internal/platform", "TestPathEntryOfTheInstallerIsRemoved", "T7"),
-        ("internal/platform", "TestTheProgramFileRemovesItself", "T7"),
-        ("cmd/horus", "TestSetupThenUninstallLeavesOnlyTheKeptItems", "T7"),
-    ],
-    "register": [
-        ("internal/provision", "TestRegisterClaudeRunsMCPAddWithTheArgumentsOfTheSpec", "T6"),
-        ("internal/provision", "TestRegisterClaudeSkipsOnASecondRun", "T6"),
-        ("internal/provision", "TestRegisterCodexRunsMCPAddWithTheArgumentsOfTheSpec", "T6"),
-        ("internal/provision", "TestRegisterCodexSkipsWhenMCPGetExitsZero", "T6"),
-        ("internal/provision", "TestRegisterPassesNoHorusRootWithoutARepoRoot", "T6"),
-        ("internal/cli", "TestRegisterAnotherClientNameExitsTwo", "T6"),
-    ],
-}
 _RELEASE_CACHE: dict[str, tuple] = {}
-
-
-def with_real4(a: argparse.Namespace, ok: bool, detail: str, real) -> tuple[bool, str]:
-    return r.join_real(a, ok, detail, real, "on the PC after the release")
 
 
 def find_key(node, key: str) -> list:
@@ -222,12 +156,6 @@ def real_release(a: argparse.Namespace) -> tuple[bool, str]:
     return True, f"release {tag}: 3 assets, each SHA-256 equal to its line, '{want}'"
 
 
-def row4_release(a: argparse.Namespace) -> tuple[bool, str]:
-    parts = [release_files_part(), r.pinned_tests(PINNED4["release"]), r.ci_part(a, RELEASE_JOBS)]
-    ok, detail = r.join_parts(parts)
-    return with_real4(a, ok, detail, real_release)
-
-
 def pick_fresh_run(runs: list[dict]) -> dict | None:
     """The newest run of fresh-machine.yml with the real release as its source. The run-name of the
     workflow is 'fresh-machine source=<build|release> tag=<tag>', and gh lists the newest run first."""
@@ -249,13 +177,13 @@ def judge_fresh(runs: list[dict], jobs_of, tag: str) -> tuple[bool, str]:
         return False, f"the run '{title}' is {run.get('conclusion') or run.get('status') or 'unknown'}"
     jobs = jobs_of(run["databaseId"])
     bad = []
-    for os_name in common.CI_OSES:
+    for os_name in horus.CI_OSES:
         hit = [j for j in jobs if os_name in j.get("name", "")]
         if not hit or any(j.get("conclusion") != "success" for j in hit):
             bad.append(os_name)
     if bad:
         return False, f"the run '{title}' has no green job on " + ", ".join(bad)
-    return True, f"fresh-machine run '{title}' is green on " + " and ".join(common.CI_OSES)
+    return True, f"fresh-machine run '{title}' is green on " + " and ".join(horus.CI_OSES)
 
 
 def real_fresh(a: argparse.Namespace) -> tuple[bool, str]:
@@ -284,18 +212,9 @@ def real_fresh(a: argparse.Namespace) -> tuple[bool, str]:
     return judge_fresh(runs, jobs_of, tag)
 
 
-def row4_install_line(a: argparse.Namespace) -> tuple[bool, str]:
-    ok, detail = r.join_parts([install_files_part(), r.ci_part(a, INSTALL_JOBS)])
-    return with_real4(a, ok, detail, real_fresh)
-
-
-def row4_binary_only(a: argparse.Namespace) -> tuple[bool, str]:
-    return r.pinned_tests(PINNED4["binary-only"])
-
-
 def error_codes_part(a: argparse.Namespace) -> tuple[bool, str]:
     """horus errors -json lists ERROR_CODES4 codes (the new code SETUP_CONFIRMATION_REQUIRED, task T5)."""
-    exe = common.horus_exe(a)
+    exe = horus.horus_exe(a)
     if not shutil.which(exe) and not Path(exe).is_file():
         return False, f"horus errors -json: program not found: {exe}"
     code, out = r.run([exe, "errors", "-json"], timeout=60)
@@ -308,23 +227,13 @@ def error_codes_part(a: argparse.Namespace) -> tuple[bool, str]:
     return n == ERROR_CODES4, f"horus errors -json lists {n} codes" + ("" if n == ERROR_CODES4 else f", needs {ERROR_CODES4}")
 
 
-def row4_full_setup(a: argparse.Namespace) -> tuple[bool, str]:
-    ok, detail = r.join_parts([r.pinned_tests(PINNED4["full-setup"]), error_codes_part(a)])
-    return with_real4(a, ok, detail, real_fresh)
-
-
-def row4_uninstall(a: argparse.Namespace) -> tuple[bool, str]:
-    ok, detail = r.pinned_tests(PINNED4["uninstall"])
-    return with_real4(a, ok, detail, real_fresh)
-
-
 def real_register(a: argparse.Namespace) -> tuple[bool, str]:
     """horus register -client codex with CODEX_HOME in a scratch folder, then codex mcp get horus.
     The real config of the owner is never touched."""
     codex = shutil.which("codex")
     if not codex:
         return False, "codex not found"
-    exe = common.horus_exe(a)
+    exe = horus.horus_exe(a)
     scratch = r.ROOT / ".scratch" / f"codex-home-{time.strftime('%Y%m%d-%H%M%S')}"
     scratch.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, CODEX_HOME=str(scratch))
@@ -335,11 +244,6 @@ def real_register(a: argparse.Namespace) -> tuple[bool, str]:
     if code != 0:
         return False, f"codex mcp get horus: exit {code}: {r.last_line(out)}"
     return True, f"horus register -client codex, then codex mcp get horus exits 0 (CODEX_HOME {scratch})"
-
-
-def row4_register(a: argparse.Namespace) -> tuple[bool, str]:
-    ok, detail = r.pinned_tests(PINNED4["register"])
-    return with_real4(a, ok, detail, real_register)
 
 
 def readme_sections(text: str) -> list[str]:
@@ -403,7 +307,7 @@ def contract_names_part(a: argparse.Namespace) -> tuple[bool, str]:
     """The contract test passes with at least CONTRACT_CHECKS checks, and each of the 30 baseline checks is in
     its output with PASS. The count may grow; the names may not go away."""
     cmd = a.server_cmd or ["horus", "mcp"]
-    if common.server_missing(cmd):
+    if horus.server_missing(cmd):
         return False, f"contract: server command not found: {cmd[0]}"
     try:
         names = [ln.strip() for ln in CONTRACT_NAMES4.read_text(encoding="utf-8").splitlines() if ln.strip()]
@@ -415,7 +319,7 @@ def contract_names_part(a: argparse.Namespace) -> tuple[bool, str]:
         return False, f"contract: no result line ({r.last_line(out)})"
     passed = {ln[len("PASS  "):].strip() for ln in out.splitlines() if ln.startswith("PASS  ")}
     lacking = [n for n in names if n not in passed]
-    checks = common.CONTRACT_CHECKS
+    checks = horus.CONTRACT_CHECKS
     ok = code == 0 and m.group(1) == m.group(2) and int(m.group(2)) >= max(len(names), checks) and not lacking
     detail = f"contract: {m.group(1)} of {m.group(2)}, {len(names) - len(lacking)} of {len(names)} baseline checks pass"
     if int(m.group(2)) < checks:
@@ -425,17 +329,11 @@ def contract_names_part(a: argparse.Namespace) -> tuple[bool, str]:
     return ok, detail
 
 
-def frozen_files4() -> list[str] | str:
-    """Files of the parity test (and its fixtures and golden files) that differ from the baseline.
-    tests/mcp_contract.py is left out: task T5 adds checks there, and contract_names_part guards the old ones."""
-    return common.changed_files(BASELINE_COMMIT4, ["tests/workflow_parity.py", "tests/fixtures", "*golden*"])
-
-
 def real_same4(a: argparse.Namespace) -> tuple[bool, str]:
     """One real image through MCP from the downloaded Windows asset, on port 8189 only."""
     if r.this_os() != "win32":
         return False, f"the real image needs the PC (this machine: {r.this_os()})"
-    url = common.comfy_url()
+    url = horus.comfy_url()
     if not url.endswith(":" + REAL_PORT4):
         return False, f"HORUS_COMFYUI_URL is {url}; set it to a ComfyUI on port {REAL_PORT4} (the ComfyUI of the owner on 8188 gets no job)"
     folder, tag, why = release_assets(a)
@@ -445,20 +343,5 @@ def real_same4(a: argparse.Namespace) -> tuple[bool, str]:
     if bad:
         return False, f"release {tag}: " + ", ".join(bad)
     img = argparse.Namespace(**{**vars(a), "server_cmd": [str(folder / RELEASE_ASSETS[0]), "mcp"]})
-    ok, detail, _ = common.real_image(img)
+    ok, detail, _ = horus.real_image(img)
     return ok, f"{detail} (program of release {tag})" if ok else detail
-
-
-def row4_same(a: argparse.Namespace) -> tuple[bool, str]:
-    parts = [contract_names_part(a), common.parity_part(), common.go_test_all_part(), common.archtest_part(),
-             common.test_count_part(BASELINE_TESTS4),
-             common.changed_part(frozen_files4(), "parity or golden files"),
-             r.ci_part(a, common.SAME_BEHAVIOUR_JOBS)]
-    ok, detail = r.join_parts(parts)
-    return with_real4(a, ok, detail, real_same4)
-
-
-ROWS = ["release", "install-line", "binary-only", "full-setup", "uninstall", "register", "readme", "same-behaviour"]
-CHECKS = {"release": row4_release, "install-line": row4_install_line, "binary-only": row4_binary_only,
-          "full-setup": row4_full_setup, "uninstall": row4_uninstall, "register": row4_register,
-          "readme": row4_readme, "same-behaviour": row4_same}

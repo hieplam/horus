@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/hieplam/horus/compare/v0.1.0...v0.1.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **doctor:** check comfy-mcp and .mcp.json only in a clone ([#174](https://github.com/hieplam/horus/issues/174)) ([a43763a](https://github.com/hieplam/horus/commit/a43763a3beda359d6500349e7fa3d3d984803e6f))
+
 ## 0.1.0 (2026-11-16)
 
 

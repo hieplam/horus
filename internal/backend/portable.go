@@ -5,7 +5,7 @@
 // the free disk space, download the archive (with resume), check its size and
 // SHA-256, unpack it with 7z.exe into a staging folder, move the top folder to
 // the install folder, delete the archive. The download uses net/http, not
-// curl.exe (evidence log of #4, G6).
+// curl.exe (docs/adr/0007-one-backend-interface-two-installs.md).
 //
 // Start: run the embedded Python with ComfyUI's main.py as the root of a
 // process tree (platform.StartTree), so ComfyUI keeps running after horus

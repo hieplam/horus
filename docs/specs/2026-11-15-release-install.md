@@ -2,8 +2,14 @@
 
 Date: 2026-11-15. Tracking issue of the whole goal:
 [#4](https://github.com/hieplam/horus/issues/4). Epic of this phase:
-[#134](https://github.com/hieplam/horus/issues/134). Plan:
-[`../plans/2026-11-15-release-install.md`](../plans/2026-11-15-release-install.md).
+[#134](https://github.com/hieplam/horus/issues/134).
+
+> **Record of a finished phase.** Since 2026-11-18 the plan file and the
+> evidence log of this phase are not in the tree
+> ([ADR 0020](../adr/0020-one-place-for-each-record-of-feature-work.md)). The
+> tasks are the issues of the epic, the proof of each task is in its pull
+> request, and the decisions are in [`../adr/`](../adr/README.md). Where this
+> page says "the evidence log", read `git show 763b1bd:docs/plans/2026-11-15-release-install-evidence.md`.
 
 ## What this phase delivers
 
@@ -67,15 +73,18 @@ decide anything, with one exception that the owner chose: **the owner
 publishes the release.** Task T10 waits for the owner, who turns on one
 repository setting and merges the pull request of release-please.
 
-Owner decisions of 2026-11-15:
+Owner decisions of 2026-11-15, each in its ADR:
 
-- **Phase 5 (the HTTP transport `horus serve`) does not start now.** The Go MCP
-  SDK v1.8.0 has no MCP tasks.
-- `install_workflow` runs the whole plan. No sixth tool.
-- horus installs 7-Zip and Python 3.12 itself, and only after a person
-  approves that step.
-- The real run on the Mac is a follow-up outside this epic. The oracle of
-  macOS is the runner `macos-latest`.
+- Phase 5 (the HTTP transport `horus serve`) does not start now:
+  [ADR 0003](../adr/0003-stdio-transport-http-later.md).
+- `install_workflow` runs the whole plan, and horus installs 7-Zip and
+  Python 3.12 itself only after a person approves that step:
+  [ADR 0011](../adr/0011-setup-through-mcp-needs-two-consents.md).
+- The owner publishes the release:
+  [ADR 0014](../adr/0014-who-merges-and-who-publishes.md).
+- The real run on the Mac is a follow-up outside this epic, and the oracle of
+  macOS is the runner `macos-latest`:
+  [ADR 0018](../adr/0018-real-runs-on-the-owners-machines.md).
 
 ## The design
 
@@ -300,5 +309,4 @@ New in this phase:
   by the owner in this phase.
 - **Secrets.** No workflow of this phase reads `HF_TOKEN`. No script prints an
   environment variable.
-- Decisions go to the "Decisions" section of the evidence log
-  [`../plans/2026-11-15-release-install-evidence.md`](../plans/2026-11-15-release-install-evidence.md).
+- Decisions go to the "Decisions" section of the evidence log.

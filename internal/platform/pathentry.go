@@ -19,7 +19,7 @@ import (
 )
 
 // ProfileMarker is the end of the line that install.sh writes into a profile
-// file (docs/plans/2026-11-15-release-install-evidence.md, "## T3").
+// file (docs/adr/0015-one-install-line.md).
 const ProfileMarker = "# added by the horus installer"
 
 // ProfileFiles are the profile files where install.sh can write its line,

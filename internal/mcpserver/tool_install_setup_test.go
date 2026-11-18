@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -237,12 +238,9 @@ func TestInstallWorkflowAsksTheSetupConsentBeforeTheLicense(t *testing.T) {
 // answers installed. A second call finds the workflow installed.
 func TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps(t *testing.T) {
 	m, svc := newEmptyMachine(t, true)
-	var mu sync.Mutex
-	var messages []string
+	got := make(chan string, 16)
 	cs := connect(t, New(&fakeImages{}, svc), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
-		mu.Lock()
-		messages = append(messages, r.Params.Message)
-		mu.Unlock()
+		got <- r.Params.Message
 	}})
 	params := &mcp.CallToolParams{Name: "install_workflow", Arguments: map[string]any{"workflow": "it-illustration", "accept_setup": true, "accept_license": true}}
 	params.SetProgressToken("tok-setup")
@@ -262,12 +260,17 @@ func TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps(t *testing.T) {
 	if !platform.IsFile(filepath.Join(m.comfy, "ComfyUI", "main.py")) || !platform.IsFile(filepath.Join(m.pkgDir, platform.ExeName("7z"))) {
 		t.Errorf("the install folder or 7-Zip is missing")
 	}
-	mu.Lock()
-	got := strings.Join(messages, "\n")
-	mu.Unlock()
+	// The client can run its notification handler after CallTool returns, so
+	// the test waits for each message (with a time limit).
+	var seen []string
 	for _, w := range []string{"setup step 1 of 2: install the system package 7-Zip: " + m.winget, "setup step 2 of 2: install ComfyUI in " + m.comfy} {
-		if !strings.Contains(got, w) {
-			t.Errorf("no progress message %q in:\n%s", w, got)
+		for !strings.Contains(strings.Join(seen, "\n"), w) {
+			select {
+			case msg := <-got:
+				seen = append(seen, msg)
+			case <-time.After(10 * time.Second):
+				t.Fatalf("no progress message %q in 10 seconds, got:\n%s", w, strings.Join(seen, "\n"))
+			}
 		}
 	}
 	env = envelopeOf(t, callTool(t, cs, "install_workflow", map[string]any{"workflow": "it-illustration"}))

@@ -2,8 +2,15 @@
 
 Date: 2026-11-12. Tracking issue of the whole goal:
 [#4](https://github.com/hieplam/horus/issues/4). Epic of this phase:
-[#98](https://github.com/hieplam/horus/issues/98). Plan:
-[`../plans/2026-11-12-macos-backend.md`](../plans/2026-11-12-macos-backend.md).
+[#98](https://github.com/hieplam/horus/issues/98).
+
+> **Record of a finished phase.** Since 2026-11-18 the plan file and the
+> evidence log of this phase are not in the tree
+> ([ADR 0020](../adr/0020-one-place-for-each-record-of-feature-work.md)). The
+> tasks are the issues of the epic, the proof of each task is in its pull
+> request, and the decisions are in [`../adr/`](../adr/README.md). Where this
+> page says "the evidence log", read `git show 763b1bd:docs/plans/2026-11-12-macos-backend-evidence.md`. The plan
+> was `docs/plans/2026-11-12-macos-backend.md` at the same commit.
 
 ## What this phase delivers
 
@@ -224,5 +231,4 @@ New in this phase:
 - A session on the Mac merges no pull request. It posts the link, and the
   owner merges.
 - horus runs `comfy` and `comfy-mcp` as separate processes only.
-- Decisions go to the "Decisions" section of the evidence log
-  [`../plans/2026-11-12-macos-backend-evidence.md`](../plans/2026-11-12-macos-backend-evidence.md).
+- Decisions go to the "Decisions" section of the evidence log.

@@ -170,7 +170,7 @@ One run on an Apple M4 (16 GB, macOS 26.5.1) through the horus MCP server
 (`generate_image`), with a cold start: horus started ComfyUI through comfy-cli
 (`started_backend: true`). The machine was set up from nothing with
 `horus setup it-illustration -yes` (392 s: ComfyUI and the 11 GB of model files).
-Evidence: [`docs/plans/2026-11-12-macos-backend-evidence.md`](../../docs/plans/2026-11-12-macos-backend-evidence.md), section T7.
+Evidence: [pull request #121](https://github.com/hieplam/horus/pull/121), the real run on the Mac (task T7 of Phase 3).
 
 | Route | Subject | Seed | Seconds of the call | Result |
 |---|---|---|---|---|

@@ -31,6 +31,8 @@ kinds of work:
 | A term you must explain to the user | [`docs/concepts.md`](docs/concepts.md) |
 | Change the horus MCP server, its tools or its errors | [`docs/mcp.md`](docs/mcp.md), then run `go test ./...` and `tests/mcp_contract.py` |
 | The flags of a `horus` command | `horus <command> -h` |
+| Why horus does something in a specific way, or the history of a rule | The decision records: [`docs/adr/README.md`](docs/adr/README.md). Do not undo a decision without a new record. |
+| Start feature work, or record a decision, a plan or a proof | [Feature work](#feature-work-one-place-for-each-record) below |
 | Offer a workflow to other agents | Add `workflows/<name>/manifest.json` ([fields](docs/mcp.md#add-a-workflow-to-the-server)) |
 
 For a tech or IT illustration, use
@@ -81,9 +83,6 @@ different VAE decodes to coloured noise." Bad: "Configure the VAE."
 
 ## Design rules
 
-The full rules and the layer table are in
-[`docs/specs/2026-11-11-restructure.md`](docs/specs/2026-11-11-restructure.md).
-
 1. **Simple.** Add no design pattern that hides no complexity.
 2. **Deep modules.** A package hides its work behind a small interface.
 3. **Pure functions first.** Code that does no input and no output gets no interface.
@@ -99,10 +98,12 @@ README.md                         entry point for people: the install line, setu
 install.ps1, install.sh           the install scripts (the install line downloads them from main)
 release-please-config.json        the release tool; .github/workflows/release.yml builds and uploads the 3 release assets
 AGENTS.md                         this file
+.claude/settings.json, .claude/hooks/    the Claude Code hook that checks docs/adr after each Write or Edit
 .mcp.json                         the two MCP servers of an agent in a clone: comfy-mcp and horus
 ROADMAP.md                        what comes next
 docs/                             setup, style-to-workflow, concepts, running, models, mcp
-docs/specs/, docs/plans/          the spec, the plan and the evidence log of each phase
+docs/adr/                         the decision records (ADRs): one file for one decision, README.md is the index
+docs/specs/                       the spec of each phase: the ratified goal rows and the design
 cmd/horus/                        wiring: main.go (the command table) and wiring.go (creates the adapters and gives them to the services)
 internal/cli/                     handler: one file for each command group (flags in, text out)
 internal/mcpserver/               handler: the 5 MCP tools, the envelope, the progress notifications
@@ -116,7 +117,7 @@ internal/modelfiles/              adapter: find, check and remove model files, e
 internal/backend/                 adapter: Install, Start, Stop and Installed of a ComfyUI install (the Windows portable build; comfy-cli on macOS; backend/comfyclitest is the fake comfy for tests)
 internal/catalog/, graph/, herr/, settings/, platform/, version/    base: manifests, graph conversion, error codes, settings, processes and OS facts, the program version
 internal/archtest/                the test of the design rules
-scripts/                          lint-public.py (a Python check before a pull request), build-release.sh (builds the 3 release assets)
+scripts/                          lint-public.py (a Python check before a pull request: private data, dead links, the ADR folder), build-release.sh (builds the 3 release assets)
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), workflow_parity.py, requirements.txt
 tools/                            goal_check.py: the goal check of each phase
 workflows/embed.go                the go:embed line: the program holds each workflow folder (add a new folder there)
@@ -130,6 +131,42 @@ exit 0. This repo is public. Also run `gofmt -l .` (it must print nothing) and
 `go test ./...`. A change to `cmd/horus/`, `internal/` or a `manifest.json` also
 needs `tests/mcp_contract.py` to end with all checks passed. The test tools need
 Python 3.12 with `pip install -r tests/requirements.txt` ([how](docs/mcp.md#test-the-server)).
+
+## Feature work: one place for each record
+
+| Record | Its one place |
+|---|---|
+| A decision that later work must follow | An Architecture Decision Record (ADR): one short file in `docs/adr/`, added in the pull request of the work that it decides ([rules](docs/adr/README.md#rules)) |
+| The goal of a phase: the terms, the ratified goal rows, the design, the standing rules | A spec, `docs/specs/<date>-<topic>.md`, merged before the issues. It has no task list and no decision table: it links the ADRs |
+| The plan: the tasks, their order and the Verify block of each task | GitHub issues: the epic and one issue for each task |
+| The proof of a task: Red, Green and Stub check with the literal output | The `## Verify` section of the pull request that closes the task |
+| A decision of one task (a design gap, a standing rule) | A `## Decisions` section in the body of that pull request |
+
+- **Write no plan file and no evidence log.** With the epic-loop skill, write
+  each task body to a file in a scratch folder and give it to `epic.mjs create`
+  as `"body"`. The manifest has no `plan` and no `evidence` entry. Run
+  `epic.mjs check <task>` without `--evidence`.
+- **A task that changes behaviour also changes the docs for that behaviour**, in
+  the same pull request. Make a docs-only task only for a document with no code
+  change, for example the spec.
+- **Work that fits in one pull request needs no spec and no epic.** Its pull
+  request still has a `## Verify` section.
+
+## Pages that agents read
+
+These rules are for `AGENTS.md`, each README and each page in `docs/` that
+tells an agent what to do.
+
+1. **Give only the rule of today.** Write the page as if the rule was always
+   there. Do not write what the rule was before, when it changed, or which
+   record made it. An agent follows what a page says, so a line about the old
+   way can send it to the old way. The history of a rule goes in its ADR.
+2. **Put a check in a hook, not in a sentence.** If an agent must run a command
+   after it changes a file, add a hook in `.claude/settings.json` that runs the
+   command. Give the script a flag for that one part, as
+   `scripts/lint-public.py --adr` does. CI stays the gate, because a hook does
+   not run for a file that a shell command writes, and it does not run in each
+   agent program.
 
 ## Pull request titles and merges
 

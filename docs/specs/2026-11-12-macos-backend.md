@@ -10,7 +10,9 @@ Date: 2026-11-12. Tracking issue of the whole goal:
 > tasks are the issues of the epic, the proof of each task is in its pull
 > request, and the decisions are in [`../adr/`](../adr/README.md). Where this
 > page says "the evidence log", read `git show 763b1bd:docs/plans/2026-11-12-macos-backend-evidence.md`. The plan
-> was `docs/plans/2026-11-12-macos-backend.md` at the same commit.
+> was `docs/plans/2026-11-12-macos-backend.md` at the same commit. The goal tool of this
+> phase, `tools/goal_check.py`, is not in the tree: read `git show 80609ae:tools/goal_check.py`
+> ([ADR 0021](../adr/0021-goal-suites-are-go-test-packages.md)).
 
 ## What this phase delivers
 

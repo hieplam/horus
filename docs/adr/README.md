@@ -32,7 +32,7 @@ record. You do not need to remember it:
 
 | # | Decision | Status |
 |---|---|---|
-| [0001](0001-go-one-binary-per-platform.md) | Write horus in Go, one program file for each platform | Accepted |
+| [0001](0001-go-one-binary-per-platform.md) | Write horus in Go, one program file for each platform | Accepted; the Python goal tool is superseded by 0021 |
 | [0002](0002-port-first-then-restructure.md) | Port first with the same behaviour, then restructure | Accepted; the child process is superseded by 0006 |
 | [0003](0003-stdio-transport-http-later.md) | Use the stdio transport. The HTTP transport comes later | Accepted |
 | [0004](0004-direct-rest-and-separate-processes.md) | Call the ComfyUI REST API directly. Run comfy-cli and comfy-mcp only as separate processes | Accepted; the image path is Proposed |
@@ -52,3 +52,4 @@ record. You do not need to remember it:
 | [0018](0018-real-runs-on-the-owners-machines.md) | How a real run uses the owner's machines and the CI runners | Accepted |
 | [0019](0019-register-for-claude-code-and-codex.md) | `horus register` serves Claude Code and Codex | Accepted |
 | [0020](0020-one-place-for-each-record-of-feature-work.md) | One place for each record of feature work: ADR, spec, issue, pull request | Accepted |
+| [0021](0021-goal-suites-are-go-test-packages.md) | A goal suite is a Go test package with the name of its spec, and it is frozen when the spec is finished | Accepted |

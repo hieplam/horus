@@ -185,7 +185,7 @@ func usesGOOS(af *ast.File) bool {
 func direction(module string, f File, af *ast.File) []Violation {
 	pkg := path.Dir(f.Path)
 	isTest := strings.HasSuffix(f.Path, "_test.go")
-	layer, ok := layers[pkg]
+	layer, ok := layerOf(pkg)
 	if !ok {
 		return []Violation{{Rule: RuleDirection, File: f.Path, Key: pkg + " -> ?", Why: "the package has no layer in internal/archtest/layers.go"}}
 	}
@@ -203,7 +203,7 @@ func direction(module string, f File, af *ast.File) []Violation {
 		if !internal || rel == pkg {
 			continue
 		}
-		target, known := layers[rel]
+		target, known := layerOf(rel)
 		if !known {
 			continue // its own files report that it has no layer
 		}

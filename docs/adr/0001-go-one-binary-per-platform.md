@@ -1,6 +1,6 @@
 # 0001. Write horus in Go, one program file for each platform
 
-- **Status:** Accepted
+- **Status:** Accepted; the Python goal tool (`tools/goal_check.py`) is superseded by 0021
 - **Date:** 2026-11-10
 - **Deciders:** the owner
 - **Old ids in issue #4:** D0, D1, D13, D15, D22, D23

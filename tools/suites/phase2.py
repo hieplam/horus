@@ -1,8 +1,22 @@
-"""The checks that only the suite phase2 needs (tools/suites/phase2.toml): the three layers,
-docs/specs/2026-11-11-restructure.md. The rows backend and commands pass only with --real, because
-their oracle needs the owner's PC (the real image, horus doctor, horus setup). With --real, the row
-commands runs horus doctor and horus setup it-illustration (no -yes) of the --server-cmd program. It
-fails on a FAIL line of doctor, on a step in the plan, or when a file that the plan names changed."""
+"""Phase 2: the three layers (docs/specs/2026-11-11-restructure.md).
+
+The 8 goal rows: layout, same-behaviour, os-boundary, direction, process-tree, backend, token,
+commands. The rows backend and commands pass only with --real, because their oracle needs the
+owner's PC (the real image, horus doctor, horus setup).
+The rows os-boundary, direction and token run the three tests of internal/archtest (TestRules,
+TestPlanted, TestProblems) with go test -v. They pass only when each of the three reports
+"--- PASS", so an empty package, a missing test or a skipped test fails. They also need that no
+allow list file internal/archtest/allow_<rule>.txt exists (task T8 removed the allow list
+mechanism, so a new entry is not possible).
+Unless --no-ci, the CI part reads the jobs of the newest ci.yml run on HEAD. The row same-behaviour
+needs "contract <os>" and "workflow-parity <os>" on windows-latest and macos-latest, and the jobs
+"go windows/amd64" and "go darwin/arm64". The row process-tree needs the two go jobs (they run the
+tree test). A job that is missing, still running, cancelled or failed fails the row, and the detail
+names it. The process-tree row also needs TestTreeOutlivesItsStarterAndEndsFromAnotherProcess to pass.
+With --real, the row commands runs horus doctor and horus setup it-illustration (no -yes) of the
+--server-cmd program. It fails on a FAIL line of doctor, on a step in the plan, or when a file that
+the plan names changed.
+"""
 
 from __future__ import annotations
 
@@ -10,12 +24,17 @@ import argparse
 import re
 from pathlib import Path
 
-from checks import base as r
-from checks import horus
+import goal_runner as r
+from suites import common
 
-PROCESS_TREE_JOBS = horus.GO_JOBS
+TITLE = "the three layers"
+SPEC = "docs/specs/2026-11-11-restructure.md"
+REAL_WHERE = "on the Mac and on the PC"
+PROCESS_TREE_JOBS = common.GO_JOBS
 TREE_TEST = "TestTreeOutlivesItsStarterAndEndsFromAnotherProcess"  # check 1 and check 2 of the spec
 PACKAGE_LIST = r.TOOLS / "phase2_packages.txt"
+BASELINE_COMMIT = "3e27da4"  # main before the first move task; the contract files are compared with it
+BASELINE_TESTS = 157  # Go test functions at BASELINE_COMMIT (go test -list . ./...); same-behaviour never goes below it
 SETUP_LINE = re.compile(r"^(PRESENT|MISSING)\s+(.*)$")  # a fact of the plan of horus setup
 
 
@@ -59,15 +78,23 @@ def row2_layout(a: argparse.Namespace) -> tuple[bool, str]:
     return not extra and not missing, detail
 
 
-def row2_archtest(a: argparse.Namespace) -> tuple[bool, str]:
-    """The rows os-boundary, direction and token: the three tests of internal/archtest report
-    "--- PASS", and no allow list file internal/archtest/allow_<rule>.txt exists."""
-    if not (r.ROOT / horus.ARCHTEST_DIR).is_dir():
-        return False, f"missing: {horus.ARCHTEST_DIR} (task T1)"
-    lists = horus.allow_files()
-    ok, detail, _ = r.go_test_ran([f"./{horus.ARCHTEST_DIR}"], horus.ARCHTEST_TESTS)
-    text = f"{len(lists)} allow list files" + (" (" + ", ".join(lists) + ")" if lists else "")
-    return ok and not lists, f"{text}; archtest: {'ok' if ok else detail}"
+def row2_same(a: argparse.Namespace) -> tuple[bool, str]:
+    ok_c, detail_c = common.row_contract(a, common.SAME_BEHAVIOUR_JOBS)
+    parts = [(ok_c, "contract: " + detail_c), common.parity_part(), common.go_test_all_part(),
+             common.test_count_part(BASELINE_TESTS),
+             common.changed_part(common.changed_contract_files(BASELINE_COMMIT), "contract files")]
+    return r.join_parts(parts)
+
+
+def row2_archtest(rule: str):
+    def check(a: argparse.Namespace) -> tuple[bool, str]:
+        if not (r.ROOT / common.ARCHTEST_DIR).is_dir():
+            return False, f"missing: {common.ARCHTEST_DIR} (task T1)"
+        lists = common.allow_files()
+        ok, detail, _ = r.go_test_ran([f"./{common.ARCHTEST_DIR}"], common.ARCHTEST_TESTS)
+        text = f"{len(lists)} allow list files" + (" (" + ", ".join(lists) + ")" if lists else "")
+        return ok and not lists, f"{text}; archtest: {'ok' if ok else detail}"
+    return check
 
 
 def row2_process_tree(a: argparse.Namespace) -> tuple[bool, str]:
@@ -95,7 +122,7 @@ def row2_backend(a: argparse.Namespace) -> tuple[bool, str]:
         return False, detail
     if not a.real:
         return False, "Go tests ok; needs --real on the owner's PC for the image through the backend"
-    ok_r, detail_r, env = horus.real_image(a)
+    ok_r, detail_r, env = common.real_image(a)
     if ok_r and (env.get("result") or {}).get("started_backend") is not True:
         # The row proves a start through the backend: a ComfyUI that already answered proves nothing.
         return False, f"started_backend is not true: ComfyUI already answered; stop it first ({detail_r})"
@@ -152,7 +179,7 @@ def row2_commands(a: argparse.Namespace) -> tuple[bool, str]:
     if code != 0 or fails:
         return False, f"horus doctor: exit {code}, {fails} FAIL lines"
     code, second = r.run([exe, "setup", "it-illustration"], timeout=300)
-    m = horus.STEPS_LINE.search(second)
+    m = common.STEPS_LINE.search(second)
     steps = int(m.group(1)) if m else -1
     if code != 0 or steps != 0 or not re.search(r"nothing (is )?missing", second, re.I):
         return False, f"horus setup it-illustration: exit {code}, {steps} steps in the plan"
@@ -164,3 +191,7 @@ def row2_commands(a: argparse.Namespace) -> tuple[bool, str]:
                   f"{present} of {len(paths)} named files present and unchanged")
 
 
+ROWS = ["layout", "same-behaviour", "os-boundary", "direction", "process-tree", "backend", "token", "commands"]
+CHECKS = {"layout": row2_layout, "same-behaviour": row2_same, "os-boundary": row2_archtest("os-boundary"),
+          "direction": row2_archtest("direction"), "process-tree": row2_process_tree,
+          "backend": row2_backend, "token": row2_archtest("token"), "commands": row2_commands}

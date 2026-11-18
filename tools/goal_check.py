@@ -2,11 +2,11 @@
 """The goal check: it runs the goal rows of one suite and prints PASS or FAIL for each row.
 
     python tools/goal_check.py --list                     the suites
-    python tools/goal_check.py --suite <name> [options]   the rows of tools/suites/<name>.toml
-    python tools/goal_check.py --phase <N> [options]      the same as --suite phase<N> (no option: phase1)
+    python tools/goal_check.py --suite <name> [options]   the rows of tools/suites/<name>.py
+    python tools/goal_check.py --phase 1|2|3|4 [options]  the same as --suite phase<N> (no option: phase1)
 
-A new spec gets a new suite file in tools/suites/. tools/suites/README.md gives the format and the
-check types. Run `python tools/goal_check.py -h` for the options.
+tools/goal_runner.py runs the rows and documents the fields of a suite. A new spec gets a new
+suite file in tools/suites/. Run `python tools/goal_check.py -h` for the options.
 """
 
 import sys

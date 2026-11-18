@@ -9,7 +9,8 @@ Date: 2026-11-15. Tracking issue of the whole goal:
 > ([ADR 0020](../adr/0020-one-place-for-each-record-of-feature-work.md)). The
 > tasks are the issues of the epic, the proof of each task is in its pull
 > request, and the decisions are in [`../adr/`](../adr/README.md). Where this
-> page says "the evidence log", read `git show 763b1bd:docs/plans/2026-11-15-release-install-evidence.md`.
+> page says "the evidence log", read `git show 763b1bd:docs/plans/2026-11-15-release-install-evidence.md`. The plan
+> was `docs/plans/2026-11-15-release-install.md` at the same commit.
 
 ## What this phase delivers
 

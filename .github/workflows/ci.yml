@@ -44,6 +44,42 @@ jobs:
         if: matrix.goos == 'linux' && github.event_name == 'pull_request'
         run: python3 scripts/frozen-suites.py --base HEAD^1
 
+  postgres:
+    # internal/postgres and the contract suites of internal/brokertest on a real Postgres (ADR 0026, ADR 0033).
+    # The tests skip without HORUS_TEST_DATABASE_URL, so the last step fails when a test skipped.
+    # The service container is only for this job: it trusts each connection, so no password is in this file.
+    name: postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      HORUS_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: The Postgres adapter and the contract suites on Postgres 18.6
+        shell: bash
+        run: go test -count=1 -v ./internal/postgres/... ./internal/brokertest/... | tee postgres.log
+      - name: No test skipped, and both brokers and both job stores passed
+        shell: bash
+        run: |
+          if grep -E -- '--- SKIP' postgres.log; then echo "a test skipped"; exit 1; fi
+          for t in TestMemoryBroker TestPostgresBroker TestMemoryStore TestPostgresStore; do
+            grep -E -- "^--- PASS: $t " postgres.log || { echo "$t did not pass"; exit 1; }
+          done
+
   contract:
     # A goal suite can read the jobs whose name starts with "contract" and has the system name.
     name: contract ${{ matrix.os }}

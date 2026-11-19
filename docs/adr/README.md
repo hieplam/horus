@@ -64,3 +64,4 @@ record. You do not need to remember it:
 | [0030](0030-horus-api-serves-mcp-over-stdio-and-http.md) | `horus-api` serves MCP over stdio and over HTTP | Accepted |
 | [0031](0031-the-store-writes-each-event-and-the-service-sends-the-signal.md) | The job store writes each event row, and the service sends the signal after the move | Accepted |
 | [0032](0032-the-speech-setup-is-one-folder-in-the-user-folder.md) | The speech setup is one folder in the user folder | Accepted |
+| [0033](0033-each-job-store-passes-one-store-contract-with-the-clock-of-the-program.md) | Each job store passes one store contract, and takes its times from the clock of the program | Accepted |

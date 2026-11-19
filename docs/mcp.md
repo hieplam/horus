@@ -521,3 +521,42 @@ time (`--parallel`) and holds the others in its queue. It needs no GPU.
   that had left, from the time that the call left.
 - The exit code is 0 when the run ended, whatever the numbers. `--log` names the
   file with one line for each request of the fake.
+
+### The Postgres tests
+
+The job store and the Postgres broker (`internal/postgres`) need a test
+Postgres. These tests read its URL from `HORUS_TEST_DATABASE_URL`:
+
+- the tests of `internal/postgres`;
+- `TestPostgresBroker` and `TestPostgresStore` of `internal/brokertest`.
+
+Without the variable, they skip, and the goal row `broker-contract` fails.
+Start a test Postgres in Docker one time, with a password that you choose and
+a free port:
+
+```
+docker run -d --name horus_test_pg -e POSTGRES_PASSWORD=<password> -p 127.0.0.1:55433:5432 postgres:18.6
+```
+
+Set the variable in the shell, and run the tests. Do not put the URL in `.env`
+or in a commit.
+
+```
+$env:HORUS_TEST_DATABASE_URL = 'postgres://postgres:<password>@127.0.0.1:55433/postgres?sslmode=disable'
+go test -count=1 ./internal/postgres/... ./internal/brokertest/...
+```
+
+On macOS and Linux, use `export HORUS_TEST_DATABASE_URL=...`.
+
+- Each test makes its own database with a name that ends in `_test`, and
+  drops it at its end. A test never uses the database `horus`.
+- One contract suite runs on each broker: `TestMemoryBroker` and
+  `TestPostgresBroker`. One store contract runs on each job store:
+  `TestMemoryStore` and `TestPostgresStore`. A new broker or job store passes
+  its suite before it ships.
+- The program hides a delivery for 60 s (the visibility time), and extends
+  the time every 20 s while the delivery runs. In `TestPostgresBroker` the
+  visibility time is 1 s, so that the check `long_delivery` (3 s) proves the
+  extension.
+- The CI job `postgres` runs the same tests on Linux, with a service container
+  `postgres:18.6`.

@@ -33,6 +33,7 @@ kinds of work:
 | Which model pairs with which | [`docs/models.md`](docs/models.md) |
 | Why this model, and GPU traps | [`docs/why-flux3-klein.md`](docs/why-flux3-klein.md) |
 | A term you must explain to the user | [`docs/concepts.md`](docs/concepts.md) |
+| Change the job store or the broker (`internal/postgres`, `internal/brokertest`) | The spec [`docs/specs/2026-11-19-job-queue.md`](docs/specs/2026-11-19-job-queue.md), then [the Postgres tests](docs/mcp.md#the-postgres-tests) |
 | Change the horus MCP server, its tools or its errors | [`docs/mcp.md`](docs/mcp.md), then run `go test ./...` and `tests/mcp_contract.py` |
 | Change the speech worker (`internal/speechworker/worker.py`) | The docstring of `worker.py` gives the protocol. The Go tests use a fake worker, so also run `tests/speech/worker_real.py` with the real models: its docstring gives the command ([ADR 0022](docs/adr/0022-speech-runs-in-a-python-speech-worker.md)) |
 | The flags of a `horus` command | `horus <command> -h` |
@@ -126,11 +127,12 @@ internal/comfy/                   adapter: the ComfyUI REST client (comfy/comfyt
 internal/download/                adapter: download with resume, size and SHA-256 check; the only code that reads HF_TOKEN
 internal/modelfiles/              adapter: find, check and remove model files, extra_model_paths.yaml
 internal/backend/                 adapter: Install, Start, Stop and Installed of a ComfyUI install (the Windows portable build; comfy-cli on macOS; backend/comfyclitest is the fake comfy for tests)
+internal/postgres/                adapter: the job store and the Postgres broker (pgx); the schema horus in schema/*.sql, which Migrate applies; postgres/pgtest gives each test its own database
 internal/speechworker/            adapter: start the Python speech worker (worker.py, go:embed), send a request, read the answer, stop it; speechworker/fakeworker is the fake worker for tests
 internal/catalog/, graph/, herr/, jobdata/, settings/, platform/, version/    base: manifests, graph conversion, error codes, the data of a job and the readiness report, settings, processes and OS facts, the program version
 internal/speechsetup/             base: where the speech setup is (the speech folder: venv/, models/, worker.py) and which parts a speech workflow needs
 internal/archtest/                the test of the design rules
-internal/brokertest/              the contract suite of a broker (each broker passes it), the in-memory broker and the in-memory job store of the tests
+internal/brokertest/              the contract suite of a broker and the store contract of a job store (each one passes its suite), the in-memory broker and the in-memory job store of the tests
 scripts/                          lint-public.py (a Python check before a pull request: private data, dead links, the ADR folder), frozen-suites.py (refuses a change to a frozen goal suite), build-release.sh (builds the 3 release assets)
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), peak_load.py (the peak tool: many agents at once), workflow_parity.py, requirements.txt
 tests/speech/                     the tests with the real speech models (not in CI): baseline.py, worker_real.py (it runs only with HORUS_SPEECH_REAL=1)
@@ -144,7 +146,10 @@ prompts/<family>/<name>.md        one saved prompt each, with its result
 Before you open a pull request, run `python scripts/lint-public.py`. It must
 exit 0. This repo is public. Also run `gofmt -l .` (it must print nothing) and
 `go test ./...`. A change to `cmd/horus/`, `internal/` or a `manifest.json` also
-needs `tests/mcp_contract.py` to end with all checks passed. The test tools need
+needs `tests/mcp_contract.py` to end with all checks passed. A change to
+`internal/postgres`, `internal/brokertest` or `internal/jobs` also needs
+`go test ./internal/postgres/... ./internal/brokertest/...` with
+`HORUS_TEST_DATABASE_URL` set ([how](docs/mcp.md#the-postgres-tests)). The test tools need
 Python 3.12 with `pip install -r tests/requirements.txt` ([how](docs/mcp.md#test-the-server)).
 
 ## Feature work: one place for each record

@@ -581,3 +581,45 @@ func TestDeleteOld(t *testing.T) {
 		t.Errorf("the job that ended %s ago: %s, want kept", retention-time.Hour, s)
 	}
 }
+
+// TestCancelOfARunningJob is the unit level of the goal rows peak-timeouts
+// (no GPU time for a job whose agent left) and cancel-and-deadline. A job
+// runs in the mode hold of the fake ComfyUI. Then jobs.Service.Cancel asks
+// the worker to stop it. The worker ends the run, the fake ComfyUI gets the
+// cancel of the job, the job becomes cancelled, and the delivery gets its ack.
+func TestCancelOfARunningJob(t *testing.T) {
+	e := setup(t, options{})
+	e.fake.setMode(modeHold)
+	j, _ := e.submit(t, 1)
+	stop := e.start(t, e.config("worker-1", 1, nil))
+	waitFor(t, "the job is held in ComfyUI", func() bool { return len(e.fake.held()) == 1 })
+	backendID := e.fake.held()[0]
+	waitFor(t, "backend_job_id is saved", func() bool { return e.get(t, j.ID).BackendJobID == backendID })
+
+	t0 := time.Now()
+	st, err := e.jobs.Cancel(context.Background(), j.ID)
+	if err != nil || st != jobdata.Running {
+		t.Fatalf("Cancel: state %s, error %v, want running and no error", st, err)
+	}
+	waitFor(t, "the job is cancelled", func() bool { return e.state(t, j.ID) == jobdata.Cancelled })
+	if d := time.Since(t0); d > 5*time.Second {
+		t.Errorf("the job became cancelled after %s, want 5 s or less", d)
+	}
+	waitFor(t, "the ack of the delivery", func() bool { return e.broker.acks.Load() == 1 })
+	if err := stop(); err != nil {
+		t.Fatalf("the worker: %v", err)
+	}
+	e.fake.mu.Lock()
+	cancels := append([]string(nil), e.fake.cancels...)
+	e.fake.mu.Unlock()
+	if len(cancels) != 1 || cancels[0] != backendID {
+		t.Errorf("the fake ComfyUI got the cancels %v, want [%s]", cancels, backendID)
+	}
+	if n := e.fake.Active(); n != 0 {
+		t.Errorf("the fake ComfyUI holds %d jobs after the cancel, want 0", n)
+	}
+	if ev := e.store.Events(j.ID); count(ev, "job.cancelled") != 1 || count(ev, "job.succeeded") != 0 {
+		t.Errorf("events %v, want one job.cancelled and no job.succeeded", ev)
+	}
+	t.Logf("cancel-running-job: cancelled after %s, %d cancel in ComfyUI, %d ack", time.Since(t0), len(cancels), e.broker.acks.Load())
+}

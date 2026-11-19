@@ -49,14 +49,26 @@ func describeResult(d catalog.Detail, state string, files []InstallFile) Describ
 	return r
 }
 
-// fileStates gives the state of each model file. A
-// failed check (a missing file) is a normal answer here, so it reads the
-// items and not the ok of the result.
-func fileStates(ctx context.Context, setup Setup, w *catalog.Workflow) []InstallFile {
+// fileStates gives the state of each model file, and the install state of the
+// workflow. A failed check (a missing file) is a normal answer here, so it
+// reads the items and not the ok of the result. The install state counts each
+// part that the check lists: a model file, and for a speech workflow also the
+// speech venv, ffmpeg and ffprobe.
+func fileStates(ctx context.Context, setup Setup, w *catalog.Workflow) ([]InstallFile, string) {
 	req := request(w)
 	req.Quick = true
 	res, _ := setup.Check(context.WithoutCancel(ctx), req)
-	return fileRows(res.Items, "file", map[string]string{"OK": "present", "MISSING": "missing", "BAD_SIZE": "wrong_size"})
+	parts, present := 0, 0
+	for _, it := range res.Items {
+		if it.Kind == "file" || it.Kind == "venv" || it.Kind == "program" {
+			parts++
+			if it.Status == provision.StatusOK {
+				present++
+			}
+		}
+	}
+	files := fileRows(res.Items, "file", map[string]string{"OK": "present", "MISSING": "missing", "BAD_SIZE": "wrong_size"})
+	return files, provision.InstallState(present, parts)
 }
 
 func describeWorkflow(setup Setup) tool {
@@ -100,18 +112,12 @@ func describeWorkflow(setup Setup) tool {
 			if err != nil {
 				return nil, err
 			}
-			files := fileStates(ctx, setup, w)
-			present := 0
-			for _, x := range files {
-				if x.State == "present" {
-					present++
-				}
-			}
+			files, state := fileStates(ctx, setup, w)
 			d, err := catalog.DetailOf(w)
 			if err != nil {
 				return nil, err
 			}
-			return describeResult(d, provision.InstallState(present, len(files)), files), nil
+			return describeResult(d, state, files), nil
 		},
 	}
 }

@@ -319,9 +319,10 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             res = env_of(await s.call_tool("list_workflows", {}))
             states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
             # absent-style shares the text encoder and the VAE with it-illustration, so 2 of its 3 files are present.
+            # The speech setup of the sandbox has each part of stand-in-speech, so it is installed.
             c.check("list_workflows shows installed and partially_installed styles",
                     res["ok"] and states == {"it-illustration": "installed", "absent-style": "partially_installed",
-                                             "stand-in-speech": "not_installed"}, json.dumps(res)[:400])
+                                             "stand-in-speech": "installed"}, json.dumps(res)[:400])
             kinds = {w["name"]: w.get("kind") for w in (res.get("result") or {}).get("workflows", [])}
             c.check("list_workflows shows the kind of each workflow: a manifest without kind is image",
                     kinds == {"it-illustration": "image", "absent-style": "image", "stand-in-speech": "speech"}, str(kinds))
@@ -452,7 +453,7 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             res = env_of(await s.call_tool("list_workflows", {}))
             states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
             c.check("after uninstall, list_workflows shows both styles not_installed",
-                    states == {"it-illustration": "not_installed", "absent-style": "not_installed", "stand-in-speech": "not_installed"}, json.dumps(states))
+                    states == {"it-illustration": "not_installed", "absent-style": "not_installed", "stand-in-speech": "installed"}, json.dumps(states))
 
             res = env_of(await s.call_tool("generate_image", {"workflow": "nope-style", "subject": SUBJECT}))
             c.check("errors are the same envelope in structuredContent and in text",
@@ -464,6 +465,16 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             e = res.get("error") or {}
             c.check("backend down and autostart off -> BACKEND_UNAVAILABLE, action_by=human",
                     e.get("code") == "BACKEND_UNAVAILABLE" and e["action_by"] == "human", json.dumps(res)[:300])
+
+
+async def speech_states(s: ClientSession) -> tuple:
+    """The install state of the stand-in speech workflow: from list_workflows, from describe_workflow, and the state of
+    each file of describe_workflow."""
+    listed = env_of(await s.call_tool("list_workflows", {}))
+    described = env_of(await s.call_tool("describe_workflow", {"workflow": SPEECH}))
+    from_list = {w["name"]: w["install_state"] for w in (listed.get("result") or {}).get("workflows", [])}.get(SPEECH)
+    r = described.get("result") or {}
+    return from_list, r.get("install_state"), [f.get("state") for f in r.get("files", [])]
 
 
 def speech_record(tmp: Path) -> list[str]:
@@ -497,6 +508,10 @@ async def speech_checks(s: ClientSession, sandbox: dict[str, str], tmp: Path, c:
             and r.get("transcript") == SPEECH_TEXT and r.get("voice") == "beta" and r.get("format") == "wav"
             and r.get("audio_seconds", 0) > 0 and r.get("started_worker") is True, json.dumps(res)[:400], key="speech-file")
     c.check("generate_speech sends progress notifications", len(progress) >= 1, str(progress), key="speech-progress")
+
+    states = await speech_states(s)
+    c.check("list_workflows and describe_workflow show a speech workflow installed when each part of the speech setup is there",
+            states == ("installed", "installed", ["present"]), str(states), key="speech-install-state:installed")
 
     res = env_of(await s.call_tool("generate_speech", {"workflow": SPEECH, "text": "Một câu nữa."}))
     r = res.get("result") or {}
@@ -559,8 +574,12 @@ async def speech_checks(s: ClientSession, sandbox: dict[str, str], tmp: Path, c:
     model.rename(hidden)
     try:
         errs = await errors({})
+        away = await speech_states(s)
     finally:
         hidden.rename(model)
+    c.check("a missing part of the speech setup (a model file) -> list_workflows and describe_workflow show the speech workflow "
+            "as partially installed, and its file as missing",
+            away == ("partially_installed", "partially_installed", ["missing"]), str(away), key="speech-install-state:missing")
     c.check("a missing part of the speech setup (a model file) -> WORKFLOW_NOT_INSTALLED naming it, next_step names install_workflow",
             refusal(errs, "WORKFLOW_NOT_INSTALLED", "caller") and "model.bin" in (details(errs, "missing")[0] or [])
             and "install_workflow" in errs[0].get("next_step", "") and speaks() == before,
@@ -717,8 +736,8 @@ def main() -> int:
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
     passed = sum(1 for ok, _, _ in c.rows if ok)
     shipped = sum(1 for d in (ROOT / "workflows").iterdir() if (d / "manifest.json").is_file())
-    # 38 server checks of the image tools and the kind, 12 speech checks, plus 2 style-neutral checks for each shipped workflow
-    total = 38 + 12 + 2 * shipped
+    # 38 server checks of the image tools and the kind, 14 speech checks, plus 2 style-neutral checks for each shipped workflow
+    total = 38 + 14 + 2 * shipped
     if a.report:
         a.report.write_text(json.dumps(c.report(total), indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"contract: {passed} of {total} passed")

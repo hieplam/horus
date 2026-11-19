@@ -23,6 +23,14 @@ func (s *Service) List(ctx context.Context, workflowsDir string) ([]Row, error) 
 	}
 	rows := []Row{}
 	for _, w := range ws {
+		if isSpeech(w.Dir) && w.ModelsJSON != "" {
+			row, err := s.speechRow(w)
+			if err != nil {
+				return nil, err
+			}
+			rows = append(rows, row)
+			continue
+		}
 		var files []catalog.ListedFile
 		present := 0
 		if w.ModelsJSON != "" {
@@ -95,13 +103,18 @@ func end(res *Result, err error, okMessage string) (*Result, error) {
 // models.json on disk with the right size and SHA-256 (Quick: the size only),
 // models.json lists every model file that workflow.json loads, and (when
 // ComfyUI answers) the server has every node class and lists every model
-// file. A failed check is an error, and the result has every item.
+// file. A speech workflow has other parts: see checkSpeech. A failed check is an error, and the result has every item.
 func (s *Service) Check(ctx context.Context, req Request) (*Result, error) {
 	res, m, graphPath, err := begin("check", req)
 	if err != nil {
 		return end(res, err, "")
 	}
-	failures, err := s.check(ctx, res, m, graphPath, req.Only, req.Quick)
+	var failures int
+	if dir := filepath.Join(req.WorkflowsDir, req.Workflow); req.ModelsJSON == "" && isSpeech(dir) {
+		failures, err = s.checkSpeech(res, req.Workflow, dir, req.Only, req.Quick)
+	} else {
+		failures, err = s.check(ctx, res, m, graphPath, req.Only, req.Quick)
+	}
 	if err == nil && failures > 0 {
 		err = failf("%d check(s) failed. Fix: horus workflow install %s", failures, req.Workflow)
 	}

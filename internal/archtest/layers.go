@@ -16,28 +16,30 @@ const (
 // layer table of the spec. A package that is not in this table breaks the
 // rule direction.
 var layers = map[string]string{
-	"cmd/horus":                     wiring,
-	"internal/cli":                  handler,
-	"internal/mcpserver":            handler,
-	"internal/generate":             service,
-	"internal/provision":            service,
-	"internal/doctor":               service,
-	"internal/devtools":             service,
-	"internal/comfy":                adapter,
-	"internal/download":             adapter,
-	"internal/modelfiles":           adapter,
-	"internal/backend":              adapter,
-	"internal/catalog":              base,
-	"internal/graph":                base,
-	"internal/herr":                 base,
-	"internal/settings":             base,
-	"internal/platform":             base,
-	"internal/version":              base,
-	"workflows":                     base, // the built-in workflows (go:embed)
-	"internal/archtest":             test,
-	"internal/comfy/comfytest":      test,
-	"internal/backend/comfyclitest": test,
-	"goals":                         test, // the link check of the goal suites
+	"cmd/horus":                        wiring,
+	"internal/cli":                     handler,
+	"internal/mcpserver":               handler,
+	"internal/generate":                service,
+	"internal/provision":               service,
+	"internal/doctor":                  service,
+	"internal/devtools":                service,
+	"internal/comfy":                   adapter,
+	"internal/download":                adapter,
+	"internal/modelfiles":              adapter,
+	"internal/backend":                 adapter,
+	"internal/speechworker":            adapter,
+	"internal/catalog":                 base,
+	"internal/graph":                   base,
+	"internal/herr":                    base,
+	"internal/settings":                base,
+	"internal/platform":                base,
+	"internal/version":                 base,
+	"workflows":                        base, // the built-in workflows (go:embed)
+	"internal/archtest":                test,
+	"internal/comfy/comfytest":         test,
+	"internal/backend/comfyclitest":    test,
+	"internal/speechworker/fakeworker": test, // the fake speech worker: a program that the tests build
+	"goals":                            test, // the link check of the goal suites
 }
 
 // layerOf gives the layer of a package. Each goal suite (goals/<spec stem>)

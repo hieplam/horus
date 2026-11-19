@@ -9,6 +9,7 @@ package goal
 import (
 	"bytes"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -72,18 +73,19 @@ func TestConcurrencySetting(t *testing.T) {
 // each one is a subtest of the test of each broker.
 var brokerChecks = []string{"order", "at_most_prefetch", "ack_deletes", "again_after_consumer_stops",
 	"two_consumers_never_share", "nack_requeue", "nack_drop", "queues_are_separate", "notify_each_listener",
-	"listen_from_its_start"}
+	"listen_from_its_start", "long_delivery"}
 
 func TestBrokerContract(t *testing.T) {
-	code, out := run(t, root, "go", "test", "-count=1", "-v", "./internal/brokertest/...")
+	if os.Getenv("HORUS_TEST_DATABASE_URL") == "" {
+		t.Fatal("HORUS_TEST_DATABASE_URL is not set: the Postgres broker runs the contract suite only on a test Postgres. " +
+			"Start one and set the variable to its URL (docs/mcp.md#the-postgres-tests)")
+	}
+	code, out := run(t, root, "go", "test", "-count=1", "-v", "./internal/brokertest/...", "./internal/postgres/...")
 	if code != 0 {
-		t.Fatalf("go test ./internal/brokertest/... exit code %d:\n%s", code, out)
+		t.Fatalf("go test ./internal/brokertest/... ./internal/postgres/... exit code %d:\n%s", code, out)
 	}
 	for _, broker := range []string{"TestMemoryBroker", "TestPostgresBroker"} {
 		if !passed(out, broker) {
-			if broker == "TestPostgresBroker" {
-				t.Fatal("not built: TestPostgresBroker under ./internal/brokertest/..., the Postgres broker of internal/postgres in the same suite")
-			}
 			t.Fatalf("%s does not pass:\n%s", broker, out)
 		}
 		for _, c := range brokerChecks {

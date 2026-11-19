@@ -30,6 +30,7 @@ var layers = map[string]string{
 	"internal/modelfiles":              adapter,
 	"internal/backend":                 adapter,
 	"internal/speechworker":            adapter,
+	"internal/postgres":                adapter, // the job store and the Postgres broker (pgx)
 	"internal/catalog":                 base,
 	"internal/graph":                   base,
 	"internal/herr":                    base,
@@ -42,7 +43,8 @@ var layers = map[string]string{
 	"internal/archtest":                test,
 	"internal/comfy/comfytest":         test,
 	"internal/backend/comfyclitest":    test,
-	"internal/brokertest":              test, // the contract suite of jobs.Broker, the in-memory broker and job store
+	"internal/brokertest":              test, // the contract suites of jobs.Broker and jobs.Store, the in-memory broker and job store
+	"internal/postgres/pgtest":         test, // a new test database for each test
 	"internal/speechworker/fakeworker": test, // the fake speech worker: a program that the tests build
 	"goals":                            test, // the link check of the goal suites
 }

@@ -13,6 +13,8 @@ package brokertest
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +28,11 @@ var (
 	Timeout = 10 * time.Second
 	// Quiet is the wait in which a delivery that must not come does not come.
 	Quiet = 300 * time.Millisecond
+	// Hold is how long the check long_delivery holds a delivery without an
+	// ack. A broker that hides a delivery for a time (a visibility time) gets
+	// a visibility time shorter than Hold in its test. So the check proves
+	// that the broker extends the visibility time while a delivery runs.
+	Hold = 3 * time.Second
 )
 
 // check is one check of the contract.
@@ -46,6 +53,7 @@ var checks = []check{
 	{"queues_are_separate", checkSeparateQueues},
 	{"notify_each_listener", checkNotifyEachListener},
 	{"listen_from_its_start", checkListenFromStart},
+	{"long_delivery", checkLongDelivery},
 }
 
 // Names are the names of the checks: each one is a subtest of Run.
@@ -64,6 +72,63 @@ func Run(t *testing.T, newBroker func(t testing.TB) jobs.Broker) {
 		t.Run(c.name, func(t *testing.T) { c.run(t, newBroker(t)) })
 	}
 }
+
+// Failures runs the check named name on the broker b, and gives its failures
+// instead of failing t. The stub check of a broker uses it: a broker that
+// breaks a rule must fail the check of that rule.
+func Failures(t *testing.T, name string, b jobs.Broker) []string {
+	t.Helper()
+	for _, c := range checks {
+		if c.name == name {
+			return record(t, func(r testing.TB) { c.run(r, b) })
+		}
+	}
+	t.Fatalf("no check %s", name)
+	return nil
+}
+
+// record runs f with a testing.TB that records each failure and does not
+// fail t, and gives the failures.
+func record(t *testing.T, f func(r testing.TB)) []string {
+	r := &recorder{TB: t}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f(r)
+	}()
+	<-done
+	return r.failures()
+}
+
+// recorder is a testing.TB that records a failure and does not fail the test.
+// Fatal ends the goroutine of the check, as testing.T does.
+type recorder struct {
+	testing.TB
+	mu     sync.Mutex
+	failed []string
+}
+
+func (r *recorder) fail(s string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.failed = append(r.failed, s)
+}
+
+func (r *recorder) failures() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.failed...)
+}
+
+func (r *recorder) Helper()                         {}
+func (r *recorder) Error(a ...any)                  { r.fail(fmt.Sprint(a...)) }
+func (r *recorder) Errorf(f string, a ...any)       { r.fail(fmt.Sprintf(f, a...)) }
+func (r *recorder) Fail()                           { r.fail("Fail") }
+func (r *recorder) FailNow()                        { r.fail("FailNow"); runtime.Goexit() }
+func (r *recorder) Fatal(a ...any)                  { r.fail(fmt.Sprint(a...)); runtime.Goexit() }
+func (r *recorder) Fatalf(f string, a ...any)       { r.fail(fmt.Sprintf(f, a...)); runtime.Goexit() }
+func (r *recorder) Failed() bool                    { return len(r.failures()) > 0 }
+func (r *recorder) Logf(format string, args ...any) {}
 
 // msg is the message number i of a test.
 func msg(i int) jobdata.Message {
@@ -315,4 +380,21 @@ func checkListenFromStart(t testing.TB, b jobs.Broker) {
 	l := listen(t, b)
 	notify(t, b, 2)
 	nextEvent(t, l, 2)
+}
+
+// checkLongDelivery: a delivery that runs longer than the visibility time of
+// the broker does not come again while its consumer holds it: not to another
+// consumer, and not to its own consumer, which has a free place. Its ack at
+// the end works.
+func checkLongDelivery(t testing.TB, b jobs.Broker) {
+	publish(t, b, "jobs.long", 1)
+	ch, _ := consume(t, b, "jobs.long", 2)
+	d := next(t, ch, 1)
+	time.Sleep(Hold)
+	ch2, _ := consume(t, b, "jobs.long", 1)
+	why := fmt.Sprintf("a delivery held for %s without an ack", Hold)
+	none(t, ch2, why)
+	none(t, ch, why+", to its own consumer")
+	ack(t, d)
+	none(t, ch2, "the message had an ack")
 }

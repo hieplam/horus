@@ -1,0 +1,14 @@
+{
+  "name": "stand-in-speech",
+  "kind": "speech",
+  "title": "Stand-in speech workflow",
+  "summary": "A test manifest of the kind speech. It is not a real workflow.",
+  "good_for": ["A test of the kind field"],
+  "not_good_for": ["Real speech"],
+  "text": {"min_chars": 2, "max_chars": 500, "how_to_write": "Write the words to speak."},
+  "voices": ["alpha", "beta"],
+  "default_voice": "alpha",
+  "tags": ["[laugh]", "[sigh]"],
+  "formats": ["wav", "mp3"],
+  "timing": {"measured_seconds": [3, 9]}
+}

@@ -14,6 +14,7 @@ import (
 // WorkflowSummary is one row of list_workflows, in the key order that the tool shows.
 type WorkflowSummary struct {
 	Name           string          `json:"name"`
+	Kind           string          `json:"kind"`
 	Title          json.RawMessage `json:"title"`
 	Summary        json.RawMessage `json:"summary"`
 	GoodFor        json.RawMessage `json:"good_for"`
@@ -33,10 +34,11 @@ type ListResult struct {
 func listWorkflows(images Images, setup Setup) tool {
 	return tool{
 		name:  "list_workflows",
-		title: "List image workflows",
-		description: "List the image workflows (model + graph) on this machine. Each entry has the name to pass " +
-			"to the other tools, a summary, what the workflow is good and bad for, the output size, the measured " +
-			"time per image, and install_state. Call this first.",
+		title: "List workflows",
+		description: "List the workflows on this machine. Each entry has the name to pass to the other tools, its kind " +
+			"(image or speech), a summary, what the workflow is good and bad for, the output size of an image workflow, " +
+			"the measured time, and install_state. Make an image with generate_image and speech with generate_speech. " +
+			"Call this first.",
 		annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: ptr(false)},
 		output: envelope("ListResult", obj{
 			"ListResult": model("ListResult",
@@ -45,12 +47,13 @@ func listWorkflows(images Images, setup Setup) tool {
 			),
 			"WorkflowSummary": model("WorkflowSummary",
 				f("name", tString).d("Pass this to the other tools."),
+				f("kind", tKind).d("What the workflow makes. image: use generate_image. speech: use generate_speech."),
 				f("title", tString),
 				f("summary", tString),
 				f("good_for", tList(tString)),
 				f("not_good_for", tList(tString)),
-				f("output", tDict).d("format, default_width, default_height"),
-				f("typical_seconds", tList(tInt)).null().d("Measured time for one image, [fastest, slowest]."),
+				f("output", tDict).null().d("Image workflow: format, default_width, default_height. Speech workflow: null."),
+				f("typical_seconds", tList(tInt)).null().d("Measured time for one image or one file, [fastest, slowest]."),
 				f("install_state", tInstallState),
 				f("download_bytes", tInt).d("Total size of the model files."),
 			),
@@ -90,7 +93,7 @@ func listWorkflows(images Images, setup Setup) tool {
 					size = lic.DownloadBytes
 				}
 				rows = append(rows, WorkflowSummary{
-					Name: s.Name, Title: s.Title, Summary: s.Summary, GoodFor: s.GoodFor, NotGoodFor: s.NotGoodFor,
+					Name: s.Name, Kind: s.Kind, Title: s.Title, Summary: s.Summary, GoodFor: s.GoodFor, NotGoodFor: s.NotGoodFor,
 					Output: s.Output, TypicalSeconds: s.TypicalSeconds, InstallState: row.State(), DownloadBytes: size,
 				})
 			}

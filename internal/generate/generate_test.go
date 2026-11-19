@@ -523,3 +523,30 @@ func hasReport(list []string, text string) bool {
 	}
 	return false
 }
+
+// TestKindSpeechWorkflowIsRefused: generate_image with a workflow of the kind
+// speech answers INVALID_ARGUMENT, names generate_speech in next_step and does
+// not call the backend.
+func TestKindSpeechWorkflowIsRefused(t *testing.T) {
+	e := setup(t)
+	dir := filepath.Join(settings.WorkflowsDir(), "stand-in-speech")
+	manifest, err := os.ReadFile(filepath.Join("..", "catalog", "testdata", "stand-in-speech", "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), manifest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = e.svc.Generate(context.Background(), Request{Workflow: "stand-in-speech", Subject: subject}, e.opts(nil))
+	i := info(t, err)
+	if i.Code != "INVALID_ARGUMENT" || i.ActionBy != "caller" || i.Details["field"] != "workflow" || i.Details["kind"] != "speech" ||
+		!strings.Contains(i.NextStep, "generate_speech") || !strings.Contains(i.NextStep, "'stand-in-speech'") {
+		t.Fatalf("got %+v", i)
+	}
+	if len(e.fake.Jobs()) != 0 || e.back.starts != 0 {
+		t.Fatalf("the refusal reached the backend: %d jobs", len(e.fake.Jobs()))
+	}
+}

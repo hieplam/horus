@@ -8,7 +8,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
    },
-   "description": "Everything a caller needs to use one image workflow: the allowed sizes, how to write the subject (rules and example subjects with their images), the license and the install state of each model file. The workflow has no style of its own. Read subject.rules before the first generate_image with this workflow.",
+   "description": "Everything a caller needs to use one workflow. Its kind is image or speech. An image workflow shows the allowed sizes and how to write the subject (rules and example subjects with their images). A speech workflow shows the limits of the text, the voices, the default voice, the tags that the model performs and the formats. Both show the license and the install state of each model file. The workflow has no style of its own. Read subject.rules before the first generate_image with an image workflow.",
    "inputSchema": {
     "properties": {
      "workflow": {
@@ -28,11 +28,24 @@
     "$defs": {
      "DescribeResult": {
       "properties": {
+       "default_voice": {
+        "description": "Speech workflow only: the voice that generate_speech uses when it gets none.",
+        "title": "Default Voice",
+        "type": "string"
+       },
        "files": {
         "items": {
          "$ref": "#/$defs/InstallFile"
         },
         "title": "Files",
+        "type": "array"
+       },
+       "formats": {
+        "description": "Speech workflow only: the audio formats of the result.",
+        "items": {
+         "type": "string"
+        },
+        "title": "Formats",
         "type": "array"
        },
        "good_for": {
@@ -49,6 +62,15 @@
          "not_installed"
         ],
         "title": "Install State",
+        "type": "string"
+       },
+       "kind": {
+        "description": "What the workflow makes. image: use generate_image. speech: use generate_speech.",
+        "enum": [
+         "image",
+         "speech"
+        ],
+        "title": "Kind",
         "type": "string"
        },
        "license": {
@@ -69,20 +91,48 @@
         "type": "array"
        },
        "output": {
-        "additionalProperties": true,
-        "description": "format, default size, min_side, max_side, multiple_of",
-        "title": "Output",
-        "type": "object"
+        "anyOf": [
+         {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "Image workflow: format, default size, min_side, max_side, multiple_of. Speech workflow: null.",
+        "title": "Output"
        },
        "subject": {
-        "additionalProperties": true,
-        "description": "min_chars, max_chars, how_to_write, rules, examples (subject, image path, seed)",
-        "title": "Subject",
-        "type": "object"
+        "anyOf": [
+         {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "Image workflow: min_chars, max_chars, how_to_write, rules, examples (subject, image path, seed). Speech workflow: null.",
+        "title": "Subject"
        },
        "summary": {
         "title": "Summary",
         "type": "string"
+       },
+       "tags": {
+        "description": "Speech workflow only: the [tag] markers that the model performs. Another [tag] in the text is refused.",
+        "items": {
+         "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+       },
+       "text": {
+        "additionalProperties": true,
+        "description": "Speech workflow only: min_chars, max_chars and the rules of the text.",
+        "title": "Text",
+        "type": "object"
        },
        "timing": {
         "anyOf": [
@@ -113,10 +163,19 @@
          }
         ],
         "title": "Typical Seconds"
+       },
+       "voices": {
+        "description": "Speech workflow only: the voice names that generate_speech accepts.",
+        "items": {
+         "type": "string"
+        },
+        "title": "Voices",
+        "type": "array"
        }
       },
       "required": [
        "name",
+       "kind",
        "title",
        "summary",
        "good_for",
@@ -269,7 +328,7 @@
     "title": "Envelope[DescribeResult]",
     "type": "object"
    },
-   "title": "Describe an image workflow"
+   "title": "Describe a workflow"
   },
   {
    "annotations": {
@@ -729,7 +788,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
    },
-   "description": "List the image workflows (model + graph) on this machine. Each entry has the name to pass to the other tools, a summary, what the workflow is good and bad for, the output size, the measured time per image, and install_state. Call this first.",
+   "description": "List the workflows on this machine. Each entry has the name to pass to the other tools, its kind (image or speech), a summary, what the workflow is good and bad for, the output size of an image workflow, the measured time, and install_state. Make an image with generate_image and speech with generate_speech. Call this first.",
    "inputSchema": {
     "properties": {},
     "title": "list_workflowsArguments",
@@ -832,6 +891,15 @@
         "title": "Install State",
         "type": "string"
        },
+       "kind": {
+        "description": "What the workflow makes. image: use generate_image. speech: use generate_speech.",
+        "enum": [
+         "image",
+         "speech"
+        ],
+        "title": "Kind",
+        "type": "string"
+       },
        "name": {
         "description": "Pass this to the other tools.",
         "title": "Name",
@@ -845,10 +913,17 @@
         "type": "array"
        },
        "output": {
-        "additionalProperties": true,
-        "description": "format, default_width, default_height",
-        "title": "Output",
-        "type": "object"
+        "anyOf": [
+         {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "Image workflow: format, default_width, default_height. Speech workflow: null.",
+        "title": "Output"
        },
        "summary": {
         "title": "Summary",
@@ -870,12 +945,13 @@
           "type": "null"
          }
         ],
-        "description": "Measured time for one image, [fastest, slowest].",
+        "description": "Measured time for one image or one file, [fastest, slowest].",
         "title": "Typical Seconds"
        }
       },
       "required": [
        "name",
+       "kind",
        "title",
        "summary",
        "good_for",
@@ -923,7 +999,7 @@
     "title": "Envelope[ListResult]",
     "type": "object"
    },
-   "title": "List image workflows"
+   "title": "List workflows"
   },
   {
    "annotations": {

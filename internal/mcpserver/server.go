@@ -2,11 +2,12 @@
 //
 // Tools (one file each, tool_<name>.go):
 //
-//	list_workflows      the image workflows on this machine, and if each one is installed
-//	describe_workflow   one workflow in full: sizes, how to write the subject, examples, license
+//	list_workflows      the workflows on this machine, their kind (image or speech), and if each one is installed
+//	describe_workflow   one workflow in full: sizes and the subject, or the text and the voices; the license
 //	install_workflow    download and verify the model files of a workflow
 //	uninstall_workflow  delete the model files of a workflow
-//	generate_image      make one image with a workflow; waits until the PNG is on disk
+//	generate_image      make one image with an image workflow; waits until the PNG is on disk
+//	generate_speech     make one audio file with a speech workflow; waits until the file is on disk
 //
 // Every tool returns the same envelope, in structuredContent and as JSON text:
 //
@@ -29,13 +30,17 @@ import (
 )
 
 // serverInstructions is the instructions text that the server gives to a client at the start of a session.
-const serverInstructions = `horus makes images on this machine with local AI models. You do not need to know how.
-1. Call list_workflows. Each workflow is one image model and graph; pick the one whose summary and good_for fit.
-2. Call describe_workflow for that workflow once, and read subject.rules and subject.examples.
-   horus adds no style: it sends your subject to the model exactly as written. You own the look,
-   the palette, the light and the composition, so write them in the subject.
-3. Call generate_image. It waits until the PNG is on disk (often 3 to 8 minutes, longer on a cold start)
+const serverInstructions = `horus makes images and speech on this machine with local AI models. You do not need to know how.
+1. Call list_workflows. Each workflow has a kind: image or speech. Pick the one whose kind, summary and good_for fit.
+2. Call describe_workflow for that workflow once.
+   An image workflow: read subject.rules and subject.examples. horus adds no style: it sends your subject
+   to the model exactly as written. You own the look, the palette, the light and the composition, so write them in the subject.
+   A speech workflow: read text.rules, voices and tags. horus sends your text as written and adds no words.
+3. For an image, call generate_image. It waits until the PNG is on disk (often 3 to 8 minutes, longer on a cold start)
    and returns its absolute path. Open the file and check it against what you asked.
+4. For speech, call generate_speech with the text and a voice. It waits until the audio file is on disk (seconds
+   for a sentence) and returns its absolute path and its transcript: the words that horus read back from the file.
+   You cannot listen to the file, so compare the transcript with your text.
 Every result has ok, result and error. On ok=false, read error.code, error.action_by and error.next_step:
 action_by "retry" = call again, "caller" = change your arguments, "human" = ask the user to do error.next_step.
 Never install or uninstall a workflow without the user's consent: those tools ask for it.`
@@ -69,9 +74,10 @@ type Images interface {
 	FreeMemory(ctx context.Context)
 }
 
-// tools is the list of the 5 tools. Each tool lives in its own file.
-func tools(images Images, setup Setup) []tool {
-	return []tool{listWorkflows(images, setup), describeWorkflow(setup), installWorkflow(setup), uninstallWorkflow(images, setup), generateImage(images)}
+// tools is the list of the 6 tools. Each tool lives in its own file.
+func tools(images Images, setup Setup, speech Speech) []tool {
+	return []tool{listWorkflows(images, setup), describeWorkflow(setup), installWorkflow(setup), uninstallWorkflow(images, setup),
+		generateImage(images), generateSpeech(speech)}
 }
 
 func (t tool) definition() *mcp.Tool {
@@ -111,19 +117,19 @@ func pyNone(v any) any {
 	return v
 }
 
-// New makes the server with the 5 tools. The tools make images, and ask
+// New makes the server with the 6 tools. The tools make images, and ask
 // the image backend, through images. They set up the model files of a
-// workflow through setup.
-func New(images Images, setup Setup) *mcp.Server {
+// workflow through setup. They make speech through speech.
+func New(images Images, setup Setup, speech Speech) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: version.Version}, &mcp.ServerOptions{Instructions: serverInstructions})
-	for _, t := range tools(images, setup) {
+	for _, t := range tools(images, setup, speech) {
 		s.AddTool(t.definition(), t.handler())
 	}
 	return s
 }
 
 // Run serves the tools over stdio until the client closes the connection.
-func Run(ctx context.Context, images Images, setup Setup) error {
+func Run(ctx context.Context, images Images, setup Setup, speech Speech) error {
 	if path := settings.Get("HORUS_LOG_FILE", ""); path != "" {
 		if f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
 			defer f.Close()
@@ -132,7 +138,7 @@ func Run(ctx context.Context, images Images, setup Setup) error {
 			logf("WARNING", "cannot open HORUS_LOG_FILE: %v", err)
 		}
 	}
-	return New(images, setup).Run(ctx, &mcp.StdioTransport{})
+	return New(images, setup, speech).Run(ctx, &mcp.StdioTransport{})
 }
 
 type teeWriter struct {

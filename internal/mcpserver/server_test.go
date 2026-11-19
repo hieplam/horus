@@ -84,11 +84,13 @@ func asJSON(t *testing.T, v any) any {
 // TestToolsMatchPython compares tools/list of the Go server, as a client sees
 // it, with tools/list of the Python server: for each tool the name, title,
 // description, annotations, input schema and output schema. It also compares
-// the server name, version and instructions.
+// the server name, version and instructions. The Python server had no
+// generate_speech: the golden file holds that tool and the instructions as
+// the Go server first gave them.
 func TestToolsMatchPython(t *testing.T) {
 	useRepoWorkflows(t)
 	g := readGolden(t)
-	cs := connect(t, New(&fakeImages{}, nil), nil)
+	cs := connect(t, New(&fakeImages{}, nil, nil), nil)
 
 	init := cs.InitializeResult()
 	// The version is the version of the build (TestServerInfoVersionIsTheVersionOfTheBuild),
@@ -108,8 +110,8 @@ func TestToolsMatchPython(t *testing.T) {
 	for _, tl := range list.Tools {
 		got[tl.Name] = asJSON(t, tl)
 	}
-	if len(got) != len(g.Tools) || len(got) != 5 {
-		t.Fatalf("Go has %d tools, Python %d, want 5", len(got), len(g.Tools))
+	if len(got) != len(g.Tools) || len(got) != 6 {
+		t.Fatalf("Go has %d tools, the golden file %d, want 6", len(got), len(g.Tools))
 	}
 	addSetupConsent(t, g.Tools)
 	for _, py := range g.Tools {
@@ -192,7 +194,7 @@ func envelopeOf(t *testing.T, res *mcp.CallToolResult) map[string]any {
 // the text form with an indent of 1, and the key order of the envelope.
 func TestErrorEnvelope(t *testing.T) {
 	useRepoWorkflows(t)
-	cs := connect(t, New(&fakeImages{}, nil), nil)
+	cs := connect(t, New(&fakeImages{}, nil, nil), nil)
 	res := callTool(t, cs, "describe_workflow", map[string]any{"workflow": "nope"})
 	if !res.IsError {
 		t.Fatal("isError is not set")
@@ -221,7 +223,7 @@ func TestErrorEnvelope(t *testing.T) {
 // isError, no structuredContent, and the field in the text.
 func TestArgumentErrors(t *testing.T) {
 	useRepoWorkflows(t)
-	cs := connect(t, New(&fakeImages{}, nil), nil)
+	cs := connect(t, New(&fakeImages{}, nil, nil), nil)
 	for _, c := range []struct {
 		args map[string]any
 		want string
@@ -308,7 +310,7 @@ func TestServerInfoVersionIsTheVersionOfTheBuild(t *testing.T) {
 	t.Cleanup(func() { version.Version = old })
 	for _, want := range []string{old, "1.2.3"} {
 		version.Version = want
-		cs := connect(t, New(&fakeImages{}, nil), nil)
+		cs := connect(t, New(&fakeImages{}, nil, nil), nil)
 		if got := cs.InitializeResult().ServerInfo.Version; got != want {
 			t.Errorf("serverInfo version %q, want %q", got, want)
 		}

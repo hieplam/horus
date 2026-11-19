@@ -497,7 +497,7 @@ func fileStates(files any) string {
 func TestModelToolsOnASandbox(t *testing.T) {
 	s := newToolSandbox(t)
 	images := &fakeImages{} // the backend is down: list says backend_running false
-	cs := connect(t, mcpserver.New(images, newSetup(cli.SetupPlace{}, seams{})), nil)
+	cs := connect(t, mcpserver.New(images, newSetup(cli.SetupPlace{}, seams{}), nil), nil)
 
 	env := envelopeOf(t, callTool(t, cs, "list_workflows", map[string]any{}))
 	r, _ := env["result"].(map[string]any)
@@ -580,7 +580,7 @@ func TestInstallToolGivesTheCodeOfAFailedDownload(t *testing.T) {
 			t.Setenv("HORUS_WORKFLOWS_DIR", s.workflows)
 			settings.Reset()
 			setup := newSetup(cli.SetupPlace{ComfyUIDir: s.comfy, ModelsDir: s.models, ServerURL: s.comfyUI.URL}, s.seams(c.free))
-			cs := connect(t, mcpserver.New(&fakeImages{}, setup), nil)
+			cs := connect(t, mcpserver.New(&fakeImages{}, setup, nil), nil)
 			env := envelopeOf(t, callTool(t, cs, "install_workflow", map[string]any{"workflow": "demo", "accept_license": true}))
 			e, _ := env["error"].(map[string]any)
 			d, _ := e["details"].(map[string]any)

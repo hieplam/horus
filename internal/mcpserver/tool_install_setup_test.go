@@ -169,7 +169,7 @@ func errorOf(t *testing.T, env map[string]any) (code string, details map[string]
 func TestInstallWorkflowWithoutAcceptSetupAnswersSetupConfirmationRequired(t *testing.T) {
 	m, svc := newEmptyMachine(t, true)
 	before := tree(t, m.root)
-	cs := connect(t, New(&fakeImages{}, svc), nil)
+	cs := connect(t, New(&fakeImages{}, svc, nil), nil)
 	for _, args := range []map[string]any{
 		{"workflow": "it-illustration"},
 		{"workflow": "it-illustration", "accept_license": true},
@@ -219,7 +219,7 @@ func TestInstallWorkflowWithoutAcceptSetupAnswersSetupConfirmationRequired(t *te
 func TestInstallWorkflowAsksTheSetupConsentBeforeTheLicense(t *testing.T) {
 	m, svc := newEmptyMachine(t, true)
 	before := tree(t, m.root)
-	cs := connect(t, New(&fakeImages{}, svc), nil)
+	cs := connect(t, New(&fakeImages{}, svc, nil), nil)
 	code, d, _ := errorOf(t, envelopeOf(t, callTool(t, cs, "install_workflow", map[string]any{"workflow": "it-illustration", "accept_setup": true})))
 	if code != "LICENSE_CONFIRMATION_REQUIRED" || d["download_bytes"] == nil {
 		t.Fatalf("got %s %v, want LICENSE_CONFIRMATION_REQUIRED", code, d)
@@ -239,7 +239,7 @@ func TestInstallWorkflowAsksTheSetupConsentBeforeTheLicense(t *testing.T) {
 func TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps(t *testing.T) {
 	m, svc := newEmptyMachine(t, true)
 	got := make(chan string, 16)
-	cs := connect(t, New(&fakeImages{}, svc), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
+	cs := connect(t, New(&fakeImages{}, svc, nil), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
 		got <- r.Params.Message
 	}})
 	params := &mcp.CallToolParams{Name: "install_workflow", Arguments: map[string]any{"workflow": "it-illustration", "accept_setup": true, "accept_license": true}}
@@ -285,7 +285,7 @@ func TestInstallWorkflowWithAcceptSetupRunsTheSetupSteps(t *testing.T) {
 func TestInstallWorkflowWithoutAPackageManagerAnswersBackendNotInstalled(t *testing.T) {
 	m, svc := newEmptyMachine(t, false)
 	before := tree(t, m.root)
-	cs := connect(t, New(&fakeImages{}, svc), nil)
+	cs := connect(t, New(&fakeImages{}, svc, nil), nil)
 	code, d, e := errorOf(t, envelopeOf(t, callTool(t, cs, "install_workflow",
 		map[string]any{"workflow": "it-illustration", "accept_setup": true, "accept_license": true})))
 	ns, _ := e["next_step"].(string)
@@ -306,7 +306,7 @@ func TestInstallWorkflowWithoutAPackageManagerAnswersBackendNotInstalled(t *test
 func TestInstallWorkflowNamesTheSetupStepThatFailed(t *testing.T) {
 	m, svc := newEmptyMachine(t, true)
 	m.pkgDir = filepath.Join(m.root, "elsewhere") // winget puts 7z where the plan does not look
-	cs := connect(t, New(&fakeImages{}, svc), nil)
+	cs := connect(t, New(&fakeImages{}, svc, nil), nil)
 	code, d, e := errorOf(t, envelopeOf(t, callTool(t, cs, "install_workflow",
 		map[string]any{"workflow": "it-illustration", "accept_setup": true, "accept_license": true})))
 	step, _ := d["step"].(map[string]any)

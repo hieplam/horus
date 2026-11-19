@@ -4,3 +4,5 @@ go.mod text eol=lf
 go.sum text eol=lf
 # A shell script with CRLF fails in sh.
 *.sh text eol=lf
+# The program embeds the speech worker file (go:embed): the same bytes on every OS.
+internal/speechworker/worker.py text eol=lf

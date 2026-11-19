@@ -16,7 +16,8 @@ var portMap = []string{"mcp", "workflow", "download-model", "check-setup", "inst
 	"doctor", "setup", // new in Phase 2 (task T8)
 	"comfy-mcp", // new in Phase 3 (task T5)
 	"version",   // new in Phase 4 (task T1)
-	"uninstall"} // new in Phase 4 (task T7)
+	"uninstall", // new in Phase 4 (task T7)
+	"worker"}    // new in the job queue (epic #180, task T4)
 
 func TestEveryPortMapRowHasACommand(t *testing.T) {
 	for _, name := range portMap {

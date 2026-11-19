@@ -386,8 +386,10 @@ name a closed port, so no real package manager runs and no download leaves the
 machine. These checks prove the setup consent: no change on disk before
 `accept_setup=true`, the order of the two consents, and the package step with
 the arguments of the spec.
-It ends with `contract: N of 37 passed` and exits 0 only when all pass.
-The total is 35 server checks plus 2 for each shipped workflow.
+It ends with `contract: N of M passed` and exits 0 only when all pass.
+The total M is 38 server checks plus 2 for each shipped workflow. The second
+check of a workflow depends on its kind: an image workflow has no style words in
+its graph, and a speech workflow has no graph, no subject and no output.
 
 ### The peak tool
 

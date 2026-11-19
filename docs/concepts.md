@@ -174,6 +174,27 @@ tools. horus has two MCP servers:
 failed (`CONNECTION_CLOSED`). For `horus`, the program is not on the PATH. For
 `comfy-mcp`, see [running workflows](running-workflows.md#failure-modes).
 
+## TTS, transcript and speech worker
+
+**TTS (text to speech).** A model reads a text and writes an audio file. The
+workflow `vi-speech` uses the model VieNeu-TTS v3 Turbo. It speaks Vietnamese,
+runs on the CPU and has 25 preset voices. Its kind is `speech`: a workflow of
+the kind `speech` has no ComfyUI graph.
+
+**Transcript.** The words that a speech recognition model reads from the audio
+file that horus made. The model is Whisper small. The caller compares the
+transcript with its text to check the file. The model does not give the same
+audio for the same text two times, so the transcript can differ from the text
+in a few words.
+
+**Speech worker.** A Python process that holds the speech model and the speech
+recognition model in memory, so each call does not load them again. The speech
+worker and the tool `generate_speech` are not in the program yet. See
+[the spec](specs/2026-11-20-text-to-speech.md).
+
+**If wrong.** A text with a `[tag]` that the model does not perform is read
+aloud, tag included. The model performs `[cười]`, `[thở dài]` and `[hắng giọng]`.
+
 ## Slot
 
 **What it is.** One setting of a workflow that a tool can read and change. A

@@ -202,7 +202,7 @@ func TestErrorEnvelope(t *testing.T) {
 	if env["ok"] != false || env["result"] != nil || e["code"] != "WORKFLOW_NOT_FOUND" {
 		t.Fatalf("envelope %v", env)
 	}
-	if known, _ := e["details"].(map[string]any)["known"].([]any); len(known) != 1 || known[0] != "it-illustration" {
+	if known, _ := e["details"].(map[string]any)["known"].([]any); len(known) != 2 || known[0] != "it-illustration" || known[1] != "vi-speech" {
 		t.Fatalf("known = %v", e["details"])
 	}
 	text := res.Content[0].(*mcp.TextContent).Text

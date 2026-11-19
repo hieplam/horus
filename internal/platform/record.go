@@ -18,21 +18,27 @@ const InstallRecordName = "horus-install.json"
 
 // The kinds of an install record.
 const (
-	RecordComfyUI  = "comfyui"        // the install folder of ComfyUI
-	RecordComfyMCP = "comfy-mcp-venv" // the venv of horus install-comfy-mcp
+	RecordComfyUI    = "comfyui"        // the install folder of ComfyUI
+	RecordComfyMCP   = "comfy-mcp-venv" // the venv of horus install-comfy-mcp
+	RecordSpeechVenv = "speech-venv"    // the speech venv (ADR 0032)
 )
 
 // installRecord is the content of horus-install.json.
 type installRecord struct {
 	Program string `json:"program"` // always "horus"
-	Kind    string `json:"kind"`    // RecordComfyUI or RecordComfyMCP
+	Kind    string `json:"kind"`    // one of the Record kinds
 	Created string `json:"created"` // the time of the install (RFC 3339)
+	// Packages are the Python packages that pip installed in a venv, with
+	// their pinned versions. A venv that horus made gets its record before
+	// the pip install, with no packages, and the packages after it.
+	Packages []string `json:"packages,omitempty"`
 }
 
 // WriteInstallRecord writes the install record of the kind into the folder
-// dir. The folder must exist.
-func WriteInstallRecord(dir, kind string) error {
-	data, err := json.MarshalIndent(installRecord{Program: "horus", Kind: kind, Created: time.Now().Format(time.RFC3339)}, "", "  ")
+// dir, with the Python packages that the folder holds (a venv). The folder
+// must exist.
+func WriteInstallRecord(dir, kind string, packages ...string) error {
+	data, err := json.MarshalIndent(installRecord{Program: "horus", Kind: kind, Created: time.Now().Format(time.RFC3339), Packages: packages}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -42,17 +48,28 @@ func WriteInstallRecord(dir, kind string) error {
 // HasInstallRecord reports if the folder dir holds an install record of the
 // kind: a regular file (not a link) whose program is horus.
 func HasInstallRecord(dir, kind string) bool {
+	_, ok := InstallRecordPackages(dir, kind)
+	return ok
+}
+
+// InstallRecordPackages gives the Python packages of the install record of
+// the kind in the folder dir. ok is false when the folder has no such record
+// (HasInstallRecord).
+func InstallRecordPackages(dir, kind string) (packages []string, ok bool) {
 	p := filepath.Join(dir, InstallRecordName)
 	fi, err := os.Lstat(p)
 	if err != nil || !fi.Mode().IsRegular() {
-		return false
+		return nil, false
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
-		return false
+		return nil, false
 	}
 	var r installRecord
-	return json.Unmarshal(data, &r) == nil && r.Program == "horus" && r.Kind == kind
+	if json.Unmarshal(data, &r) != nil || r.Program != "horus" || r.Kind != kind {
+		return nil, false
+	}
+	return r.Packages, true
 }
 
 // IsLink reports if path is a symbolic link, or a reparse point such as an

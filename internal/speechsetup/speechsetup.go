@@ -69,6 +69,14 @@ const (
 // loudness and the format, and ffprobe measures the length of the audio.
 var Programs = []string{"ffmpeg", "ffprobe"}
 
+// PythonVersion is the version of the Python that makes the speech venv.
+const PythonVersion = "3.12"
+
+// Packages are the Python packages of the speech venv, with the pinned
+// versions of the spec. The speech worker passes codec_dir to the engine of
+// vieneu itself, so the version of vieneu must stay pinned.
+var Packages = []string{"vieneu==3.8.4", "faster-whisper==1.2.1"}
+
 // Part is one thing that a speech workflow needs on this machine.
 type Part struct {
 	Kind  string `json:"kind"`  // KindVenv, KindProgram or KindModelFile

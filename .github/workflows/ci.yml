@@ -102,7 +102,7 @@ jobs:
         shell: bash
         run: |
           python tests/mcp_contract.py --server-cmd "$GITHUB_WORKSPACE/bin/horus${{ runner.os == 'Windows' && '.exe' || '' }}" mcp | tee contract.log
-          grep -q "contract: 56 of 56 passed" contract.log
+          grep -q "contract: 61 of 61 passed" contract.log
 
   workflow-parity:
     # tests/workflow_parity.py: horus workflow against the golden files recorded from the old script.

@@ -10,7 +10,9 @@ it-illustration workflow, tiny stand-in model files, a second workflow
 whose files are absent, and the stand-in speech workflow. The speech checks use
 the fake speech worker (internal/speechworker/fakeworker): the test builds it
 with `go build` as the Python of a sandbox speech venv, and puts a fake ffmpeg
-and ffprobe on the PATH of the server.
+and ffprobe on the PATH of the server. The setup checks run install_workflow on
+a machine without ComfyUI, and on a machine without the speech setup, with a
+fake package manager on a PATH that holds only fakes and the folders of the OS.
 
 It prints one PASS or FAIL line per check and "contract: N of M passed".
 Exit code 0 only when all checks pass. The default server command is
@@ -257,6 +259,7 @@ async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Pa
         await session_checks(params, errlog, sandbox, tmp, c)
     await speech_worker_checks(server_cmd, env, tmp, c)
     await setup_checks(server_cmd, env, tmp, c)
+    await speech_setup_checks(server_cmd, env, sandbox, tmp, c)
 
     neutral_checks(c)
 
@@ -711,6 +714,141 @@ async def setup_checks(server_cmd: list[str], base_env: dict[str, str], tmp: Pat
                         any(m.startswith("setup step 1 of ") and name in m for m in progress), str(progress))
 
 
+# The speech packages (spec docs/specs/2026-11-20-text-to-speech.md, "Install and uninstall"): for each package, its
+# name, the arguments of the package manager, and where the package manager puts its programs (platform.SpeechPackagesFor).
+SPEECH_PACKAGES = ((("Python 3.12", ["install", "--id", "Python.Python.3.12", "-e", "--accept-source-agreements", "--accept-package-agreements"]),
+                    ("FFmpeg", ["install", "--id", "Gyan.FFmpeg", "-e", "--accept-source-agreements", "--accept-package-agreements"]))
+                   if os.name == "nt" else
+                   (("Python 3.12", ["install", "python@3.12"]), ("FFmpeg", ["install", "ffmpeg"])))
+SPEECH_PINS = ["vieneu==3.8.4", "faster-whisper==1.2.1"]
+
+
+def fake_package_manager(bindir: Path, name: str, record: Path, src: Path, local: Path) -> None:
+    """A fake winget or brew: it appends its arguments to record, then puts a copy of src (the fake speech worker,
+    which is also a fake Python) where the real one puts each program: Python 3.12, or ffmpeg and ffprobe."""
+    bindir.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        py, ff = local / "Programs" / "Python" / "Python312", local / "Microsoft" / "WinGet" / "Links"
+        (bindir / f"{name}.cmd").write_text(
+            "@echo off\r\n"
+            f'echo %*>>"{record}"\r\n'
+            f'if "%3"=="Python.Python.3.12" (mkdir "{py}" 2>nul & copy /y "{src}" "{py}\\python.exe" >nul)\r\n'
+            f'if "%3"=="Gyan.FFmpeg" (mkdir "{ff}" 2>nul & copy /y "{src}" "{ff}\\ffmpeg.exe" >nul & copy /y "{src}" "{ff}\\ffprobe.exe" >nul)\r\n'
+            "exit /b 0\r\n", encoding="utf-8", newline="")
+    else:
+        path = bindir / name
+        path.write_text("#!/bin/sh\n"
+                        f"printf '%s\\n' \"$*\" >> '{record}'\n"
+                        'case "$*" in\n'
+                        f"  *python@3.12*) cp '{src}' '{bindir}/python3.12' ;;\n"
+                        f"  *ffmpeg*) cp '{src}' '{bindir}/ffmpeg'; cp '{src}' '{bindir}/ffprobe' ;;\n"
+                        "esac\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+
+
+async def speech_setup_checks(server_cmd: list[str], base_env: dict[str, str], sandbox: dict[str, str], tmp: Path, c: Checks) -> None:
+    """install_workflow of a speech workflow on a machine without Python 3.12, FFmpeg and the speech setup. The PATH
+    holds only a fake package manager and the folders of the OS. The fake package manager puts a copy of the fake
+    speech worker where the real one puts Python 3.12, ffmpeg and ffprobe. As Python 3.12, the fake worker makes a
+    stand-in venv ("-m venv") and installs nothing ("-m pip"). The model file has an http address, which the
+    downloader refuses at once: the download step runs, and no byte leaves the machine. Then the test puts the
+    stand-in model file where the download puts it, as a finished download does."""
+    bare = tmp / "speech-bare"
+    flows, home, local, speech = bare / "workflows", bare / "home", bare / "local", bare / "speech"
+    flow = flows / SPEECH
+    flow.mkdir(parents=True)
+    home.mkdir()
+    shutil.copy(ROOT / "internal" / "catalog" / "testdata" / SPEECH / "manifest.json", flow / "manifest.json")
+    data = b"stand-in voice model"
+    (flow / "models.json").write_text(json.dumps({"repo": "stand-in/speech", "license": "Apache-2.0", "files": [
+        {"role": "speech", "repo_path": "voice.bin", "folder": "tts", "url": "http://127.0.0.1:9/voice.bin",
+         "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}]}, indent=1), encoding="utf-8")
+    bindir, record, worker = bare / "bin", bare / "package-manager.args", bare / "speech-worker.record"
+    manager = "winget" if os.name == "nt" else "brew"
+    fake_package_manager(bindir, manager, record, Path(sandbox["speech_dir"]) / "venv" / (
+        "Scripts/python.exe" if os.name == "nt" else "bin/python"), local)
+    system = [str(Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32")] if os.name == "nt" else ["/usr/bin", "/bin"]
+    env = {**base_env, "HORUS_WORKFLOWS_DIR": str(flows), "HORUS_SPEECH_DIR": str(speech), "HORUS_ROOT": str(bare),
+           "HORUS_HOME": str(home / "horus"), "HORUS_OUTPUT_DIR": str(bare / "out"), "HORUS_COMFYUI_DIR": str(bare / "no-comfyui"),
+           "HOME": str(home), "USERPROFILE": str(home), "LOCALAPPDATA": str(local),
+           "ProgramFiles": str(home / "Program Files"), "ProgramFiles(x86)": str(home / "Program Files (x86)"),
+           "HORUS_FAKE_SPEECH_RECORD": str(worker), "PATH": os.pathsep.join([str(bindir), *system]),
+           "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
+    venv = speech / "venv"
+    model = speech / "models" / "tts" / "voice.bin"
+    params = StdioServerParameters(command=server_cmd[0], args=server_cmd[1:], env=env)
+    with open(tmp / "server-speech-setup.stderr.log", "w", encoding="utf-8") as errlog:
+        async with stdio_client(params, errlog=errlog) as (read, write):
+            async with ClientSession(read, write) as s:
+                await s.initialize()
+                before = tree(bare)
+                res = env_of(await s.call_tool("install_workflow", {"workflow": SPEECH}))
+                e = res.get("error") or {}
+                steps = (e.get("details") or {}).get("steps") or []
+                want = [("package", SPEECH_PACKAGES[0][0]), ("package", SPEECH_PACKAGES[1][0]), ("speech-venv", "speech venv"), ("file", "voice.bin")]
+                commands = [st.get("command") or [""] for st in steps]
+                c.check("a speech workflow on a machine without Python 3.12, FFmpeg and the speech setup -> SETUP_CONFIRMATION_REQUIRED, "
+                        "details.steps in order: Python 3.12, FFmpeg, the speech venv, the model file; no ComfyUI step",
+                        e.get("code") == "SETUP_CONFIRMATION_REQUIRED" and e.get("action_by") == "human"
+                        and [(st.get("kind"), st.get("name")) for st in steps] == want
+                        and all(Path(commands[i][0]).stem == manager and commands[i][1:] == SPEECH_PACKAGES[i][1] for i in (0, 1))
+                        and len(commands) == 4 and commands[2][-2:] == SPEECH_PINS and steps[2].get("dir") == str(venv)
+                        and steps[3].get("dir") == str(model.parent), json.dumps(res)[:600], key="speech-setup:plan")
+
+                lic = env_of(await s.call_tool("install_workflow", {"workflow": SPEECH, "accept_license": True}))
+                setup = env_of(await s.call_tool("install_workflow", {"workflow": SPEECH, "accept_setup": True}))
+                c.check("a speech workflow: no change on disk before both consents (accept_license alone -> SETUP_CONFIRMATION_REQUIRED, "
+                        "accept_setup alone -> LICENSE_CONFIRMATION_REQUIRED)",
+                        (lic.get("error") or {}).get("code") == "SETUP_CONFIRMATION_REQUIRED"
+                        and (setup.get("error") or {}).get("code") == "LICENSE_CONFIRMATION_REQUIRED"
+                        and tree(bare) == before and not record.exists() and not speech.exists() and not worker.exists(),
+                        json.dumps(lic)[:200] + " " + json.dumps(setup)[:200], key="speech-setup:no-change")
+
+                progress: list[str] = []
+
+                async def on_progress(p, total, message):
+                    progress.append(message or "")
+
+                res = env_of(await s.call_tool("install_workflow", {"workflow": SPEECH, "accept_setup": True, "accept_license": True},
+                                               progress_callback=on_progress))
+                e = res.get("error") or {}
+                ran = record.read_text(encoding="utf-8").splitlines() if record.exists() else []
+                python = [ln for ln in speech_record_of(worker) if ln.startswith("start -m ")]
+                rec = json.loads((venv / "horus-install.json").read_text(encoding="utf-8")) if (venv / "horus-install.json").is_file() else {}
+                c.check(f"both consents run the steps in order: {manager} for Python 3.12, then for FFmpeg, the speech venv with "
+                        "the pinned packages and its install record, then the download of the model file (refused: no network)",
+                        [ln.split() for ln in ran] == [SPEECH_PACKAGES[0][1], SPEECH_PACKAGES[1][1]]
+                        and python == [f"start -m venv {venv}", "start -m pip install --disable-pip-version-check " + " ".join(SPEECH_PINS)]
+                        and rec.get("kind") == "speech-venv" and rec.get("packages") == SPEECH_PINS
+                        and e.get("code") == "DOWNLOAD_FAILED" and (e.get("details") or {}).get("file") == "voice.bin" and not model.exists()
+                        and any(m.startswith("setup step 3 of 3: make the speech venv") for m in progress),
+                        json.dumps(res)[:400] + f" ran={ran} python={python} record={rec} progress={progress}", key="speech-setup:steps")
+
+                model.parent.mkdir(parents=True, exist_ok=True)
+                model.write_bytes(data)  # what the download puts there
+                out = bare / "out" / "after-install.wav"
+                spoken = env_of(await s.call_tool("generate_speech", {"workflow": SPEECH, "text": SPEECH_TEXT, "out_path": str(out)}))
+                listed = env_of(await s.call_tool("list_workflows", {}))
+                states = {w["name"]: w["install_state"] for w in (listed.get("result") or {}).get("workflows", [])}
+                c.check("after install_workflow and the model file, generate_speech writes the audio file, and list_workflows shows "
+                        "the speech workflow installed",
+                        spoken.get("ok") is True and out.is_file() and (spoken.get("result") or {}).get("transcript") == SPEECH_TEXT
+                        and states == {SPEECH: "installed"}, json.dumps(spoken)[:400] + " " + json.dumps(states), key="speech-setup:works")
+
+                runs = len(ran)
+                again = env_of(await s.call_tool("install_workflow", {"workflow": SPEECH, "accept_setup": True, "accept_license": True}))
+                ran = record.read_text(encoding="utf-8").splitlines() if record.exists() else []
+                c.check("a second install_workflow of the speech workflow -> already_installed; no setup step runs again",
+                        again.get("ok") is True and (again.get("result") or {}).get("already_installed") is True and len(ran) == runs
+                        and [ln for ln in speech_record_of(worker) if ln.startswith("start -m ")] == python,
+                        json.dumps(again)[:300] + f" ran={ran}", key="speech-setup:again")
+
+
+def speech_record_of(path: Path) -> list[str]:
+    """The lines of a record file of the fake speech worker."""
+    return path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+
+
 HTTPD: ThreadingHTTPServer
 
 
@@ -736,8 +874,9 @@ def main() -> int:
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
     passed = sum(1 for ok, _, _ in c.rows if ok)
     shipped = sum(1 for d in (ROOT / "workflows").iterdir() if (d / "manifest.json").is_file())
-    # 38 server checks of the image tools and the kind, 14 speech checks, plus 2 style-neutral checks for each shipped workflow
-    total = 38 + 14 + 2 * shipped
+    # 38 server checks of the image tools and the kind, 14 speech checks, 5 checks of the speech setup, plus 2
+    # style-neutral checks for each shipped workflow
+    total = 38 + 14 + 5 + 2 * shipped
     if a.report:
         a.report.write_text(json.dumps(c.report(total), indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"contract: {passed} of {total} passed")

@@ -125,11 +125,57 @@ sequenceDiagram
   S-->>A: return installed, or an error code
 ```
 
-- `details.steps` lists each step of the plan: `kind` (`package`, `comfy-cli`, `backend` or `file`), `name` (what the step installs), `command` (the program and its arguments of a package step, else `null`) and `dir` (the folder that the step writes to).
+- `details.steps` lists each step of the plan: `kind` (`package`, `comfy-cli`, `backend`, `speech-venv` or `file`), `name` (what the step installs), `command` (the program and its arguments of a package step, the pip install of a `speech-venv` step, else `null`) and `dir` (the folder that the step writes to).
 - One setup consent covers each step of `details.steps`, also the package steps.
 - When the package manager is not found, a person must install the package. The tool then answers `BACKEND_NOT_INSTALLED`, and its `next_step` names the package and where to get it. It changes nothing.
 - When a setup step fails, the tool answers `BACKEND_NOT_INSTALLED` with the failed step in `details.step` and the last lines of its output in `details.output_tail`. The next steps do not run.
-- On a machine where ComfyUI is installed, the plan has only model files, and the tool gives the same answers as before. `accept_setup` changes nothing there.
+- On a machine where ComfyUI is installed, the plan of an image workflow has only model files, and the tool asks only the license consent. `accept_setup` changes nothing there.
+
+A speech workflow needs no ComfyUI, so its plan has no ComfyUI step (the spec
+[`2026-11-20-text-to-speech.md`](specs/2026-11-20-text-to-speech.md),
+"Install and uninstall"). Its steps, in order:
+
+1. A package step for Python 3.12, only when the speech venv must be made and no Python 3.12 is found (`winget` on Windows, `brew` on macOS).
+2. A package step for FFmpeg, only when `ffmpeg` or `ffprobe` is not on the PATH.
+3. The `speech-venv` step: Python 3.12 makes the speech venv in the speech folder, then pip installs the pinned packages `vieneu==3.8.4` and `faster-whisper==1.2.1`.
+4. A `file` step for each missing model file: it goes to `<speech folder>/models/<folder>/<file>`.
+
+The same two consents come first, and the tool changes nothing before both:
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant A as Agent
+  participant S as horus mcp
+  participant P as provision service
+  participant M as winget or brew
+  participant V as Speech venv
+  participant H as huggingface.co
+  A->>S: call install_workflow (a speech workflow)
+  S->>P: read the plan (changes nothing)
+  S-->>A: SETUP_CONFIRMATION_REQUIRED, details.steps
+  A->>U: show each step of details.steps
+  U-->>A: agree
+  A->>S: call again with accept_setup=true
+  S-->>A: LICENSE_CONFIRMATION_REQUIRED (only when the plan downloads model files)
+  A->>U: show the license and the size
+  U-->>A: agree
+  A->>S: call again with accept_setup=true and accept_license=true
+  P->>M: install Python 3.12 (only when it is missing)
+  P->>M: install FFmpeg (only when ffmpeg or ffprobe is missing)
+  Note over P: P puts the folder of FFmpeg first on the PATH of horus mcp.
+  P->>V: Python 3.12 -m venv, then write horus-install.json
+  P->>V: pip install vieneu==3.8.4 faster-whisper==1.2.1
+  P->>V: write horus-install.json again, with the packages
+  P->>H: download each missing model file into the speech folder
+  P->>P: check each part: the speech venv, ffmpeg, ffprobe, each model file
+  S-->>A: return installed, or an error code
+```
+
+- The install record `horus-install.json` of the speech venv has the kind `speech-venv`. horus writes it before the pip install, so `horus uninstall` can remove a venv whose pip install did not end. After the pip install, the record also lists the packages. A venv whose record does not list the pinned packages is not ready: the plan has the `speech-venv` step again. ([ADR 0035](adr/0035-the-install-record-of-the-speech-venv-lists-its-packages.md))
+- The tool answers `installed` only when each part of the speech setup is there, the same check that `generate_speech` does before each call.
+- A program that a package step installs is not on the PATH of a process that started before the install. horus puts the folder of FFmpeg first on the PATH of its own process, so `generate_speech` of the same `horus mcp` finds it. Another program finds it after a restart: open a new terminal, and restart the agent program.
+- A machine where each part is there gets no setup step: the tool answers `already_installed`.
 
 `uninstall_workflow` works the same way: the provision service refuses a file
 that another workflow lists, then the model files adapter deletes the files.
@@ -253,7 +299,7 @@ it starts ComfyUI, and `horus stop-comfyui` reads it.
 |---|---|---|
 | `list_workflows` | Lists the workflows: name, `kind` (`image` or `speech`), summary, `good_for`, `not_good_for`, default size, measured time, `install_state`. | No |
 | `describe_workflow(workflow)` | One workflow in full, with its `kind`. An image workflow shows size limits and how to write the subject (rules and examples). A speech workflow shows `text` (limits), `voices`, `default_voice`, `tags` and `formats`, and no graph. Both show the license and the state of each model file. | No |
-| `install_workflow(workflow, accept_license=false, accept_setup=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license and the size. On a machine without ComfyUI it first runs the setup plan: without `accept_setup=true` it returns `SETUP_CONFIRMATION_REQUIRED` with the steps. | Yes: downloads GB, installs ComfyUI and a system package |
+| `install_workflow(workflow, accept_license=false, accept_setup=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license and the size. When the machine needs a setup step (ComfyUI for an image workflow; Python 3.12, FFmpeg or the speech venv for a speech workflow), it first runs the setup plan: without `accept_setup=true` it returns `SETUP_CONFIRMATION_REQUIRED` with the steps. | Yes: downloads GB, installs ComfyUI, a venv and a system package |
 | `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another workflow lists is kept unless `remove_shared=true`. | Yes: deletes files |
 | `generate_image(workflow, subject, out_path?, seed?, width?, height?, overwrite=false)` | Makes one PNG and waits until it is on disk. Returns the absolute path and the seed. | Writes one PNG |
 | `generate_speech(workflow, text, voice?, out_path?, overwrite=false)` | Makes one audio file and waits until it is on disk. Returns the absolute path and the transcript. | Writes one audio file |
@@ -516,6 +562,17 @@ machine. These checks prove the setup consent: no change on disk before
 `accept_setup=true`, the order of the two consents, and the package step with
 the arguments of the spec.
 
+The speech setup checks start the server one more time, on a machine without
+Python 3.12, FFmpeg and the speech setup. The fake package manager puts a copy
+of the fake speech worker where the real one puts Python 3.12, `ffmpeg` and
+`ffprobe`. As Python 3.12, the fake worker makes a stand-in venv (`-m venv`)
+and installs nothing (`-m pip`). The model file has an `http` address, which
+the downloader refuses at once, so the download step runs and no byte leaves
+the machine. Then the test puts the stand-in model file where a download puts
+it. These checks prove the steps of a speech workflow in order, no change on
+disk before both consents, a `generate_speech` call after the install, and a
+second install with no step.
+
 The speech checks use the fake speech worker
 (`internal/speechworker/fakeworker`). The test builds it with `go build` as the
 Python of a speech venv in its temporary folder, and puts a fake `ffmpeg` and
@@ -528,8 +585,8 @@ failure of the worker, the test starts the server two more times, with the
 fake worker in the modes `die` and `error`.
 
 It ends with `contract: N of M passed` and exits 0 only when all pass. The total
-M is 38 server checks of the image tools and the kind, plus 12 speech checks,
-plus 2 for each shipped workflow. The second check of a workflow depends on its
+M is 38 server checks of the image tools and the kind, plus 14 speech checks,
+plus 5 checks of the speech setup, plus 2 for each shipped workflow. The second check of a workflow depends on its
 kind: an image workflow has no style words in its graph, and a speech workflow
 has no graph, no subject and no output. `--report <file>` also writes each
 check, and the answers of the server to the speech checks, as JSON. The goal

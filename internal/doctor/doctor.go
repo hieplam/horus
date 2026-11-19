@@ -5,6 +5,9 @@
 //  1. ComfyUI is installed (the backend says so).
 //  2. The ComfyUI server answers.
 //
+// Checks 1 and 2 do not run when Options.NoComfyUI is set: horus doctor
+// -workflow names a speech workflow, which needs no ComfyUI.
+//
 // Checks 3, 4, 5 and 7 run only in a clone of the repo (Options.RepoRoot is
 // set). They check the comfy MCP server, which only a developer uses.
 //
@@ -88,6 +91,9 @@ type Options struct {
 	// InTCCFolder tells if an absolute path is inside a TCC folder, and
 	// gives that folder. nil means platform.InTCCFolder in Home.
 	InTCCFolder func(path string) (folder string, ok bool)
+	// NoComfyUI is true when the run checks a workflow that needs no ComfyUI
+	// (a speech workflow): checks 1 and 2 do not run.
+	NoComfyUI bool
 }
 
 // Level is the level of a result.
@@ -145,21 +151,23 @@ func (s *Service) Check(ctx context.Context, o Options) []Result {
 
 	// 1. ComfyUI installed.
 	dir, installed := s.install.Installed()
-	if installed {
-		add(true, "ComfyUI folder", dir)
-	} else {
-		add(false, "ComfyUI folder", fmt.Sprintf("%s not found in %s. Fix: horus setup <workflow> -yes, or pass -comfyui-dir.",
-			filepath.Join("ComfyUI", "main.py"), dir))
-	}
+	if !o.NoComfyUI {
+		if installed {
+			add(true, "ComfyUI folder", dir)
+		} else {
+			add(false, "ComfyUI folder", fmt.Sprintf("%s not found in %s. Fix: horus setup <workflow> -yes, or pass -comfyui-dir.",
+				filepath.Join("ComfyUI", "main.py"), dir))
+		}
 
-	// 2. Server answers.
-	sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	version, err := s.server.Version(sctx)
-	cancel()
-	if err == nil {
-		add(true, "ComfyUI server", fmt.Sprintf("answers at %s (ComfyUI %s)", o.ServerURL, version))
-	} else {
-		add(false, "ComfyUI server", fmt.Sprintf("no answer at %s. Fix: horus start-comfyui", o.ServerURL))
+		// 2. Server answers.
+		sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		version, err := s.server.Version(sctx)
+		cancel()
+		if err == nil {
+			add(true, "ComfyUI server", fmt.Sprintf("answers at %s (ComfyUI %s)", o.ServerURL, version))
+		} else {
+			add(false, "ComfyUI server", fmt.Sprintf("no answer at %s. Fix: horus start-comfyui", o.ServerURL))
+		}
 	}
 
 	// 3, 4, 5 and 7 check the tools of a clone: the comfy MCP server and

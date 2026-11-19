@@ -3,7 +3,10 @@
 // macOS protects) does not fail the run.
 // The checks are in the service internal/doctor.
 // With -workflow, the handler then runs the check of horus workflow check on
-// the setup service, and writes its lines with an indent.
+// the setup service, and writes its lines with an indent. For a speech
+// workflow, that check has the speech venv, ffmpeg, ffprobe and the model
+// files, and the ComfyUI checks do not run: a speech workflow needs no
+// ComfyUI.
 //
 // Exit code 0 = no check failed (WARN lines can be there), 1 = a check
 // failed, 2 = a flag that does not parse.
@@ -14,7 +17,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
+	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/doctor"
 	"github.com/hieplam/horus/internal/provision"
 	"github.com/hieplam/horus/internal/settings"
@@ -71,6 +76,10 @@ func RunDoctor(ctx context.Context, name string, args []string, out, errOut io.W
 	o.ModelsDir = or(place.ModelsDir, settings.Get("HORUS_MODELS_DIR", ""))
 	o.TextEncoderDir = or(place.TextEncoderDir, settings.Get("HORUS_TEXT_ENCODER_DIR", ""))
 	o.OutputDir = settings.OutputDir()
+	o.NoComfyUI = workflow != "" && catalog.KindOfDir(filepath.Join(settings.WorkflowsDir(), workflow)) == catalog.KindSpeech
+	if o.NoComfyUI {
+		fmt.Fprintf(out, "Workflow '%s' is of the kind speech. It needs no ComfyUI, so the ComfyUI checks do not run.\n", workflow)
+	}
 	doc, setup := at(place)
 	rs := doc.Check(ctx, o)
 	for _, r := range rs {
@@ -117,7 +126,11 @@ func modelCheck(ctx context.Context, svc Setup, workflow string, quick bool, out
 	switch {
 	case err != nil:
 		p.say("FAIL: %v", err)
-		resultLine(out, doctor.Fail, name, "see lines above. Fix: horus workflow install "+workflow)
+		fix := "horus workflow install "
+		if catalog.KindOfDir(filepath.Join(req.WorkflowsDir, workflow)) == catalog.KindSpeech {
+			fix = "horus setup " // a speech workflow also needs the speech venv and FFmpeg
+		}
+		resultLine(out, doctor.Fail, name, "see lines above. Fix: "+fix+workflow)
 	case quick:
 		p.say("OK: workflow '%s' is ready.", workflow)
 		resultLine(out, doctor.Pass, name, "all files present, size checked (the SHA-256 is not checked; drop -quick)")

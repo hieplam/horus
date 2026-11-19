@@ -5,7 +5,9 @@
 // (docs/specs/2026-11-15-release-install.md, "The setup plan"): the system
 // package (7-Zip on Windows, Python 3.12 on macOS), comfy-cli (macOS),
 // ComfyUI, then each model file. A machine where ComfyUI is installed gets
-// no package step and no comfy-cli step.
+// no package step and no comfy-cli step. A speech workflow has its own plan
+// (speechplan.go): Python 3.12, FFmpeg, the speech venv, then each model
+// file, and no ComfyUI.
 package provision
 
 import (
@@ -46,15 +48,16 @@ type FileState struct {
 type Step struct {
 	Kind string // one of the Step kinds
 	// Name is what the step installs: the package name, "comfy-cli",
-	// "ComfyUI" or the file name.
+	// "ComfyUI", "speech venv" or the file name.
 	Name string
 	// Dir is the folder that the step writes to: the folder of the program
-	// of a package (StepPackage), the venv (StepComfyCLI) or the install
-	// folder (StepBackend).
+	// of a package (StepPackage), the venv (StepComfyCLI, StepSpeechVenv) or
+	// the install folder (StepBackend).
 	Dir string
 	// Package is the system package (StepPackage and StepPerson).
 	Package *platform.Package
-	// Command is the program and its arguments that a StepPackage runs.
+	// Command is the program and its arguments that a StepPackage runs, or
+	// the pip install of a StepSpeechVenv.
 	Command []string
 	// File is the model file (StepFile).
 	File FileState
@@ -73,6 +76,9 @@ type System struct {
 	// VenvPath is the venv of horus install-comfy-mcp; "" means
 	// settings.ComfyMCPVenv().
 	VenvPath string
+	// Speech are the system packages of the plan of a speech workflow
+	// (platform.SpeechPackagesFor).
+	Speech platform.SpeechPackages
 }
 
 // WithSystem gives the service the programs of this machine and the needs
@@ -104,8 +110,11 @@ type Plan struct {
 	ComfyCLI    bool              // the install needs the program comfy
 	ComfyPath   string            // the program comfy, or "" when it is not found
 	VenvPath    string            // where the comfy-cli step installs comfy
-	Files       []FileState
-	Steps       []Step
+	// Speech are the facts of a speech workflow, or nil for an image
+	// workflow. A speech plan has no backend, package or comfy-cli facts.
+	Speech *SpeechFacts
+	Files  []FileState
+	Steps  []Step
 }
 
 // steps gives the steps for the facts of pl, in the order of the spec. It
@@ -117,12 +126,7 @@ func steps(pl Plan) []Step {
 		// The package is needed for the install itself (7-Zip), or for
 		// comfy-cli (Python 3.12) when comfy is missing.
 		if pkg := pl.Package; pkg != nil && pl.ProgramPath == "" && (!pl.ComfyCLI || needComfy) {
-			if pl.ManagerPath == "" {
-				out = append(out, Step{Kind: StepPerson, Name: pkg.Name, Package: pkg})
-			} else {
-				out = append(out, Step{Kind: StepPackage, Name: pkg.Name, Package: pkg,
-					Dir: packageDir(pkg, pl.ManagerPath), Command: append([]string{pl.ManagerPath}, pkg.Args...)})
-			}
+			out = append(out, packageStep(pkg, pl.ManagerPath))
 		}
 		if needComfy {
 			out = append(out, Step{Kind: StepComfyCLI, Name: "comfy-cli", Dir: pl.VenvPath})
@@ -135,6 +139,16 @@ func steps(pl Plan) []Step {
 		}
 	}
 	return out
+}
+
+// packageStep is the step that installs pkg with the package manager at
+// manager, or a step for a person when manager is "".
+func packageStep(pkg *platform.Package, manager string) Step {
+	if manager == "" {
+		return Step{Kind: StepPerson, Name: pkg.Name, Package: pkg}
+	}
+	return Step{Kind: StepPackage, Name: pkg.Name, Package: pkg,
+		Dir: packageDir(pkg, manager), Command: append([]string{manager}, pkg.Args...)}
 }
 
 // packageDir is the folder where the package manager puts the program of
@@ -152,12 +166,16 @@ func packageDir(pkg *platform.Package, manager string) string {
 // Plan reads the facts of this machine for the workflow of req: is ComfyUI
 // installed, and is each model file present with its size (no SHA-256, so
 // the plan is quick). When ComfyUI is not installed, it also looks for the
-// system package, its package manager and comfy. It changes nothing.
+// system package, its package manager and comfy. A speech workflow has the
+// plan of speechPlan. It changes nothing.
 func (s *Service) Plan(ctx context.Context, req Request) (Plan, error) {
 	pl := Plan{Workflow: req.Workflow}
 	m, _, err := catalog.FindModelList(req.WorkflowsDir, req.Workflow, req.ModelsJSON)
 	if err != nil {
 		return pl, err
+	}
+	if dir := filepath.Join(req.WorkflowsDir, req.Workflow); req.ModelsJSON == "" && isSpeech(dir) {
+		return s.speechPlan(req, dir)
 	}
 	pl.BackendDir, pl.BackendInstalled = s.backend.Installed()
 	if !pl.BackendInstalled && s.sys.Programs != nil {
@@ -193,7 +211,8 @@ func (s *Service) lookPath(name string) string {
 }
 
 // findProgram gives the path of the program of pkg: the PATH first, then the
-// folders where the package manager puts it.
+// folders where the package manager puts it. A folder can be a pattern of
+// filepath.Glob. In a folder, the file is pkg.Exe when it is set.
 func (s *Service) findProgram(pkg *platform.Package, manager string) string {
 	if p := s.lookPath(pkg.Program); p != "" {
 		return p
@@ -202,10 +221,17 @@ func (s *Service) findProgram(pkg *platform.Package, manager string) string {
 	if pkg.InManagerDir && manager != "" {
 		dirs = append(dirs[:len(dirs):len(dirs)], filepath.Dir(manager))
 	}
+	names := []string{platform.ExeName(pkg.Program), pkg.Program}
+	if pkg.Exe != "" {
+		names = []string{pkg.Exe}
+	}
 	for _, d := range dirs {
-		for _, name := range []string{platform.ExeName(pkg.Program), pkg.Program} {
-			if p := filepath.Join(d, name); platform.IsFile(p) {
-				return p
+		found, _ := filepath.Glob(d) // a folder without a pattern gives itself when it exists
+		for _, dir := range found {
+			for _, name := range names {
+				if p := filepath.Join(dir, name); platform.IsFile(p) {
+					return p
+				}
 			}
 		}
 	}
@@ -277,6 +303,13 @@ func (pl Plan) Refusal(withPackages bool) error {
 // installs ComfyUI. The file steps go to Install, limited to the files of
 // the plan. The result is the result of Install, or nil when the plan has
 // no file step. A plan with no step changes nothing.
+//
+// In a speech plan, the Python 3.12 of a package step makes the speech venv,
+// the FFmpeg step puts its folder on the PATH of this process (ffmpegOnPath),
+// and the venv step makes the speech venv (installSpeechVenv). The result is
+// the result of the downloads of the file steps, which ends with a check of
+// each part of the speech setup. A speech plan with no file step ends with
+// that check alone.
 func (s *Service) RunPlan(ctx context.Context, req Request, pl Plan, w Watch) (*Result, error) {
 	if err := pl.Refusal(req.WithPackages); err != nil {
 		return nil, err
@@ -286,7 +319,12 @@ func (s *Service) RunPlan(ctx context.Context, req Request, pl Plan, w Watch) (*
 		out = io.Discard
 	}
 	program := pl.ProgramPath // the program of the package: the Python of comfy-cli on macOS
+	python := ""              // the Python 3.12 of the speech venv
+	if pl.Speech != nil {
+		python = pl.Speech.PythonPath
+	}
 	var names []string
+	paths := map[string]bool{} // the model files of the file steps
 	for _, st := range pl.Steps {
 		if st.Kind != StepFile && w.Step != nil {
 			w.Step(st)
@@ -298,6 +336,18 @@ func (s *Service) RunPlan(ctx context.Context, req Request, pl Plan, w Watch) (*
 				return nil, err
 			}
 			program = p
+			if sf := pl.Speech; sf != nil && st.Package == sf.Python {
+				python = p
+			}
+			if sf := pl.Speech; sf != nil && st.Package == sf.FFmpeg {
+				if err := s.ffmpegOnPath(st, p, out); err != nil {
+					return nil, err
+				}
+			}
+		case StepSpeechVenv:
+			if err := s.installSpeechVenv(ctx, st, python, out); err != nil {
+				return nil, err
+			}
 		case StepComfyCLI:
 			o := ComfyMCPOptions{VenvPath: st.Dir, PythonVersion: comfyPython, Stdout: out, Stderr: out}
 			if program != "" {
@@ -312,7 +362,16 @@ func (s *Service) RunPlan(ctx context.Context, req Request, pl Plan, w Watch) (*
 			}
 		case StepFile:
 			names = append(names, st.File.File)
+			paths[st.File.Path] = true
 		}
+	}
+	if pl.Speech != nil {
+		res, m, _, err := begin("install", req)
+		if err != nil {
+			return end(res, err, "")
+		}
+		dir := filepath.Join(req.WorkflowsDir, req.Workflow)
+		return s.installSpeech(ctx, res, m, req, w, dir, func(p string) bool { return paths[p] })
 	}
 	if len(names) == 0 {
 		return nil, nil
@@ -327,11 +386,16 @@ func (s *Service) RunPlan(ctx context.Context, req Request, pl Plan, w Watch) (*
 func (s *Service) installPackage(ctx context.Context, st Step, out io.Writer) (string, error) {
 	fmt.Fprintf(out, "Running %s ...\n", strings.Join(st.Command, " "))
 	code, err := s.sys.Programs.Run(ctx, platform.Command{Path: st.Command[0], Args: st.Command[1:], Stdout: out, Stderr: out})
-	if err != nil || code != 0 {
-		return "", fmt.Errorf("%s failed (%s). Install %s by hand from %s, then run the setup again.",
-			strings.Join(st.Command, " "), exitText(code, err), st.Package.Name, st.Package.URL)
-	}
 	p := s.findProgram(st.Package, st.Command[0])
+	if err != nil || code != 0 {
+		if p == "" {
+			return "", fmt.Errorf("%s failed (%s). Install %s by hand from %s, then run the setup again.",
+				strings.Join(st.Command, " "), exitText(code, err), st.Package.Name, st.Package.URL)
+		}
+		// winget ends with an error when the package is already installed. The
+		// program is there, so the step did its work.
+		fmt.Fprintf(out, "%s ended with %s, but %s is there.\n", st.Package.Manager, exitText(code, err), p)
+	}
 	if p == "" {
 		return "", fmt.Errorf("%s ended, but %s was not found on the PATH or in %s. Open a new terminal and run the setup again.",
 			strings.Join(st.Command, " "), st.Package.Program, strings.Join(searchDirs(st), ", "))

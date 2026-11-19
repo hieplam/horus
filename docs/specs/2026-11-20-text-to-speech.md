@@ -33,7 +33,7 @@ one file with VieNeu on the CPU.
 - **Kind:** what a workflow makes: `image` or `speech`.
 - **LUFS (Loudness Units relative to Full Scale):** the unit of the loudness
   of an audio file.
-- **Preset voice:** a voice that the VieNeu model files hold. There are 25.
+- **Preset voice:** a voice that the Python package `vieneu` holds. There are 25.
 - **Share of wrong words:** the words of the text that the transcript does
   not have, divided by the words of the text. Both texts are in lower case
   and without punctuation.
@@ -42,7 +42,7 @@ one file with VieNeu on the CPU.
 
 | Row | Outcome | Oracle | Threshold | Ratchet |
 |---|---|---|---|---|
-| `speech-real` | `generate_speech` with a Vietnamese sentence returns an audio file and a transcript with the words of the text. | End-to-end run on the PC with the real models: 5 fixed sentences through the MCP server. | Each file exists. Its loudness is -18 LUFS ± 0.5. The share of wrong words of each sentence is at most the limit that the baseline task measures and writes into this spec. | Speech files that an agent makes through horus: 0 → 5 |
+| `speech-real` | `generate_speech` with a Vietnamese sentence returns an audio file and a transcript with the words of the text. | End-to-end run on the PC with the real models: 5 fixed sentences through the MCP server. | Each file exists. Its loudness is -18 LUFS ± 0.5. The share of wrong words of each sentence is at most 0.17 (the section "Measured baseline"). | Speech files that an agent makes through horus: 0 → 5 |
 | `speech-hidden` | The caller gives only a text and a voice name. | The contract test reads the schema of `generate_speech`. | 0 arguments that name an engine, Python, ffmpeg or the loudness. | Arguments that show the speech setup: 0, and it stays 0 |
 | `speech-install` | On a machine with no speech setup, `install_workflow` with both consents makes `generate_speech` work. The uninstall removes what horus installed. | End-to-end run in a sandbox home folder: install, one speech file, `uninstall_workflow`, then `horus uninstall -yes`. | Before both consents: 0 changes on disk. After the uninstall: 0 files of the speech setup in the sandbox. | Steps that a person does by hand to set up speech: 3 (venv, `pip install`, ffmpeg) → 0 |
 | `speech-errors` | Each failure of a speech call gives an error code with `action_by` and `next_step`. | The contract test with a fake speech worker. | One check for each failure of the table "Failures" below. Each check passes. | Speech failures with a check: 0 → 8 |
@@ -173,13 +173,45 @@ The steps, in order:
 
 | Model | Job | License | Size |
 |---|---|---|---|
-| `pnnbao-ump/VieNeu-TTS-v3-Turbo` | Makes the speech | Apache-2.0 | 494 MB in the Hugging Face cache of the PC |
-| `OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX` | Turns the output of VieNeu into audio | Apache-2.0 | 86 MB |
-| `Systran/faster-whisper-small` (candidate) | Reads the transcript | MIT | 484 MB |
+| `pnnbao-ump/VieNeu-TTS-v3-Turbo` | Makes the speech | Apache-2.0 | 518,063,957 bytes, 9 files |
+| `OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX` | Turns the output of VieNeu into audio | Apache-2.0 | 90,572,161 bytes, 6 files |
+| `Systran/faster-whisper-small` | Reads the transcript | MIT | 486,212,372 bytes, 4 files |
 
-The speech recognition model is a candidate. The baseline task measures it on
-the PC, and the owner approves it before its first download. If the owner
-refuses it, the baseline task names the next candidate.
+- The owner approved the speech recognition model on 2026-11-20.
+- [`workflows/vi-speech/models.json`](../../workflows/vi-speech/models.json)
+  lists the 19 files. Each file names its own repo, its revision and its
+  license, because the files come from 3 repos.
+- The 25 preset voices are in the Python package `vieneu`, not in the model
+  files.
+- The class of `vieneu` 3.8.4 passes `onnx_dir` to its engine, and it does not
+  pass `codec_dir`. The speech worker adds `codec_dir` to the call of the
+  engine, as `tests/speech/baseline.py` does.
+
+### Measured baseline
+
+Measured on 2026-11-20 with `tests/speech/baseline.py` on the PC: AMD Ryzen 7
+4800H, CPU only, Windows 11, `vieneu` 3.8.4, `faster-whisper` 1.2.1, the voice
+`Hải Đăng`. The models came from a local folder, with `HF_HUB_OFFLINE=1` and
+an empty Hugging Face cache.
+
+| Fact | Value |
+|---|---|
+| Share of wrong words, the worst of the 5 sentences | 0.12 in run 1, 0.08 in run 2 |
+| Limit of the row `speech-real` | 0.17: the worst value plus a margin of 0.05 |
+| Loudness of the 10 files | -18.0 to -17.9 LUFS |
+| Time of one call, a sentence of 3 to 6 s of audio | 5.2 to 8.2 s: about half to speak, half to read the transcript |
+| Load time of both models, files in the disk cache of the OS | 4.1 to 6.5 s |
+| Memory of one process with both models, short texts | 1,973 MB at the peak |
+| Memory with a text of 3,999 characters | 5,255 MB at the peak |
+| Longest text that works | 3,999 characters: 210 s of audio, a call of 272 s, share of wrong words 0.014 |
+
+- `text.max_chars` of the workflow is 4,000.
+- The wrong words of the runs are words that the speech recognition model
+  read with a different tone, for example `Mấy` for `Máy` and `lối` for
+  `lỗi`. Not verified: that the audio has the right tone. A person did not
+  listen.
+- The speech model does not give the same audio for the same text two times.
+  So the share of wrong words changes from run to run.
 
 ### Failures
 

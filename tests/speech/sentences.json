@@ -1,0 +1,25 @@
+{
+  "note": "The 5 fixed sentences of the goal row speech-real (docs/specs/2026-11-20-text-to-speech.md). Do not change a sentence: the limit of the spec was measured on these.",
+  "sentences": [
+    {
+      "id": "plain",
+      "text": "Xin chào các bạn, hôm nay chúng ta cùng tìm hiểu về hàng đợi tin nhắn."
+    },
+    {
+      "id": "commas",
+      "text": "Máy chủ nhận yêu cầu, xử lý dữ liệu, rồi trả kết quả về cho người dùng."
+    },
+    {
+      "id": "english-words",
+      "text": "Chúng ta dùng Docker và Kubernetes để triển khai ứng dụng lên cloud."
+    },
+    {
+      "id": "tag",
+      "text": "[cười] Thật ra lỗi này rất đơn giản, chỉ cần khởi động lại dịch vụ là xong."
+    },
+    {
+      "id": "two-sentences",
+      "text": "Khi lưu lượng truy cập tăng cao, hệ thống tự động thêm máy chủ mới. Nhờ vậy, trang web vẫn chạy nhanh và ổn định."
+    }
+  ]
+}

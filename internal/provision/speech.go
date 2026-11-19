@@ -3,14 +3,18 @@
 // the workflow needs more parts than model files: the speech venv, ffmpeg and
 // ffprobe. internal/speechsetup lists the parts. This file checks them through
 // the interfaces of the service: ModelFiles for the files and System.Programs
-// for the programs.
+// for the programs. The install record of the speech venv tells if its pip
+// install ended. The plan and the install are in speechplan.go.
 package provision
 
 import (
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/hieplam/horus/internal/catalog"
+	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/speechsetup"
 )
 
@@ -20,17 +24,33 @@ type speechPart struct {
 	file  catalog.ListedFile // the line of models.json, for a model file
 	size  int64              // the size of the file at part.Path, -1 when no file is there
 	found bool               // the part is there (for a model file: with the size of models.json)
+	why   string             // why a part that is there does not count (the speech venv)
 }
 
 // isSpeech tells if the folder dir holds a speech workflow.
 func isSpeech(dir string) bool { return catalog.KindOfDir(dir) == catalog.KindSpeech }
 
+// venvPackages tells if the speech venv has the pinned packages: its install
+// record lists speechsetup.Packages, or it has no install record (a venv that
+// horus did not make). A record with other packages is a pip install that did
+// not end; why says so.
+func venvPackages(venv string) (ok bool, why string) {
+	got, has := platform.InstallRecordPackages(venv, platform.RecordSpeechVenv)
+	if !has || slices.Equal(got, speechsetup.Packages) {
+		return true, ""
+	}
+	return false, fmt.Sprintf("the install record lists the packages [%s], want [%s]: the pip install did not end",
+		strings.Join(got, " "), strings.Join(speechsetup.Packages, " "))
+}
+
 // speechParts gives each part of the speech workflow in dir, with the result
 // of its look-up, in the order of speechsetup.Parts. A model file with another
-// size than models.json is not found.
+// size than models.json is not found. The speech venv is found when its Python
+// is there and it has the pinned packages (venvPackages).
 func (s *Service) speechParts(name, dir string) ([]speechPart, error) {
 	w := &catalog.Workflow{Name: name, Dir: dir}
-	parts, err := speechsetup.Parts(w, speechsetup.Here())
+	place := speechsetup.Here()
+	parts, err := speechsetup.Parts(w, place)
 	if err != nil {
 		return nil, err
 	}
@@ -46,6 +66,9 @@ func (s *Service) speechParts(name, dir string) ([]speechPart, error) {
 		case speechsetup.KindVenv:
 			sp.size = s.files.Size(p.Path)
 			sp.found = sp.size >= 0
+			if sp.found {
+				sp.found, sp.why = venvPackages(place.Venv)
+			}
 		case speechsetup.KindProgram:
 			if s.sys.Programs != nil {
 				_, err := s.sys.Programs.LookPath(p.Name)
@@ -134,11 +157,14 @@ func (s *Service) checkSpeech(res *Result, name, dir string, only []string, quic
 			it = fileCheck(sp.file, p, max(sp.size, 0), sha, quick, []string{filepath.Dir(sp.part.Path)})
 		} else {
 			it = Item{Status: StatusOK, Kind: sp.part.Kind, File: sp.part.Name, Path: sp.part.Path, Bytes: -1, Detail: "found"}
-			if !sp.found {
+			switch {
+			case sp.found:
+			case sp.why != "":
+				it.Status, it.Detail = StatusMissing, sp.why
+			case sp.part.Path != "":
+				it.Status, it.Detail = StatusMissing, "not at "+sp.part.Path
+			default:
 				it.Status, it.Detail = StatusMissing, "not found"
-				if sp.part.Path != "" {
-					it.Detail = "not at " + sp.part.Path
-				}
 			}
 		}
 		if it.Status != StatusOK {

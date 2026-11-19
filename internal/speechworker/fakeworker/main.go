@@ -6,12 +6,17 @@
 //
 //	go build -o <venv>/Scripts/python.exe ./internal/speechworker/fakeworker
 //
-// It ignores its arguments. It answers:
+// It answers:
 //
 //	voices  the voices "Hải Đăng" (the default) and "Mai Anh"
 //	speak   writes 0.5 s of a quiet tone to "out" as a WAV file (48 kHz,
 //	        16-bit, mono, also for the format mp3), and answers with the
 //	        loudness -18.0 and the text as the transcript
+//
+// It is also a fake of Python 3.12 for the tests of the setup plan. With the
+// arguments "-m venv <dir>", it makes a stand-in venv: a copy of itself as
+// the Python of <dir>, and a pyvenv.cfg. With "-m pip ...", it installs
+// nothing and exits 0. It ignores the other arguments.
 //
 // The environment sets the behaviour of each start:
 //
@@ -36,6 +41,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/hieplam/horus/internal/platform"
 )
 
 const (
@@ -48,6 +55,9 @@ func main() { os.Exit(run()) }
 func run() int {
 	mode := os.Getenv("HORUS_FAKE_SPEECH")
 	record("start " + strings.Join(os.Args[1:], " "))
+	if len(os.Args) > 2 && os.Args[1] == "-m" {
+		return python(os.Args[2], os.Args[3:])
+	}
 	out := json.NewEncoder(os.Stdout)
 	if mode == "load" {
 		fmt.Fprintln(os.Stderr, "fake worker: no model file")
@@ -105,6 +115,44 @@ func run() int {
 		}
 	}
 	return 0
+}
+
+// python answers a call of the setup plan to Python: "-m venv <dir>" makes a
+// stand-in venv in dir, and "-m pip ..." installs nothing.
+func python(module string, args []string) int {
+	switch {
+	case module == "venv" && len(args) > 0:
+		dir := args[len(args)-1]
+		exe, err := os.Executable()
+		if err == nil {
+			err = copyFile(exe, platform.VenvBin(dir, "python"))
+		}
+		if err == nil {
+			err = os.WriteFile(filepath.Join(dir, "pyvenv.cfg"), []byte("home = "+filepath.Dir(exe)+"\nversion = 3.12.0\n"), 0o644)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "fake python:", err)
+			return 1
+		}
+		return 0
+	case module == "pip":
+		fmt.Println("fake python: pip installs nothing")
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, "fake python: no module", module)
+	return 1
+}
+
+// copyFile copies the program src to dst, and makes the folder of dst.
+func copyFile(src, dst string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0o755)
 }
 
 // record appends one line to the record file, when the test names one.

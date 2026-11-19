@@ -9,6 +9,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +25,12 @@ import (
 const (
 	envPkgRecord = "HORUS_FAKE_PKG_RECORD" // the file that gets one line of arguments for each run
 	envPkgPut    = "HORUS_FAKE_PKG_PUT"    // the program file that the package manager makes
+	// envPkgPuts is a JSON object: a text of the arguments -> the program files
+	// that the package manager makes when its arguments have that text.
+	envPkgPuts = "HORUS_FAKE_PKG_PUTS"
+	// envPipRecord is the file that gets the arguments of the pip install of
+	// the speech venv.
+	envPipRecord = "HORUS_FAKE_PIP_RECORD"
 )
 
 // The pinned versions that the fake python reports after its pip install.
@@ -63,6 +70,18 @@ func fakePackageManager(exe string, args []string) int {
 			return 11
 		}
 	}
+	var puts map[string][]string
+	json.Unmarshal([]byte(os.Getenv(envPkgPuts)), &puts)
+	for text, files := range puts {
+		if !strings.Contains(strings.Join(args, " "), text) {
+			continue
+		}
+		for _, put := range files {
+			if copyFile(exe, put) != nil {
+				return 11
+			}
+		}
+	}
 	fmt.Println("fake package manager: installed")
 	return 0
 }
@@ -70,7 +89,9 @@ func fakePackageManager(exe string, args []string) int {
 // fakePython answers the calls of horus install-comfy-mcp. "-m venv <dir>"
 // copies itself as the python of the venv. The version check exits 1 before
 // the pip install. "-m pip install" copies itself as comfy-mcp and comfy of
-// the venv (the copy named comfy is the fake comfy of comfyclitest).
+// the venv (the copy named comfy is the fake comfy of comfyclitest). The pip
+// install of the speech venv (vieneu) only appends its arguments to the
+// file of envPipRecord.
 func fakePython(exe string, args []string) int {
 	joined := strings.Join(args, " ")
 	bin := filepath.Dir(exe)
@@ -85,6 +106,13 @@ func fakePython(exe string, args []string) int {
 		}
 		fmt.Println(fakeMCPVersion)
 		fmt.Println(fakeCLIVersion)
+	case strings.Contains(joined, "-m pip install") && strings.Contains(joined, "vieneu"):
+		f, err := os.OpenFile(os.Getenv(envPipRecord), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return 14
+		}
+		fmt.Fprintln(f, joined)
+		f.Close()
 	case strings.Contains(joined, "-m pip install"):
 		venv := filepath.Dir(bin)
 		for _, name := range []string{"comfy-mcp", "comfy"} {

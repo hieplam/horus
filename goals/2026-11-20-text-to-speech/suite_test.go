@@ -84,8 +84,77 @@ func TestSpeechHidden(t *testing.T) {
 	t.Logf("generate_speech arguments: %v; arguments that show the speech setup: %d", names, shown)
 }
 
+// installKeys are the keys of the contract checks of the speech install: the
+// plan, no change before both consents, the steps in order, generate_speech
+// after the install, and a second install with no step.
+var installKeys = []string{"speech-setup:plan", "speech-setup:no-change", "speech-setup:steps", "speech-setup:works", "speech-setup:again"}
+
+// TestSpeechInstall has the install half of the row: the contract checks of
+// the speech install (fake package manager, fake Python, no network), and a
+// plan that this suite gets from the built server in a sandbox home folder.
+// The uninstall half is not built yet.
 func TestSpeechInstall(t *testing.T) {
-	t.Fatal("not built: install_workflow of a speech workflow, and the uninstall, in a sandbox home folder")
+	run := contract(t)
+	passed := 0
+	for _, key := range installKeys {
+		if run.check(t, key).OK {
+			passed++
+		}
+	}
+	// The plan as this suite gets it from the built server: no speech setup in
+	// the sandbox, so the plan has the venv step and the file step, and no
+	// ComfyUI step. The call changes no file of the sandbox.
+	env := sandboxEnv(t)
+	dir := strings.TrimPrefix(env[0], "HORUS_ROOT=")
+	models := `{"repo": "stand-in/speech", "license": "Apache-2.0", "files": [{"role": "speech", "repo_path": "model.bin", "folder": "tts", ` +
+		`"bytes": 21, "sha256": "` + strings.Repeat("0", 64) + `"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "workflows", "stand-in-speech", "models.json"), []byte(models), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := files(t, dir)
+	srv := startServer(t, run.exe, env)
+	var res struct {
+		Structured struct {
+			Error *struct {
+				Code    string `json:"code"`
+				Details struct {
+					Steps []struct {
+						Kind string `json:"kind"`
+					} `json:"steps"`
+				} `json:"details"`
+			} `json:"error"`
+		} `json:"structuredContent"`
+	}
+	if err := json.Unmarshal(srv.call(t, "tools/call", map[string]any{"name": "install_workflow", "arguments": map[string]any{"workflow": "stand-in-speech"}}), &res); err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	if e := res.Structured.Error; e != nil {
+		for _, st := range e.Details.Steps {
+			kinds = append(kinds, st.Kind)
+		}
+	}
+	if e := res.Structured.Error; e == nil || e.Code != "SETUP_CONFIRMATION_REQUIRED" || !slices.Contains(kinds, "speech-venv") || slices.Contains(kinds, "backend") {
+		t.Errorf("install_workflow of a speech workflow without the speech setup: %+v, steps %v; want SETUP_CONFIRMATION_REQUIRED with a speech-venv step and no backend step", e, kinds)
+	}
+	if after := files(t, dir); !slices.Equal(after, before) {
+		t.Errorf("install_workflow without the consents changed the sandbox:\nbefore %v\nafter  %v", before, after)
+	}
+	t.Logf("contract checks of the speech install: %d of %d; plan of the built server: %v", passed, len(installKeys), kinds)
+	t.Fatal("not built: uninstall_workflow and horus uninstall -yes of a speech workflow in a sandbox home folder (issue #189)")
+}
+
+// files gives each file under root, and its size.
+func files(t *testing.T, root string) []string {
+	t.Helper()
+	var out []string
+	filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
+		if err == nil && !fi.IsDir() {
+			out = append(out, fmt.Sprintf("%s %d", p, fi.Size()))
+		}
+		return nil
+	})
+	return out
 }
 
 // failureKeys are the keys of the contract checks of the spec table

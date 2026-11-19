@@ -5,7 +5,9 @@
 // needs more (a system package, comfy-cli, ComfyUI), it runs the plan of
 // horus setup after the setup consent (accept_setup). The setup consent comes
 // first, then the license consent (spec docs/specs/2026-11-15-release-install.md,
-// "Setup through MCP").
+// "Setup through MCP"). A speech workflow needs no ComfyUI: its plan has
+// Python 3.12, FFmpeg, the speech venv and the model files (spec
+// docs/specs/2026-11-20-text-to-speech.md, "Install and uninstall").
 package mcpserver
 
 import (
@@ -23,6 +25,7 @@ import (
 	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/herr"
 	"github.com/hieplam/horus/internal/provision"
+	"github.com/hieplam/horus/internal/speechsetup"
 )
 
 // InstallResult is the result of install_workflow, in the key order that the tool shows.
@@ -37,15 +40,12 @@ type InstallResult struct {
 func installWorkflow(setup Setup) tool {
 	return tool{
 		name:  "install_workflow",
-		title: "Install an image workflow",
-		description: "Download and verify (SHA-256) the model files of one image workflow, so that generate_image can use it. " +
+		title: "Install a workflow",
+		description: "Download and verify (SHA-256) the model files of one workflow, so that generate_image or generate_speech can use it. " +
 			"Files that are already present are kept. Downloads are large (several GB) and can take 10 to 60 minutes. " +
 			"The models have their own license: the first call without accept_license=true returns the error " +
 			"LICENSE_CONFIRMATION_REQUIRED with the license and the size. Ask the user, then call again with " +
-			"accept_license=true. The call waits until the install is done and reports progress. " +
-			"On a machine without ComfyUI, the first call without accept_setup=true returns the error " +
-			"SETUP_CONFIRMATION_REQUIRED with each setup step (a system package, ComfyUI) in details.steps. " +
-			"Ask the user, then call again with accept_setup=true. The setup consent comes before the license consent.",
+			"accept_license=true. The call waits until the install is done and reports progress. " + setupText,
 		annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: ptr(false), IdempotentHint: true, OpenWorldHint: ptr(true)},
 		args: []field{
 			f("workflow", tString).d("Name from list_workflows."),
@@ -67,6 +67,13 @@ func installWorkflow(setup Setup) tool {
 		},
 	}
 }
+
+// setupText is the part of the description of install_workflow about the
+// setup consent.
+const setupText = "On a machine that needs a setup step first, the first call without accept_setup=true returns the error " +
+	"SETUP_CONFIRMATION_REQUIRED with each setup step in details.steps: for an image workflow a system package and ComfyUI, " +
+	"for a speech workflow Python 3.12, FFmpeg and the speech venv. " +
+	"Ask the user, then call again with accept_setup=true. The setup consent comes before the license consent."
 
 // progressInterval is the time between two progress notifications of an
 // install. Tests make it shorter.
@@ -222,7 +229,7 @@ func watchInstall(ctx context.Context, c *call, setup Setup, total float64, step
 type setupStep struct {
 	Kind    string   `json:"kind"`    // package, comfy-cli, backend or file (provision.Step kinds)
 	Name    string   `json:"name"`    // what the step installs: the package, comfy-cli, ComfyUI or the file name
-	Command []string `json:"command"` // the program and its arguments of a package step, else null
+	Command []string `json:"command"` // the program and its arguments of a package step, the pip install of the speech venv, else null
 	Dir     *string  `json:"dir"`     // the folder that the step writes to, or null
 }
 
@@ -265,6 +272,8 @@ func stepText(st provision.Step) string {
 		return "install comfy-cli in " + st.Dir
 	case provision.StepBackend:
 		return "install ComfyUI in " + st.Dir
+	case provision.StepSpeechVenv:
+		return fmt.Sprintf("make the speech venv in %s and install %s", st.Dir, strings.Join(speechsetup.Packages, " "))
 	}
 	return "download " + st.File.File
 }
@@ -300,8 +309,12 @@ func installWithSetup(ctx context.Context, c *call, setup Setup, w *catalog.Work
 	var person *provision.PersonStepError
 	if errors.As(pl.Refusal(true), &person) {
 		pkg := person.Package
+		needs := "the install of ComfyUI"
+		if pl.Speech != nil {
+			needs = "the speech setup"
+		}
 		e := herr.New("BACKEND_NOT_INSTALLED",
-			fmt.Sprintf("%s was not found, so horus cannot install %s, which the install of ComfyUI needs", pkg.Manager, pkg.Name),
+			fmt.Sprintf("%s was not found, so horus cannot install %s, which %s needs", pkg.Manager, pkg.Name, needs),
 			map[string]any{"package": pkg.Name, "manager": pkg.Manager, "url": pkg.URL, "steps": steps})
 		e.NextStep = fmt.Sprintf("Ask the user to install %s by hand from %s, then call install_workflow again.", pkg.Name, pkg.URL)
 		return nil, e

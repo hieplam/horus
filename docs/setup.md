@@ -14,8 +14,8 @@ a step differs, the page shows both systems side by side.
 **The commands to use.**
 
 - `horus setup <workflow>` prints what the machine needs for a workflow (the plan) and changes nothing.
-- `horus setup <workflow> -yes` runs the plan: ComfyUI first, then the model files.
-- `horus setup <workflow> -yes -with-packages` also installs a system package that the plan needs (7-Zip with `winget` on Windows, Python 3.12 with `brew` on macOS). Without `-with-packages`, horus never installs a system package.
+- `horus setup <workflow> -yes` runs the plan: ComfyUI first, then the model files. A speech workflow needs no ComfyUI: its plan makes the speech venv, then downloads the model files ([set up a speech workflow](#set-up-a-speech-workflow)).
+- `horus setup <workflow> -yes -with-packages` also installs a system package that the plan needs (7-Zip with `winget` on Windows, Python 3.12 with `brew` on macOS, and for a speech workflow Python 3.12 and FFmpeg). Without `-with-packages`, horus never installs a system package.
 - `horus register` adds the horus MCP server to Claude Code. `horus register -client codex` adds it to Codex.
 - `horus doctor` checks the machine and prints one `PASS`, `WARN` or `FAIL` line for each check.
 - `horus uninstall` prints what horus installed and changes nothing. `horus uninstall -yes` removes it ([details](#uninstall)).
@@ -37,7 +37,7 @@ the same. Intel Macs are not supported either.
 | ComfyUI | A program that makes images from a graph of steps (a "workflow"). It has a browser page and an HTTP server at `http://127.0.0.1:8188`. | It does the real work on your GPU. |
 | Model files | Large files (`.safetensors`) that hold the learned weights. FLUX 3 Image Klein has three: a diffusion model, a text encoder and a VAE. | ComfyUI cannot make an image without them. They are 11 GB in total. |
 | `horus` | One program. The release has it as one file for each system. It holds the commands and the horus MCP server. | It installs and checks everything in this table. |
-| horus MCP server | `horus mcp`. MCP (Model Context Protocol) is the standard way for an agent to call tools. The tools: `list_workflows`, `describe_workflow`, `install_workflow`, `uninstall_workflow`, `generate_image`. | The agent calls it to make an image. It sends the job to ComfyUI over HTTP and returns the path of the PNG. See [`mcp.md`](mcp.md). |
+| horus MCP server | `horus mcp`. MCP (Model Context Protocol) is the standard way for an agent to call tools. The tools: `list_workflows`, `describe_workflow`, `install_workflow`, `uninstall_workflow`, `generate_image`, `generate_speech`. | The agent calls it to make an image or speech. For an image, it sends the job to ComfyUI over HTTP and returns the path of the PNG. See [`mcp.md`](mcp.md). |
 | comfy-cli | A command-line tool from the ComfyUI team, the program `comfy`, version 1.25.0. | macOS only: `horus` installs, starts and stops ComfyUI with it. |
 | Agent | Claude Code or Codex. | You describe the image. The agent calls the horus tools. |
 
@@ -279,6 +279,52 @@ and no other one.
 - `Another ComfyUI is already using this database`: ComfyUI 0.44 locks its database in the folder `ComfyUI/user`. Two ComfyUI programs cannot run from one install folder. Stop the first one, or install a second copy in another folder and set `HORUS_COMFYUI_DIR` and `HORUS_COMFYUI_URL` for it.
 - Other start errors: read the log. On Windows it is `horus-comfyui.err.log` in the install folder. On macOS it is `ComfyUI/user/comfyui_8188.log` in the install folder (the number is the port).
 
+### Set up a speech workflow
+
+A speech workflow, for example `vi-speech`, makes speech on the CPU. It needs
+no ComfyUI and no GPU. Its model files are 1.1 GB.
+
+```
+horus setup vi-speech
+```
+
+This prints the plan and changes nothing. The plan has these steps, in order:
+
+1. A package step for Python 3.12, only when the speech venv must be made and no Python 3.12 is found: `winget install --id Python.Python.3.12` on Windows, `brew install python@3.12` on macOS.
+2. A package step for FFmpeg, only when `ffmpeg` or `ffprobe` is not on the PATH: `winget install --id Gyan.FFmpeg` on Windows, `brew install ffmpeg` on macOS.
+3. The speech venv: Python 3.12 makes a Python venv in `<user folder>/speech/venv`, then pip installs `vieneu==3.8.4` and `faster-whisper==1.2.1`.
+4. The model files: horus downloads each one to `<user folder>/speech/models`, and checks its size and SHA-256.
+
+The user folder is `HORUS_HOME`, else `~/horus`. `HORUS_SPEECH_DIR` sets
+another speech folder. When the plan is right, run it:
+
+```
+horus setup vi-speech -yes
+```
+
+A package step runs only with `-with-packages`, as for an image workflow.
+
+**What it makes.** The speech folder holds the speech venv, the model files and
+`worker.py`, the program that `horus mcp` starts to make speech. horus writes
+the install record `horus-install.json` into the venv before the pip install,
+and again with the packages after it. So `horus uninstall` can remove the venv,
+also after a pip install that did not end. horus never removes a system
+package.
+
+**After a package step.** A program that started before the install does not
+find FFmpeg on its PATH. Open a new terminal, and restart the agent program.
+
+**Check it.** `horus doctor -workflow vi-speech` checks the speech venv,
+`ffmpeg`, `ffprobe` and each model file. It does not check ComfyUI, because
+a speech workflow does not need it.
+
+**If it fails.**
+
+- `pip install ... failed`: read the lines of pip above the error, then run the command again. The plan has the venv step again until the pip install ends.
+- `... is not a speech venv that horus made`: a folder that horus did not make is at the place of the venv. Inspect it, delete it, then run the command again.
+- `Python 3.12 was not found`: approve the package step with `-with-packages`, or install Python 3.12 yourself.
+- `ffprobe is not next to ffmpeg`: install FFmpeg yourself, so that `ffmpeg` and `ffprobe` are on the PATH.
+
 ## Step 3: give the horus tools to your agent
 
 For Claude Code:
@@ -297,7 +343,8 @@ horus register -client codex
 scope). For Claude Code it runs `claude mcp add --scope user horus -- <path of
 horus> mcp`. For Codex it runs `codex mcp add horus -- <path of horus> mcp`. An
 agent in any folder then has the tools `list_workflows`, `describe_workflow`,
-`install_workflow`, `uninstall_workflow` and `generate_image`.
+`install_workflow`, `uninstall_workflow`, `generate_image` and
+`generate_speech`.
 
 Check it from any folder with `claude mcp get horus`: it shows `Connected`.
 Then restart the agent. In Claude Code, `/mcp` shows `horus` as connected.
@@ -348,6 +395,7 @@ longer, because ComfyUI starts and loads 11 GB of models. See the times in
 horus doctor                                      # ComfyUI, horus on the PATH; in a clone also comfy-mcp, comfy-cli and .mcp.json
 horus doctor -workflow it-illustration            # also the size and the SHA-256 of each model file
 horus doctor -workflow it-illustration -quick     # also the size of each model file only
+horus doctor -workflow vi-speech                  # the speech venv, ffmpeg, ffprobe and each model file; no ComfyUI check
 horus setup it-illustration                       # what this machine still needs for the workflow (changes nothing)
 ```
 

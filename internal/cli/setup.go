@@ -3,7 +3,9 @@
 // workflow present (a size check). Without -yes it changes nothing. With
 // -yes it runs the plan: the system package (7-Zip on Windows, Python 3.12
 // on macOS), comfy-cli (macOS), ComfyUI, then the missing model files (as
-// horus workflow install does). A package step runs only with
+// horus workflow install does). A speech workflow has no ComfyUI step: its
+// plan is Python 3.12, FFmpeg, the speech venv, then the missing model files
+// in the speech folder. A package step runs only with
 // -with-packages: without it, -yes changes nothing. When no package manager
 // is found, the package step is a step for a person, and -yes changes
 // nothing. The work is in the service internal/provision.
@@ -37,8 +39,8 @@ func RunSetup(ctx context.Context, args []string, out, errOut io.Writer, at func
 	var place SetupPlace
 	var req provision.Request
 	fs := newFlags("horus setup", errOut)
-	fs.BoolVar(&req.Yes, "yes", false, "run the plan: install ComfyUI and download the model files; without it, only print the plan")
-	fs.BoolVar(&req.WithPackages, "with-packages", false, "with -yes: also run the package steps (7-Zip with winget, Python 3.12 with brew)")
+	fs.BoolVar(&req.Yes, "yes", false, "run the plan: install ComfyUI (or the speech venv) and download the model files; without it, only print the plan")
+	fs.BoolVar(&req.WithPackages, "with-packages", false, "with -yes: also run the package steps (7-Zip, Python 3.12 or FFmpeg with winget or brew)")
 	fs.StringVar(&place.ComfyUIDir, "comfyui-dir", "", "the ComfyUI install folder "+dirHelp)
 	fs.StringVar(&place.ModelsDir, "models-dir", "", "the models folder (default: HORUS_MODELS_DIR, then <comfyui-dir>/ComfyUI/models)")
 	fs.StringVar(&place.TextEncoderDir, "text-encoder-dir", "", "the text encoder folder (default: HORUS_TEXT_ENCODER_DIR)")
@@ -48,6 +50,7 @@ func RunSetup(ctx context.Context, args []string, out, errOut io.Writer, at func
 		w := fs.Output()
 		fmt.Fprintln(w, "Usage: horus setup <workflow> [-yes [-with-packages]] [flags]")
 		fmt.Fprintln(w, "Print what this machine needs for the workflow. With -yes, install it: the system package, comfy-cli, ComfyUI, then the model files.")
+		fmt.Fprintln(w, "A speech workflow needs no ComfyUI: Python 3.12, FFmpeg, the speech venv, then the model files.")
 		fmt.Fprintln(w, "A step that installs a system package runs only with -with-packages.")
 		fs.PrintDefaults()
 	}
@@ -103,7 +106,7 @@ func RunSetup(ctx context.Context, args []string, out, errOut io.Writer, at func
 	p.say("Running the plan.")
 	res, err := svc.RunPlan(ctx, req, pl, provision.Watch{
 		Step: func(st provision.Step) {
-			if st.Kind != provision.StepPackage && st.Kind != provision.StepComfyCLI {
+			if st.Kind != provision.StepPackage && st.Kind != provision.StepComfyCLI && st.Kind != provision.StepSpeechVenv {
 				return
 			}
 			p.say("-- %s", stepText(st))
@@ -165,14 +168,18 @@ func printPlan(p *printer, pl provision.Plan) {
 		}
 		return "MISSING "
 	}
-	if pkg := pl.Package; pkg != nil {
-		p.say("%s  %s (%s) %s", state(pl.ProgramPath != ""), pkg.Name, pkg.Program, pl.ProgramPath)
-		p.say("%s  package manager %s %s", state(pl.ManagerPath != ""), pkg.Manager, pl.ManagerPath)
+	if sf := pl.Speech; sf != nil {
+		speechFacts(p, sf, state)
+	} else {
+		if pkg := pl.Package; pkg != nil {
+			p.say("%s  %s (%s) %s", state(pl.ProgramPath != ""), pkg.Name, pkg.Program, pl.ProgramPath)
+			p.say("%s  package manager %s %s", state(pl.ManagerPath != ""), pkg.Manager, pl.ManagerPath)
+		}
+		if pl.ComfyCLI {
+			p.say("%s  comfy-cli (comfy) %s", state(pl.ComfyPath != ""), pl.ComfyPath)
+		}
+		p.say("%s  ComfyUI in %s", state(pl.BackendInstalled), pl.BackendDir)
 	}
-	if pl.ComfyCLI {
-		p.say("%s  comfy-cli (comfy) %s", state(pl.ComfyPath != ""), pl.ComfyPath)
-	}
-	p.say("%s  ComfyUI in %s", state(pl.BackendInstalled), pl.BackendDir)
 	for _, f := range pl.Files {
 		p.say("%s  %s %s (%s GB) %s", state(f.Present), f.Role, f.File, gb2(f.Bytes), f.Path)
 	}
@@ -186,6 +193,40 @@ func printPlan(p *printer, pl provision.Plan) {
 	}
 }
 
+// speechFacts writes the facts of a speech plan: Python 3.12 (only when the
+// speech venv has no Python), ffmpeg and ffprobe, the package manager of a
+// missing package, and the speech venv.
+func speechFacts(p *printer, sf *provision.SpeechFacts, state func(bool) string) {
+	var managers [][2]string // the name and the path of each package manager that a step needs
+	need := func(name, path string) {
+		for _, m := range managers {
+			if m[0] == name {
+				return
+			}
+		}
+		managers = append(managers, [2]string{name, path})
+	}
+	if !sf.HasPython {
+		p.say("%s  Python %s %s", state(sf.PythonPath != ""), sf.PythonVersion, sf.PythonPath)
+		if sf.Python != nil && sf.PythonPath == "" {
+			need(sf.Python.Manager, sf.PythonManager)
+		}
+	}
+	p.say("%s  ffmpeg %s", state(sf.FFmpegPath != ""), sf.FFmpegPath)
+	p.say("%s  ffprobe %s", state(sf.FFprobePath != ""), sf.FFprobePath)
+	if sf.FFmpeg != nil && (sf.FFmpegPath == "" || sf.FFprobePath == "") {
+		need(sf.FFmpeg.Manager, sf.FFmpegManager)
+	}
+	for _, m := range managers {
+		p.say("%s  package manager %s %s", state(m[1] != ""), m[0], m[1])
+	}
+	detail := fmt.Sprintf("in %s (%s)", sf.Venv, strings.Join(sf.Packages, ", "))
+	if sf.VenvWhy != "" {
+		detail += ": " + sf.VenvWhy
+	}
+	p.say("%s  speech venv %s", state(sf.VenvReady), detail)
+}
+
 // stepText is the line of one step of a plan.
 func stepText(st provision.Step) string {
 	switch st.Kind {
@@ -197,6 +238,8 @@ func stepText(st provision.Step) string {
 		return fmt.Sprintf("install comfy-cli (as horus install-comfy-mcp does) in %s", st.Dir)
 	case provision.StepBackend:
 		return fmt.Sprintf("install ComfyUI in %s", st.Dir)
+	case provision.StepSpeechVenv:
+		return fmt.Sprintf("make the speech venv in %s, then run: %s", st.Dir, strings.Join(st.Command, " "))
 	}
 	return fmt.Sprintf("download %s %s (%s GB) to %s", st.File.Role, st.File.File, gb2(st.File.Bytes), st.File.Path)
 }

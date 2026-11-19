@@ -110,13 +110,15 @@ func (s *Service) Check(ctx context.Context, req Request) (*Result, error) {
 		return end(res, err, "")
 	}
 	var failures int
+	fix := "horus workflow install"
 	if dir := filepath.Join(req.WorkflowsDir, req.Workflow); req.ModelsJSON == "" && isSpeech(dir) {
 		failures, err = s.checkSpeech(res, req.Workflow, dir, req.Only, req.Quick)
+		fix = "horus setup" // a speech workflow also needs the speech venv and FFmpeg
 	} else {
 		failures, err = s.check(ctx, res, m, graphPath, req.Only, req.Quick)
 	}
 	if err == nil && failures > 0 {
-		err = failf("%d check(s) failed. Fix: horus workflow install %s", failures, req.Workflow)
+		err = failf("%d check(s) failed. Fix: %s %s", failures, fix, req.Workflow)
 	}
 	return end(res, err, fmt.Sprintf("workflow '%s' is ready", req.Workflow))
 }
@@ -313,11 +315,15 @@ func leaf(p string) string {
 // own models folder to extra_model_paths.yaml, then checks (size only). w sees the downloads
 // while they run. When ctx ends, the install stops after the download that
 // runs: its .part file stays for the next install, and the error is the
-// error of ctx.
+// error of ctx. A speech workflow needs no ComfyUI: its files go to the
+// speech folder (installSpeech).
 func (s *Service) Install(ctx context.Context, req Request, w Watch) (*Result, error) {
 	res, m, graphPath, err := begin("install", req)
 	if err != nil {
 		return end(res, err, "")
+	}
+	if dir := filepath.Join(req.WorkflowsDir, req.Workflow); req.ModelsJSON == "" && isSpeech(dir) {
+		return s.installSpeech(ctx, res, m, req, w, dir, nil)
 	}
 	if dir, ok := s.backend.Installed(); !ok {
 		return end(res, failure{fmt.Sprintf("ComfyUI was not found in %s. Run horus install-comfyui first, or pass -comfyui-dir.", dir), ErrNoComfyUI}, "")

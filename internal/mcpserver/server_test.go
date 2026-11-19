@@ -138,21 +138,28 @@ func TestToolsMatchPython(t *testing.T) {
 
 // setupDescription is the text that the description of install_workflow
 // has after the text of Python.
-const setupDescription = " On a machine without ComfyUI, the first call without accept_setup=true returns the error " +
-	"SETUP_CONFIRMATION_REQUIRED with each setup step (a system package, ComfyUI) in details.steps. " +
+const setupDescription = " On a machine that needs a setup step first, the first call without accept_setup=true returns the error " +
+	"SETUP_CONFIRMATION_REQUIRED with each setup step in details.steps: for an image workflow a system package and ComfyUI, " +
+	"for a speech workflow Python 3.12, FFmpeg and the speech venv. " +
 	"Ask the user, then call again with accept_setup=true. The setup consent comes before the license consent."
 
-// addSetupConsent puts the one change of Phase 4 into the golden tool list:
+// addSetupConsent puts two changes into the golden tool list. Phase 4:
 // install_workflow has the argument accept_setup and a description that
 // names it (spec docs/specs/2026-11-15-release-install.md, "Setup through
-// MCP"). The golden file itself does not change.
+// MCP"). The speech epic: install_workflow also installs a speech workflow,
+// so its title and its first sentence name no kind (spec
+// docs/specs/2026-11-20-text-to-speech.md, "Install and uninstall"). The
+// golden file itself does not change.
 func addSetupConsent(t *testing.T, tools []map[string]any) {
 	t.Helper()
 	for _, py := range tools {
 		if py["name"] != "install_workflow" {
 			continue
 		}
-		py["description"] = py["description"].(string) + setupDescription
+		py["title"] = "Install a workflow"
+		desc := strings.Replace(py["description"].(string), "of one image workflow, so that generate_image can use it.",
+			"of one workflow, so that generate_image or generate_speech can use it.", 1)
+		py["description"] = desc + setupDescription
 		props := py["inputSchema"].(map[string]any)["properties"].(map[string]any)
 		props["accept_setup"] = map[string]any{
 			"default":     false,

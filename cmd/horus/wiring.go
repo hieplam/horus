@@ -94,7 +94,8 @@ func newSetup(place cli.SetupPlace, s seams) *provision.Service {
 	}
 	needs := backend.SetupNeeds(s.goos)
 	return provision.New(files, downloader{s.download}, comfy.New(place.ServerURL), install, place.ServerURL).
-		WithSystem(provision.System{Programs: platform.Programs{}, Package: needs.Package, ComfyCLI: needs.ComfyCLI})
+		WithSystem(provision.System{Programs: platform.Programs{}, Package: needs.Package, ComfyCLI: needs.ComfyCLI,
+			Speech: platform.SpeechPackagesFor(s.goos)})
 }
 
 // setupAt is the setup service for the flags of horus workflow.

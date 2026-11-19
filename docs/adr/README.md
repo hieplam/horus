@@ -66,3 +66,4 @@ record. You do not need to remember it:
 | [0032](0032-the-speech-setup-is-one-folder-in-the-user-folder.md) | The speech setup is one folder in the user folder | Accepted |
 | [0033](0033-each-job-store-passes-one-store-contract-with-the-clock-of-the-program.md) | Each job store passes one store contract, and takes its times from the clock of the program | Accepted |
 | [0034](0034-the-payload-of-a-job-is-the-plan-of-generate-check.md) | The payload of a job is the plan of `generate.Check`, and the worker holds a delivery until ComfyUI answers | Accepted |
+| [0035](0035-the-install-record-of-the-speech-venv-lists-its-packages.md) | Write the install record of the speech venv before the pip install, and list the packages after it | Accepted |

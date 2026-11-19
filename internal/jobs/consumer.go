@@ -97,7 +97,8 @@ func (s *Service) Consume(ctx context.Context, c Consumer) error {
 //     worker stopped before its ack, so the job fails with WORKER_LOST.
 //     Else do nothing. Ack.
 //  4. Run the job, save its progress, and move it to succeeded, failed or
-//     cancelled (a cancel request and an error). Ack.
+//     cancelled (a cancel request and an error). Ack. While the job runs,
+//     watchCancel ends the context of the run at a cancel request.
 func (s *Service) Handle(ctx context.Context, c Consumer, d jobdata.Delivery) (Outcome, error) {
 	id := d.Message.JobID
 	if c.Ready != nil {
@@ -144,7 +145,11 @@ func (s *Service) Handle(ctx context.Context, c Consumer, d jobdata.Delivery) (O
 			_, _ = s.move(ctx, id, []jobdata.State{jobdata.Running}, jobdata.Running,
 				jobdata.Change{At: s.cfg.Now(), Progress: &p, Event: jobdata.EventProgress})
 		}
-		result, err = c.Run(ctx, j, progress)
+		rctx, stopRun := context.WithCancel(ctx)
+		stopWatch := s.watchCancel(rctx, id, stopRun)
+		result, err = c.Run(rctx, j, progress)
+		stopWatch()
+		stopRun()
 	}
 	if ctx.Err() != nil {
 		return Stopped, ctx.Err()
@@ -162,6 +167,32 @@ func (s *Service) Handle(ctx context.Context, c Consumer, d jobdata.Delivery) (O
 	}
 	_, merr := s.move(ctx, id, []jobdata.State{jobdata.Running}, to, end)
 	return Ran, errors.Join(merr, d.Ack(ctx))
+}
+
+// watchCancel ends the run of the job id (it calls stop) when the job store
+// has cancel_requested_at for the job. It wakes at the event
+// job.cancel_requested, and it reads the job store at the start and every
+// Config.Poll, because an event is only a signal (ADR 0031). The returned
+// function ends the watch and waits for it.
+func (s *Service) watchCancel(ctx context.Context, id string, stop context.CancelFunc) (end func()) {
+	wctx, cancel := context.WithCancel(ctx)
+	events, _ := s.broker.Listen(wctx) // no events: the reads of the job store still find the request
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		poll := time.NewTicker(s.cfg.Poll)
+		defer poll.Stop()
+		for {
+			if j, err := s.store.Get(wctx, id); err == nil && !j.CancelRequested.IsZero() {
+				stop()
+				return
+			}
+			if err := waitWake(wctx, id, events, poll.C); err != nil {
+				return
+			}
+		}
+	}()
+	return func() { cancel(); <-done }
 }
 
 // requeue gives the delivery back to the broker, so that it comes again.

@@ -595,3 +595,63 @@ func TestSubmitted(t *testing.T) {
 		t.Errorf("events %v", ev)
 	}
 }
+
+// TestCancelRunningEndsTheRun: a cancel of a running job ends the context of
+// its run, also when each event is lost: the worker reads the job store at
+// each Config.Poll (ADR 0031). The run waits for its context only.
+func TestCancelRunningEndsTheRun(t *testing.T) {
+	for name, lose := range map[string]bool{"with events": false, "events lost": true} {
+		t.Run(name, func(t *testing.T) {
+			c := &clock{t: t0}
+			st := brokertest.NewStore()
+			st.Now = c.Now
+			bm := brokertest.NewBroker()
+			var b jobs.Broker = bm
+			if lose {
+				b = dropEvents{bm}
+			}
+			e := &env{svc: jobs.New(st, b, jobs.Config{Now: c.Now, Poll: 10 * time.Millisecond}), store: st, clock: c}
+			j, err := e.svc.Submit(context.Background(), request())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ch, err := bm.Consume(ctx, "jobs.comfyui", 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			d := <-ch
+			running := make(chan struct{})
+			run := func(ctx context.Context, _ jobdata.Job, _ func(jobdata.Progress)) (json.RawMessage, error) {
+				close(running)
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(5 * time.Second):
+					return json.RawMessage(`{}`), nil
+				}
+			}
+			done := make(chan jobs.Outcome, 1)
+			go func() {
+				o, _ := e.svc.Handle(context.Background(), jobs.Consumer{WorkerID: "w", Run: run}, d)
+				done <- o
+			}()
+			<-running
+			if _, err := e.svc.Cancel(context.Background(), j.ID); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case o := <-done:
+				if o != jobs.Ran {
+					t.Errorf("outcome %s", o)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("the run did not end at the cancel request")
+			}
+			if s := get(t, e, j.ID).State; s != jobdata.Cancelled {
+				t.Errorf("state %s, want cancelled", s)
+			}
+		})
+	}
+}

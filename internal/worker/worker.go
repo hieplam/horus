@@ -7,6 +7,7 @@
 //	slots      HORUS_WORKER_CONCURRENCY: the jobs that run at the same time, and the prefetch of Consume
 //	gate       no delivery starts while ComfyUI does not answer; the queued jobs keep their place
 //	consumer   jobs.Service.Handle: a run only after the move from queued to running (the idempotent consumer)
+//	cancel     a cancel request of a running job ends its run (jobs.Service.Handle): the event, and the job store every 5 s
 //	heartbeat  the row of this worker in horus.workers, every 5 s
 //	lock       one worker: a second horus worker prints the first one and exits
 //	sweep      every 30 s, and at each delivery: expired after the deadline, abandoned after 60 s with no waiter

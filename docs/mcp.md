@@ -437,11 +437,49 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | `HORUS_SPEECH_DIR` | `<user folder>/speech` | The speech folder: the speech venv (`venv/`), the model files of the speech workflows (`models/`) and the file of the speech worker (`worker.py`). |
 | `HORUS_WORKFLOWS_DIR` | `workflows` in this repo, else the copy of the built-in workflows | Another workflows folder (tests use it). It replaces the built-in workflows. `horus workflow`, `horus setup` and `horus doctor -workflow` also use it. |
 | `HORUS_LOG_FILE` | none | Also write the server log to this file. Each call logs its tool name and its `progressToken`. |
+| `HORUS_DATABASE_URL` | none | The Postgres database of the job queue: the job store and the broker. [`horus worker`](#the-worker) needs it. horus never writes its password part to a log. |
+| `HORUS_WORKER_CONCURRENCY` | `1` | The slots of `horus worker`: the count of jobs that it runs at the same time. |
+| `HORUS_JOB_RETENTION_DAYS` | `30` | `horus worker` deletes a job and its events this many days after the job ended. |
 
 Only the code of `internal/download` reads `HF_TOKEN`, and `go test ./internal/archtest`
 enforces that. It reads the environment variable first, then the line in the `.env` file of the
 repo root. It sends the token only to `huggingface.co` hosts. The server runs the download in its own
 process, so the token is in the memory of `horus mcp` while an install runs. The server starts no program that gets the token.
+
+## The worker
+
+`horus worker` runs the jobs of the job queue (the spec
+[`2026-11-19-job-queue.md`](specs/2026-11-19-job-queue.md)). It is the main
+process of the container `horus-worker`. An API process checks the arguments
+of a call at once (`generate.Check`), writes the job to the job store and
+publishes one message. The worker takes the message and runs the job later
+(`generate.Run`).
+
+Terms:
+
+- **Job store:** the tables of the jobs in Postgres: `horus.jobs`, `horus.job_events` and `horus.workers`.
+- **Broker:** the part that moves the messages to the worker. The Postgres broker uses the table `horus.messages`.
+- **Delivery:** the broker gives one message to the worker. The worker sends an ack when the job ends, and the broker deletes the message.
+- **Slot:** a place in the worker for one running job.
+
+| Part | What the worker does |
+|---|---|
+| Slots | It runs `HORUS_WORKER_CONCURRENCY` jobs at the same time. This count is also the prefetch: the broker gives at most that many deliveries without an ack. |
+| Gate | No delivery starts while ComfyUI does not answer at `HORUS_COMFYUI_URL`. The queued jobs keep their place. The worker asks ComfyUI again every 2 s. It never starts ComfyUI. |
+| Idempotent consumer | A delivery runs only when the job store moves its job from `queued` to `running`. Else the worker sends the ack and does nothing. A second delivery of a job that runs on a worker that is gone ends the job with the error `WORKER_LOST`. |
+| Run | The worker saves `backend_job_id` (the id of the job in ComfyUI) before it waits. It writes the PNG as `<file>.part`, then renames it. `HORUS_GENERATE_TIMEOUT` counts from the start of the run. |
+| Heartbeat | The row of the worker in `horus.workers` gets a new `heartbeat_at` every 5 s. |
+| Worker lock | Only one worker runs. A second `horus worker` prints the first one and exits with 1. |
+| Sweep | Every 30 s, and at each delivery: a queued job after its deadline becomes `expired`, and a queued job with no waiter for 60 s becomes `abandoned`. |
+| Retention | At its start and one time each day, the worker deletes the jobs that ended more than `HORUS_JOB_RETENTION_DAYS` days ago, with their events. |
+
+At its start, the worker applies the schema `horus` to the database, under an
+advisory lock. Each start gets a new worker id. The worker writes one log line
+for each start, each delivery, each change of the gate and each failed step to
+its standard output. Ctrl+C, or the signal SIGTERM of `docker stop`, stops it.
+A job that runs at the stop gets no ack, and the worker removes the job from
+ComfyUI. The broker then gives the message again, and the next worker ends the
+job with `WORKER_LOST`.
 
 ## Test the server
 
@@ -528,7 +566,8 @@ The job store and the Postgres broker (`internal/postgres`) need a test
 Postgres. These tests read its URL from `HORUS_TEST_DATABASE_URL`:
 
 - the tests of `internal/postgres`;
-- `TestPostgresBroker` and `TestPostgresStore` of `internal/brokertest`.
+- `TestPostgresBroker` and `TestPostgresStore` of `internal/brokertest`;
+- `TestWorkerOnPostgres` of `cmd/horus`: `horus worker` on a new database, with the fake ComfyUI over HTTP.
 
 Without the variable, they skip, and the goal row `broker-contract` fails.
 Start a test Postgres in Docker one time, with a password that you choose and
@@ -543,7 +582,7 @@ or in a commit.
 
 ```
 $env:HORUS_TEST_DATABASE_URL = 'postgres://postgres:<password>@127.0.0.1:55433/postgres?sslmode=disable'
-go test -count=1 ./internal/postgres/... ./internal/brokertest/...
+go test -count=1 ./internal/postgres/... ./internal/brokertest/... ./cmd/horus
 ```
 
 On macOS and Linux, use `export HORUS_TEST_DATABASE_URL=...`.

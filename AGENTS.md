@@ -33,7 +33,7 @@ kinds of work:
 | Which model pairs with which | [`docs/models.md`](docs/models.md) |
 | Why this model, and GPU traps | [`docs/why-flux3-klein.md`](docs/why-flux3-klein.md) |
 | A term you must explain to the user | [`docs/concepts.md`](docs/concepts.md) |
-| Change the job store or the broker (`internal/postgres`, `internal/brokertest`) | The spec [`docs/specs/2026-11-19-job-queue.md`](docs/specs/2026-11-19-job-queue.md), then [the Postgres tests](docs/mcp.md#the-postgres-tests) |
+| Change the job store, the broker or the worker (`internal/postgres`, `internal/brokertest`, `internal/worker`) | The spec [`docs/specs/2026-11-19-job-queue.md`](docs/specs/2026-11-19-job-queue.md), then [the worker](docs/mcp.md#the-worker) and [the Postgres tests](docs/mcp.md#the-postgres-tests) |
 | Change the horus MCP server, its tools or its errors | [`docs/mcp.md`](docs/mcp.md), then run `go test ./...` and `tests/mcp_contract.py` |
 | Change the speech worker (`internal/speechworker/worker.py`) | The docstring of `worker.py` gives the protocol. The Go tests use a fake worker, so also run `tests/speech/worker_real.py` with the real models: its docstring gives the command ([ADR 0022](docs/adr/0022-speech-runs-in-a-python-speech-worker.md)) |
 | The flags of a `horus` command | `horus <command> -h` |
@@ -117,6 +117,7 @@ goals/link_test.go                the link check: each suite has a spec, each go
 cmd/horus/                        wiring: main.go (the command table) and wiring.go (creates the adapters and gives them to the services)
 internal/cli/                     handler: one file for each command group (flags in, text out)
 internal/mcpserver/               handler: the 6 MCP tools, the envelope, the progress notifications
+internal/worker/                  handler: the loop of horus worker: the slots, the gate of ComfyUI, the heartbeat, the worker lock, the sweep, the deletion of old jobs
 internal/generate/                service: make one image
 internal/speak/                   service: make one speech file (the checks of generate_speech, the speech worker of horus mcp)
 internal/provision/               service: set up a machine (backend, model files, comfy-mcp and `horus comfy-mcp`, register, the plan of `horus setup`, the plan of `horus uninstall`)
@@ -147,8 +148,8 @@ Before you open a pull request, run `python scripts/lint-public.py`. It must
 exit 0. This repo is public. Also run `gofmt -l .` (it must print nothing) and
 `go test ./...`. A change to `cmd/horus/`, `internal/` or a `manifest.json` also
 needs `tests/mcp_contract.py` to end with all checks passed. A change to
-`internal/postgres`, `internal/brokertest` or `internal/jobs` also needs
-`go test ./internal/postgres/... ./internal/brokertest/...` with
+`internal/postgres`, `internal/brokertest`, `internal/jobs` or `internal/worker` also needs
+`go test ./internal/postgres/... ./internal/brokertest/... ./cmd/horus` with
 `HORUS_TEST_DATABASE_URL` set ([how](docs/mcp.md#the-postgres-tests)). The test tools need
 Python 3.12 with `pip install -r tests/requirements.txt` ([how](docs/mcp.md#test-the-server)).
 

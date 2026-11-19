@@ -2,10 +2,7 @@ package brokertest
 
 import (
 	"context"
-	"fmt"
-	"runtime"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -17,49 +14,6 @@ import (
 // row broker-contract reads its subtests.
 func TestMemoryBroker(t *testing.T) {
 	Run(t, func(testing.TB) jobs.Broker { return NewBroker() })
-}
-
-// recorder is a testing.TB that records a failure and does not fail the test.
-// Fatal ends the goroutine of the check, as testing.T does.
-type recorder struct {
-	testing.TB
-	mu     sync.Mutex
-	failed []string
-}
-
-func (r *recorder) fail(s string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.failed = append(r.failed, s)
-}
-func (r *recorder) Helper()                         {}
-func (r *recorder) Error(a ...any)                  { r.fail(fmt.Sprint(a...)) }
-func (r *recorder) Errorf(f string, a ...any)       { r.fail(fmt.Sprintf(f, a...)) }
-func (r *recorder) Fail()                           { r.fail("Fail") }
-func (r *recorder) FailNow()                        { r.fail("FailNow"); runtime.Goexit() }
-func (r *recorder) Fatal(a ...any)                  { r.fail(fmt.Sprint(a...)); runtime.Goexit() }
-func (r *recorder) Fatalf(f string, a ...any)       { r.fail(fmt.Sprintf(f, a...)); runtime.Goexit() }
-func (r *recorder) Failed() bool                    { r.mu.Lock(); defer r.mu.Unlock(); return len(r.failed) > 0 }
-func (r *recorder) Logf(format string, args ...any) {}
-
-// failures runs the check named name on the broker b and gives its failures.
-func failures(t *testing.T, name string, b jobs.Broker) []string {
-	t.Helper()
-	r := &recorder{TB: t}
-	for _, c := range checks {
-		if c.name != name {
-			continue
-		}
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			c.run(r, b)
-		}()
-		<-done
-		return r.failed
-	}
-	t.Fatalf("no check %s", name)
-	return nil
 }
 
 // ignorePrefetch is a broker that ignores the prefetch.
@@ -133,7 +87,7 @@ func TestChecksFailOnBadBrokers(t *testing.T) {
 		{"again_after_consumer_stops", neverAgain{NewBroker()}, "no delivery in 1s, want job-1"},
 		{"ack_deletes", keepOnAck{NewBroker()}, "want {V:1 JobID:job-2"},
 	} {
-		got := failures(t, c.check, c.broker)
+		got := Failures(t, c.check, c.broker)
 		if len(got) == 0 {
 			t.Errorf("%s passes on a bad broker", c.check)
 			continue
@@ -147,7 +101,7 @@ func TestChecksFailOnBadBrokers(t *testing.T) {
 // TestNames checks the names of the checks that the goal row reads.
 func TestNames(t *testing.T) {
 	want := "order at_most_prefetch ack_deletes again_after_consumer_stops two_consumers_never_share " +
-		"nack_requeue nack_drop queues_are_separate notify_each_listener listen_from_its_start"
+		"nack_requeue nack_drop queues_are_separate notify_each_listener listen_from_its_start long_delivery"
 	if got := strings.Join(Names(), " "); got != want {
 		t.Errorf("names %q, want %q", got, want)
 	}
@@ -168,4 +122,61 @@ func TestMemoryAckAfterStop(t *testing.T) {
 	}
 	ch2, _ := consume(t, b, "q", 1)
 	ack(t, next(t, ch2, 1))
+}
+
+// TestMemoryStore runs the store contract on the in-memory job store.
+func TestMemoryStore(t *testing.T) {
+	RunStore(t, func(_ testing.TB, now func() time.Time) (jobs.Store, func(string) []string) {
+		s := NewStore()
+		s.Now = now
+		return s, s.Events
+	})
+}
+
+// moveFromAny is a job store whose Move ignores the states from.
+type moveFromAny struct{ *Store }
+
+func (s moveFromAny) Move(ctx context.Context, id string, _ []jobdata.State, to jobdata.State, c jobdata.Change) (bool, error) {
+	j, err := s.Get(ctx, id)
+	if err != nil {
+		return false, nil
+	}
+	return s.Store.Move(ctx, id, []jobdata.State{j.State}, to, c)
+}
+
+// noSweep is a job store whose Sweep changes nothing.
+type noSweep struct{ *Store }
+
+func (noSweep) Sweep(context.Context) (int, int, error) { return 0, 0, nil }
+
+// noLock is a job store whose worker lock lets each caller in.
+type noLock struct{ *Store }
+
+func (noLock) WorkerLock(context.Context) (func(), error) { return func() {}, nil }
+
+// TestStoreChecksFailOnBadStores is the stub check of the store contract:
+// each bad store fails the check of the rule that it breaks.
+func TestStoreChecksFailOnBadStores(t *testing.T) {
+	for _, c := range []struct {
+		check string
+		wrap  func(*Store) jobs.Store
+		want  string
+	}{
+		{"move_from_expected_state", func(s *Store) jobs.Store { return moveFromAny{s} }, "with the job in queued: true, want false"},
+		{"sweep", func(s *Store) jobs.Store { return noSweep{s} }, "Sweep: 0 expired, 0 abandoned, <nil>; want 2 and 1"},
+		{"worker_lock", func(s *Store) jobs.Store { return noLock{s} }, "error <nil>, want jobdata.ErrWorkerLocked"},
+	} {
+		got := storeFailures(t, c.check, func(_ testing.TB, now func() time.Time) (jobs.Store, func(string) []string) {
+			s := NewStore()
+			s.Now = now
+			return c.wrap(s), s.Events
+		})
+		if len(got) == 0 {
+			t.Errorf("%s passes on a bad store", c.check)
+			continue
+		}
+		if !strings.Contains(got[0], c.want) {
+			t.Errorf("%s: failure %q, want it to contain %q", c.check, got[0], c.want)
+		}
+	}
 }

@@ -34,7 +34,7 @@ record. You do not need to remember it:
 |---|---|---|
 | [0001](0001-go-one-binary-per-platform.md) | Write horus in Go, one program file for each platform | Accepted; the Python goal tool is superseded by 0021 |
 | [0002](0002-port-first-then-restructure.md) | Port first with the same behaviour, then restructure | Accepted; the child process is superseded by 0006 |
-| [0003](0003-stdio-transport-http-later.md) | Use the stdio transport. The HTTP transport comes later | Accepted |
+| [0003](0003-stdio-transport-http-later.md) | Use the stdio transport. The HTTP transport comes later | Accepted; "no daemon" is superseded by 0025, "the only transport" by 0030 |
 | [0004](0004-direct-rest-and-separate-processes.md) | Call the ComfyUI REST API directly. Run comfy-cli and comfy-mcp only as separate processes | Accepted; the image path is Proposed |
 | [0005](0005-only-download-reads-the-token.md) | Only the download code reads `HF_TOKEN` | Accepted |
 | [0006](0006-design-rules-and-three-layers.md) | Five design rules, three layers, and a test with no allow list | Accepted |
@@ -56,3 +56,9 @@ record. You do not need to remember it:
 | [0022](0022-speech-runs-in-a-python-speech-worker.md) | Speech runs in a Python speech worker that `horus mcp` starts and keeps | Accepted |
 | [0023](0023-a-workflow-has-a-kind-and-each-kind-has-its-tool.md) | A workflow has a kind, and each kind has its own tool on the one server | Accepted |
 | [0024](0024-generate-speech-returns-a-transcript.md) | `generate_speech` returns a transcript, and the calling agent checks the audio | Accepted |
+| [0025](0025-run-each-job-through-a-broker-and-one-worker.md) | Run each job through a broker and one worker | Accepted |
+| [0026](0026-the-broker-is-an-interface-postgres-first.md) | The broker is an interface. Postgres is the first broker, and the job store stays in Postgres | Accepted |
+| [0027](0027-the-idempotency-key-and-the-idempotent-consumer.md) | The idempotency key of a job, and the idempotent consumer | Accepted |
+| [0028](0028-the-horus-ui-is-a-read-only-page-of-horus-api.md) | The Horus UI is a read-only page of `horus-api` on 127.0.0.1 | Accepted |
+| [0029](0029-horus-runs-as-a-stack-of-three-containers.md) | horus runs as a Docker stack of 3 containers next to the ComfyUI of the host, and serves only when the 4 are up | Accepted |
+| [0030](0030-horus-api-serves-mcp-over-stdio-and-http.md) | `horus-api` serves MCP over stdio and over HTTP | Accepted |

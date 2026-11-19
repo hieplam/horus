@@ -1,6 +1,6 @@
 # 0003. Use the stdio transport. The HTTP transport comes later
 
-- **Status:** Accepted
+- **Status:** Accepted; "horus has no daemon" is superseded by 0025, and "the only transport" by 0030
 - **Date:** 2026-11-15
 - **Deciders:** the owner
 - **Old ids in issue #4:** D2, D3, D55, risks R6 and R7

@@ -39,6 +39,13 @@ An agent that needs an image does not read docs. It calls a tool.
   license confirmation and a delete confirmation. On a machine without ComfyUI,
   `install_workflow` also runs the setup, after a setup confirmation.
 - `generate_image(workflow, subject, ...)` waits until the PNG is on disk.
+- `generate_speech(workflow, text, voice, ...)` waits until the audio file is
+  on disk, and returns its transcript. A speech workflow runs on the CPU in a
+  Python speech worker that `horus mcp` starts at the first call and keeps
+  ([epic #181](https://github.com/hieplam/horus/issues/181), spec
+  [`2026-11-20-text-to-speech.md`](docs/specs/2026-11-20-text-to-speech.md)).
+  The install of a speech workflow through `install_workflow` and the real run
+  with the models are the next tasks of that epic.
 - Every result is one envelope with typed errors (`code`, `retryable`,
   `action_by`, `next_step`).
 

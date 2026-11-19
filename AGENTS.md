@@ -8,6 +8,9 @@ kinds of work:
   `describe_workflow`, then `generate_image`. This is the only way to make an
   image, in a clone and outside it. Never run the graph of a workflow through
   the comfy MCP tools to make an image for the user.
+- **Make speech.** Call the horus MCP server: `list_workflows`,
+  `describe_workflow` of a workflow of the kind `speech`, then
+  `generate_speech`. Compare the `transcript` of the result with your text.
 - **Build or debug a workflow, or change horus.** Use the comfy MCP tools and
   the `horus` program of this repo.
 
@@ -23,8 +26,9 @@ kinds of work:
 | Remove what horus installed | `horus uninstall` prints the plan and changes nothing. `horus uninstall -yes` deletes the model files, and a ComfyUI folder or a venv only when horus installed it (the file `horus-install.json`). It keeps `.env` and `outputs/`. **Never run `-yes` on a machine with data that you must keep, and never with the real home folder in a test: use a sandbox.** |
 | Stop the ComfyUI that horus started | `horus stop-comfyui`. It refuses a ComfyUI that a person started. |
 | Make an image with an existing workflow | The horus MCP server: `list_workflows`, `describe_workflow`, `generate_image` ([`docs/mcp.md`](docs/mcp.md)). `workflows/<name>/README.md` shows how to write the subject. |
+| Make speech with an existing speech workflow | The horus MCP server: `list_workflows`, `describe_workflow`, `generate_speech` ([`docs/mcp.md`](docs/mcp.md#generate_speech)). The result has the path of the audio file and its transcript. |
 | A new style, a new model, a new workflow | [`docs/style-to-workflow.md`](docs/style-to-workflow.md) |
-| `generate_image` or another horus tool fails | Read `error.code`, `error.action_by` and `error.next_step`. The codes: [`docs/mcp.md`](docs/mcp.md#error-codes) |
+| `generate_image`, `generate_speech` or another horus tool fails | Read `error.code`, `error.action_by` and `error.next_step`. The codes: [`docs/mcp.md`](docs/mcp.md#error-codes) |
 | A comfy MCP run fails while you build a workflow | [`docs/running-workflows.md`](docs/running-workflows.md) |
 | Which model pairs with which | [`docs/models.md`](docs/models.md) |
 | Why this model, and GPU traps | [`docs/why-flux3-klein.md`](docs/why-flux3-klein.md) |
@@ -43,8 +47,8 @@ For a tech or IT illustration, use
 tells you how to write the caption.
 
 **Two MCP servers.** The horus MCP server (`horus`, [`docs/mcp.md`](docs/mcp.md))
-is the product. Every agent makes images with it: it calls `list_workflows`,
-`describe_workflow` and `generate_image` and never sees ComfyUI. The comfy MCP
+is the product. Every agent makes images and speech with it: it calls `list_workflows`,
+`describe_workflow`, `generate_image` and `generate_speech`, and never sees ComfyUI or the speech worker. The comfy MCP
 server (`comfy-mcp`) is the low-level tool for work on this repo only: build,
 check and debug a workflow. A user's agent never gets it: `horus register` adds only `horus`. When you change a workflow, keep its `manifest.json` true, because the
 horus server shows it to every caller.
@@ -111,8 +115,9 @@ goals/<spec stem>/                the goal suite of one spec: one test function 
 goals/link_test.go                the link check: each suite has a spec, each goal row has a function
 cmd/horus/                        wiring: main.go (the command table) and wiring.go (creates the adapters and gives them to the services)
 internal/cli/                     handler: one file for each command group (flags in, text out)
-internal/mcpserver/               handler: the 5 MCP tools, the envelope, the progress notifications
+internal/mcpserver/               handler: the 6 MCP tools, the envelope, the progress notifications
 internal/generate/                service: make one image
+internal/speak/                   service: make one speech file (the checks of generate_speech, the speech worker of horus mcp)
 internal/provision/               service: set up a machine (backend, model files, comfy-mcp and `horus comfy-mcp`, register, the plan of `horus setup`, the plan of `horus uninstall`)
 internal/doctor/                  service: the checks of `horus doctor`
 internal/devtools/                service: new-workflow and sync-workflows
@@ -123,6 +128,7 @@ internal/modelfiles/              adapter: find, check and remove model files, e
 internal/backend/                 adapter: Install, Start, Stop and Installed of a ComfyUI install (the Windows portable build; comfy-cli on macOS; backend/comfyclitest is the fake comfy for tests)
 internal/speechworker/            adapter: start the Python speech worker (worker.py, go:embed), send a request, read the answer, stop it; speechworker/fakeworker is the fake worker for tests
 internal/catalog/, graph/, herr/, jobdata/, settings/, platform/, version/    base: manifests, graph conversion, error codes, the data of a job and the readiness report, settings, processes and OS facts, the program version
+internal/speechsetup/             base: where the speech setup is (the speech folder: venv/, models/, worker.py) and which parts a speech workflow needs
 internal/archtest/                the test of the design rules
 internal/brokertest/              the contract suite of a broker (each broker passes it), the in-memory broker and the in-memory job store of the tests
 scripts/                          lint-public.py (a Python check before a pull request: private data, dead links, the ADR folder), frozen-suites.py (refuses a change to a frozen goal suite), build-release.sh (builds the 3 release assets)

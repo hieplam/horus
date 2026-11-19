@@ -24,7 +24,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -250,7 +249,12 @@ func contract(t *testing.T) *contractRun {
 			run.fail = err.Error()
 			return
 		}
-		run.exe = filepath.Join(temp, "horus"+exeSuffix())
+		goexe, err := command(root, nil, "go", "env", "GOEXE").Output() // ".exe" on Windows, "" elsewhere
+		if err != nil {
+			run.fail = fmt.Sprintf("go env GOEXE: %v", err)
+			return
+		}
+		run.exe = filepath.Join(temp, "horus"+strings.TrimSpace(string(goexe)))
 		if out, err := command(root, nil, "go", "build", "-o", run.exe, "./cmd/horus").CombinedOutput(); err != nil {
 			run.fail = fmt.Sprintf("go build ./cmd/horus: %v\n%s", err, out)
 			return
@@ -315,13 +319,6 @@ func prefixed(keys []string) []string {
 	return out
 }
 
-func exeSuffix() string {
-	if runtime.GOOS == "windows" {
-		return ".exe"
-	}
-	return ""
-}
-
 // command is a program in the folder dir, with more environment env.
 func command(dir string, env []string, name string, args ...string) *exec.Cmd {
 	cmd := exec.Command(name, args...)
@@ -331,13 +328,11 @@ func command(dir string, env []string, name string, args ...string) *exec.Cmd {
 }
 
 // python gives a Python program that has the MCP client: the test venv of
-// docs/mcp.md, then python3, then python.
+// docs/mcp.md (Windows, then macOS and Linux), then python3, then python.
 func python() (string, string) {
-	venv, _ := filepath.Abs(filepath.Join(root, ".scratch", "test-venv", "bin", "python"))
-	if runtime.GOOS == "windows" {
-		venv, _ = filepath.Abs(filepath.Join(root, ".scratch", "test-venv", "Scripts", "python.exe"))
-	}
-	for _, name := range []string{venv, "python3", "python"} {
+	win, _ := filepath.Abs(filepath.Join(root, ".scratch", "test-venv", "Scripts", "python.exe"))
+	unix, _ := filepath.Abs(filepath.Join(root, ".scratch", "test-venv", "bin", "python"))
+	for _, name := range []string{win, unix, "python3", "python"} {
 		if exec.Command(name, "-c", "import mcp").Run() == nil {
 			return name, ""
 		}

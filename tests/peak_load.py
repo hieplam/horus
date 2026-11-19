@@ -197,6 +197,11 @@ class FakeComfy:
         return total
 
 
+class Server(ThreadingHTTPServer):
+    request_queue_size = 128  # the default of 5 refuses some of 12 connections that arrive together
+    daemon_threads = True
+
+
 def make_handler(fake: FakeComfy):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -291,6 +296,7 @@ async def one_call(n: int, a, params: StdioServerParameters, out: Path, barrier:
                     result["kind"] = "ok_without_file"
                 else:
                     result["kind"] = (env.get("error") or {}).get("code", "UNKNOWN_ERROR")
+                    result["message"] = str((env.get("error") or {}).get("message", ""))[:160]
     except asyncio.CancelledError:
         raise
     except BaseException as exc:  # the server process ended, or it never started
@@ -361,7 +367,7 @@ async def run(a, fake: FakeComfy, port: int, tmp: Path) -> dict:
               if r.get("kind") not in (None, "png", "left") and "start" in r and "end" in r]
     for n, r in results.items():
         wait = f"{r['end'] - r['start']:.1f}s" if "start" in r and "end" in r else "-"
-        print(f"call {n:2d}: {r.get('kind', 'no_answer'):<22} wait {wait}", file=sys.stderr)
+        print(f"call {n:2d}: {r.get('kind', 'no_answer'):<22} wait {wait} {r.get('message', '')}", file=sys.stderr)
     print(f"fake: POST /prompt {fake.posts_prompt}, calls {a.calls}, left {sorted(left_at)}", file=sys.stderr)
     return {
         "png": kinds.count("png"),
@@ -390,7 +396,7 @@ def main() -> int:
         tmp = Path(td)
         log = Path(a.log) if a.log else tmp / "fake.log"
         fake = FakeComfy(a.parallel, JOB_SECONDS / a.scale, log)
-        httpd = ThreadingHTTPServer(("127.0.0.1" if a.target == "host" else "0.0.0.0", 0), make_handler(fake))
+        httpd = Server(("127.0.0.1" if a.target == "host" else "0.0.0.0", 0), make_handler(fake))
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         port = httpd.server_address[1]
         print(f"fake ComfyUI on port {port}; one job takes {fake.job_seconds:g} s; log {log}", file=sys.stderr)

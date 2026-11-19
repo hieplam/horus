@@ -375,3 +375,28 @@ machine. These checks prove the setup consent: no change on disk before
 the arguments of the spec.
 It ends with `contract: N of 37 passed` and exits 0 only when all pass.
 The total is 35 server checks plus 2 for each shipped workflow.
+
+### The peak tool
+
+`tests/peak_load.py` measures what happens when many agents call
+`generate_image` at the same time. It starts one `horus mcp` process for each
+call, and a fake ComfyUI in its own process answers. The fake runs one job at a
+time (`--parallel`) and holds the others in its queue. It needs no GPU.
+
+```
+.scratch\test-venv\Scripts\python tests\peak_load.py --target host --server-cmd bin\horus.exe mcp --calls 12 --leave 3,6
+```
+
+- `--scale` (default 10) divides every time. One image takes 240 / scale
+  seconds. The tool sets `HORUS_GENERATE_TIMEOUT` and `HORUS_QUEUE_TIMEOUT` to
+  1800 / scale and 7200 / scale.
+- `--leave 3,6 --leave-at 60` ends the server process of the calls 3 and 6 at
+  once, 60 / scale seconds after the calls start. This is an agent that leaves.
+- `--target stack --stack <name>` starts `docker exec -i <name>-api horus mcp`.
+- The last line of stdout is one JSON line: `png`, `generation_timeout`,
+  `queue_full`, `wait_for_error_seconds`, `gpu_seconds_for_nobody`,
+  `max_jobs_in_comfyui` and `max_running`. Seconds are wall-clock seconds.
+  `gpu_seconds_for_nobody` counts the seconds that the fake ran a job of a call
+  that had left, from the time that the call left.
+- The exit code is 0 when the run ended, whatever the numbers. `--log` names the
+  file with one line for each request of the fake.

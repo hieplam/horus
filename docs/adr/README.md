@@ -53,3 +53,6 @@ record. You do not need to remember it:
 | [0019](0019-register-for-claude-code-and-codex.md) | `horus register` serves Claude Code and Codex | Accepted |
 | [0020](0020-one-place-for-each-record-of-feature-work.md) | One place for each record of feature work: ADR, spec, issue, pull request | Accepted |
 | [0021](0021-goal-suites-are-go-test-packages.md) | A goal suite is a Go test package with the name of its spec, and it is frozen when the spec is finished | Accepted |
+| [0022](0022-speech-runs-in-a-python-speech-worker.md) | Speech runs in a Python speech worker that `horus mcp` starts and keeps | Accepted |
+| [0023](0023-a-workflow-has-a-kind-and-each-kind-has-its-tool.md) | A workflow has a kind, and each kind has its own tool on the one server | Accepted |
+| [0024](0024-generate-speech-returns-a-transcript.md) | `generate_speech` returns a transcript, and the calling agent checks the audio | Accepted |

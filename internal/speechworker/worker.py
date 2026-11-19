@@ -93,7 +93,7 @@ def encode(take: Path, out: Path, fmt: list[str]) -> None:
                        "-af", f"volume={gain:.2f}dB,alimiter=limit={PEAK_LIMIT}", *fmt, str(out)),
                 text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
-            raise Refused(f"ffmpeg could not write the audio file: {r.stderr.strip()[-500:]}")
+            raise Refused(f"ffmpeg did not write the audio file: {r.stderr.strip()[-500:]}")
         measured = lufs(out)
         if measured is None or abs(measured - TARGET_LUFS) <= 0.15:
             return

@@ -57,7 +57,7 @@ type Config struct {
 
 // The failures of a request. An *Error wraps ErrStopped or ErrReported.
 var (
-	// ErrStopped: the worker process ended before it answered, or it could
+	// ErrStopped: the worker process ended before it answered, or it did
 	// not load the models.
 	ErrStopped = errors.New("the speech worker stopped")
 	// ErrReported: the worker answered the request with an error. The
@@ -326,7 +326,7 @@ func (w *Worker) start(ctx context.Context) (*process, error) {
 			}
 			if !*ready.Ready {
 				p.kill()
-				return nil, &Error{Kind: ErrStopped, Message: "the worker could not load the models: " + ready.Error, Stderr: p.tail()}
+				return nil, &Error{Kind: ErrStopped, Message: "the worker did not load the models: " + ready.Error, Stderr: p.tail()}
 			}
 			return p, nil
 		case <-ctx.Done():

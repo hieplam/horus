@@ -119,6 +119,9 @@ func (j Job) SweepState(now time.Time) (s State, ok bool) {
 const (
 	EventProgress        = "job.progress"
 	EventCancelRequested = "job.cancel_requested"
+	// EventSubmitted: the backend took the job, and the job row has its
+	// backend_job_id.
+	EventSubmitted = "job.submitted"
 )
 
 // EventType is the type of the event of a move to the state s: "job." + s.

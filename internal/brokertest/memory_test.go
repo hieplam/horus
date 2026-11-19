@@ -154,6 +154,16 @@ type noLock struct{ *Store }
 
 func (noLock) WorkerLock(context.Context) (func(), error) { return func() {}, nil }
 
+// noHeartbeat is a job store whose Heartbeat writes nothing.
+type noHeartbeat struct{ *Store }
+
+func (noHeartbeat) Heartbeat(context.Context, jobdata.Worker) error { return nil }
+
+// keepOld is a job store whose DeleteOld deletes nothing.
+type keepOld struct{ *Store }
+
+func (keepOld) DeleteOld(context.Context, time.Duration) (int, error) { return 0, nil }
+
 // TestStoreChecksFailOnBadStores is the stub check of the store contract:
 // each bad store fails the check of the rule that it breaks.
 func TestStoreChecksFailOnBadStores(t *testing.T) {
@@ -165,6 +175,8 @@ func TestStoreChecksFailOnBadStores(t *testing.T) {
 		{"move_from_expected_state", func(s *Store) jobs.Store { return moveFromAny{s} }, "with the job in queued: true, want false"},
 		{"sweep", func(s *Store) jobs.Store { return noSweep{s} }, "Sweep: 0 expired, 0 abandoned, <nil>; want 2 and 1"},
 		{"worker_lock", func(s *Store) jobs.Store { return noLock{s} }, "error <nil>, want jobdata.ErrWorkerLocked"},
+		{"heartbeat", func(s *Store) jobs.Store { return noHeartbeat{s} }, "after the first heartbeat: Summary worker <nil>"},
+		{"delete_old", func(s *Store) jobs.Store { return keepOld{s} }, "DeleteOld: 0 deleted, <nil>; want 3"},
 	} {
 		got := storeFailures(t, c.check, func(_ testing.TB, now func() time.Time) (jobs.Store, func(string) []string) {
 			s := NewStore()

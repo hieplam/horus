@@ -18,11 +18,12 @@ type Store struct {
 	// Now is the clock of the store. nil: time.Now.
 	Now func() time.Time
 
-	mu     sync.Mutex
-	jobs   map[string]*jobdata.Job
-	order  []string // the ids in the order of Insert
-	events []EventRow
-	locked bool
+	mu      sync.Mutex
+	jobs    map[string]*jobdata.Job
+	order   []string // the ids in the order of Insert
+	events  []EventRow
+	locked  bool
+	workers map[string]jobdata.Worker
 }
 
 // EventRow is one row of horus.job_events.
@@ -35,7 +36,9 @@ type EventRow struct {
 }
 
 // NewStore makes an empty in-memory job store.
-func NewStore() *Store { return &Store{jobs: map[string]*jobdata.Job{}} }
+func NewStore() *Store {
+	return &Store{jobs: map[string]*jobdata.Job{}, workers: map[string]jobdata.Worker{}}
+}
 
 func (s *Store) now() time.Time {
 	if s.Now != nil {
@@ -204,6 +207,7 @@ func (s *Store) Summary(ctx context.Context) (jobdata.Summary, error) {
 			sum.SameKeyToday += n
 		}
 	}
+	sum.Worker = s.newestWorker()
 	sort.SliceStable(sum.RunningJobs, func(a, b int) bool { return sum.RunningJobs[a].StartedAt.Before(sum.RunningJobs[b].StartedAt) })
 	byEnd := func(list []jobdata.Job) {
 		sort.SliceStable(list, func(a, b int) bool { return list[a].FinishedAt.After(list[b].FinishedAt) })
@@ -219,6 +223,63 @@ func (s *Store) Summary(ctx context.Context) (jobdata.Summary, error) {
 		sum.MeanRunSeconds = total.Seconds() / float64(n)
 	}
 	return sum, nil
+}
+
+// newestWorker gives a copy of the worker row with the newest heartbeat, or
+// nil. Of two rows with the same heartbeat, the smaller id comes first. Hold
+// mu.
+func (s *Store) newestWorker() *jobdata.Worker {
+	var best *jobdata.Worker
+	for _, w := range s.workers {
+		if best == nil || w.HeartbeatAt.After(best.HeartbeatAt) ||
+			w.HeartbeatAt.Equal(best.HeartbeatAt) && w.ID < best.ID {
+			c := w
+			best = &c
+		}
+	}
+	return best
+}
+
+// Heartbeat writes the row of the worker w.ID, with heartbeat_at at the time
+// now.
+func (s *Store) Heartbeat(ctx context.Context, w jobdata.Worker) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w.HeartbeatAt = s.now()
+	s.workers[w.ID] = w
+	return nil
+}
+
+// DeleteOld deletes each ended job that finished more than age before the time
+// now, with its events, and each worker row whose heartbeat is that old.
+func (s *Store) DeleteOld(ctx context.Context, age time.Duration) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	before := s.now().Add(-age)
+	gone := map[string]bool{}
+	order := s.order[:0:0]
+	for _, id := range s.order {
+		if j := s.jobs[id]; j.State.Ended() && j.FinishedAt.Before(before) {
+			gone[id] = true
+			delete(s.jobs, id)
+			continue
+		}
+		order = append(order, id)
+	}
+	s.order = order
+	events := s.events[:0:0]
+	for _, e := range s.events {
+		if !gone[e.JobID] {
+			events = append(events, e)
+		}
+	}
+	s.events = events
+	for id, w := range s.workers {
+		if w.HeartbeatAt.Before(before) {
+			delete(s.workers, id)
+		}
+	}
+	return len(gone), nil
 }
 
 // WorkerLock takes the one-worker lock, or gives jobdata.ErrWorkerLocked.

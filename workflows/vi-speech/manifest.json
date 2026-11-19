@@ -1,0 +1,83 @@
+{
+  "name": "vi-speech",
+  "kind": "speech",
+  "title": "Vietnamese speech",
+  "summary": "Speaks a Vietnamese text in one of 25 preset voices and writes one audio file on this machine. English words inside a Vietnamese text also work. It runs on the CPU and needs no GPU.",
+  "good_for": [
+    "Vietnamese narration of a short or long text, up to 4,000 characters",
+    "A Vietnamese voice for a script, a demo or a notification",
+    "A Vietnamese text that has a few English words in it"
+  ],
+  "not_good_for": [
+    "A voice that copies the voice of a person",
+    "A language other than Vietnamese",
+    "Music or sound effects",
+    "A text with a [tag] that is not one of the 3 allowed tags"
+  ],
+  "text": {
+    "min_chars": 2,
+    "max_chars": 4000,
+    "how_to_write": "The text is the whole input. horus adds no words and removes no words. Write the words as people say them, with the Vietnamese tone marks. Write numbers and abbreviations as words if you want to control how the model says them. Use only the 3 tags in tags, as in 'Xin chào [cười] tôi là Hải Đăng.'",
+    "rules": [
+      "Write the text in Vietnamese with all tone marks. A word without tone marks gets a wrong tone.",
+      "Use only these tags: [cười], [thở dài], [hắng giọng]. The model reads any other [tag] aloud, so horus refuses it.",
+      "Write a number or an abbreviation as words when you need an exact reading.",
+      "Check the transcript in the result against your text. The model does not give the same audio for the same text two times."
+    ],
+    "examples": [
+      {
+        "text": "Xin chào, tôi là Hải Đăng. Hôm nay chúng ta sẽ nói về hàng đợi tin nhắn.",
+        "note": "A plain sentence."
+      },
+      {
+        "text": "Máy chủ báo lỗi, tôi thử lại. [thở dài] Vẫn lỗi.",
+        "note": "One tag inside the text."
+      }
+    ]
+  },
+  "voices": [
+    "Adam bựa",
+    "Trúc Ly",
+    "Thiện Minh",
+    "Mai Anh",
+    "Hải Đăng",
+    "Thùy Dung",
+    "Thiền Tâm Đức",
+    "Ngọc Huyền",
+    "Quang Sơn",
+    "Ngọc Trân",
+    "Minh Đức",
+    "Phạm Tuyên",
+    "Thái Sơn",
+    "Xuân Vĩnh",
+    "Thanh Bình",
+    "Ngọc Linh",
+    "Đoan Trang",
+    "Thục Đoan",
+    "Minh Triết",
+    "Mỹ Duyên",
+    "Quỳnh Anh",
+    "Đức Trí",
+    "Kim Thanh",
+    "Adam",
+    "Quốc Tuấn"
+  ],
+  "default_voice": "Hải Đăng",
+  "tags": [
+    "[cười]",
+    "[thở dài]",
+    "[hắng giọng]"
+  ],
+  "formats": [
+    "wav",
+    "mp3"
+  ],
+  "timing": {
+    "measured_seconds": [
+      5,
+      272
+    ],
+    "hardware": "AMD Ryzen 7 4800H, CPU only, Windows 11. 5.2 to 8.2 s for a sentence of 3 to 6 s of audio. 272 s for a text of 3,999 characters (210 s of audio).",
+    "note": "The first call after horus mcp starts also loads the models: 4.1 to 6.5 s when the model files are in the disk cache of the OS. One process with the models uses 1,973 MB at the peak for a short text and 5,255 MB for a text of 3,999 characters."
+  }
+}

@@ -35,6 +35,7 @@ kinds of work:
 | Why horus does something in a specific way, or the history of a rule | The decision records: [`docs/adr/README.md`](docs/adr/README.md). Do not undo a decision without a new record. |
 | Start feature work, or record a decision, a plan or a proof | [Feature work](#feature-work-one-place-for-each-record) below |
 | Write or run the oracle of a goal row of a spec | [Goal suites](#goal-suites) below |
+| The speech workflow `vi-speech`: its voices, text limits and tags | [`workflows/vi-speech/README.md`](workflows/vi-speech/README.md), then [`docs/specs/2026-11-20-text-to-speech.md`](docs/specs/2026-11-20-text-to-speech.md) |
 | Offer a workflow to other agents | Add `workflows/<name>/manifest.json` ([fields](docs/mcp.md#add-a-workflow-to-the-server)) |
 
 For a tech or IT illustration, use
@@ -126,7 +127,8 @@ scripts/                          lint-public.py (a Python check before a pull r
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), peak_load.py (the peak tool: many agents at once), workflow_parity.py, requirements.txt
 tests/speech/                     the tests with the real speech models (not in CI): baseline.py, worker_real.py (it runs only with HORUS_SPEECH_REAL=1)
 workflows/embed.go                the go:embed line: the program holds each workflow folder (add a new folder there)
-workflows/<name>/                 manifest.json, workflow.json, models.json, README.md, examples/
+workflows/<name>/                 an image workflow: manifest.json, workflow.json, models.json, README.md, examples/
+workflows/vi-speech/              the speech workflow (kind speech): manifest.json, models.json, README.md. No graph and no examples
 workflows/_template/README.md     template for a new workflow README
 prompts/<family>/<name>.md        one saved prompt each, with its result
 ```

@@ -219,11 +219,17 @@ STYLE_WORDS = ("palette", "pastel", "navy", "flat vector", "house style", "house
 
 
 def neutral_checks(c: Checks) -> None:
-    """Every shipped workflow is style-neutral: no theme, no style file, no style words in the graph."""
+    """Every shipped workflow is style-neutral: no theme, no style file. An image workflow also has no style words in
+    its graph. A speech workflow has no graph, and the check says so."""
     for d in sorted(p for p in (ROOT / "workflows").iterdir() if (p / "manifest.json").is_file()):
         m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
         c.check(f"{d.name}: manifest has no theme and no caption style file",
                 "theme" not in m and "caption" not in m and not list(d.glob("*style*.json")), json.dumps(m.get("theme") or m.get("caption")))
+        if m.get("kind") == "speech":
+            # A speech workflow has no ComfyUI graph, so there are no graph words to check. It must stay without one.
+            c.check(f"{d.name}: a speech manifest has no graph, no subject and no output",
+                    not ({"graph", "subject", "output"} & set(m)) and not (d / "workflow.json").exists(), str(sorted(m)))
+            continue
         graph = json.loads((d / m["graph"]["file"]).read_text(encoding="utf-8"))
         texts = " ".join(str(v) for n in graph.get("nodes", []) for v in (n.get("widgets_values") or [])).lower()
         words = [w for w in STYLE_WORDS if w in texts]

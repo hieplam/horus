@@ -340,6 +340,7 @@ List them, install the files of one, or remove them with
 | Workflow | Does | Model family |
 |---|---|---|
 | [`it-illustration`](workflows/it-illustration/README.md) | Text to image, 1536×1024. No style of its own: the caller writes the look. | FLUX 3 Image Klein |
+| [`vi-speech`](workflows/vi-speech/README.md) | Text to speech in Vietnamese, 25 preset voices, on the CPU. Kind `speech`. The server lists it. The tool `generate_speech` and the install of this workflow are not in the program yet. | VieNeu-TTS v3 Turbo |
 
 ## License
 

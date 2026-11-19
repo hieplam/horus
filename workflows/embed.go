@@ -17,5 +17,5 @@ import "embed"
 
 // FS holds the built-in workflows. Its top folders are the workflow names.
 //
-//go:embed it-illustration
+//go:embed it-illustration vi-speech
 var FS embed.FS

@@ -91,8 +91,23 @@ func TestListWorkflowsOfTheMCPServerWithoutAClonePrintsTheBuiltInWorkflows(t *te
 	for _, x := range rows {
 		names = append(names, x.(map[string]any)["name"].(string))
 	}
-	if strings.Join(names, ",") != "it-illustration" {
-		t.Fatalf("list_workflows names %v, want it-illustration", names)
+	if strings.Join(names, ",") != "it-illustration,vi-speech" {
+		t.Fatalf("list_workflows names %v, want it-illustration and vi-speech", names)
+	}
+	kinds := map[string]string{}
+	for _, x := range rows {
+		row := x.(map[string]any)
+		kinds[row["name"].(string)], _ = row["kind"].(string)
+	}
+	if kinds["it-illustration"] != "image" || kinds["vi-speech"] != "speech" {
+		t.Fatalf("list_workflows kinds %v, want image and speech", kinds)
+	}
+
+	env = envelopeOf(t, callTool(t, cs, "describe_workflow", map[string]any{"workflow": "vi-speech"}))
+	r, _ = env["result"].(map[string]any)
+	voices, _ := r["voices"].([]any)
+	if env["ok"] != true || len(voices) != 25 || r["default_voice"] != "Hải Đăng" || r["graph"] != nil {
+		t.Fatalf("describe_workflow vi-speech: %v", env)
 	}
 
 	env = envelopeOf(t, callTool(t, cs, "describe_workflow", map[string]any{"workflow": "it-illustration"}))

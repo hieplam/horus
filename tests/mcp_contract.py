@@ -124,9 +124,9 @@ class Handler(BaseHTTPRequestHandler):
         return self._send({"error": "not found"}, 404)
 
 
-def make_sandbox(tmp: Path) -> dict[str, str]:
+def make_sandbox(tmp: Path, with_speech: bool = False) -> dict[str, str]:
     """Workflows: it-illustration (installed, tiny stand-in files), absent-style (no files) and
-    stand-in-speech (a manifest of the kind speech, no files)."""
+    stand-in-speech (a manifest of the kind speech, no files; only with with_speech)."""
     wf_root, models_root = tmp / "workflows", tmp / "comfy" / "ComfyUI" / "models"
     src = ROOT / "workflows" / "it-illustration"
     dst = wf_root / "it-illustration"
@@ -156,9 +156,10 @@ def make_sandbox(tmp: Path) -> dict[str, str]:
     am["files"][0]["bytes"], am["files"][0]["sha256"] = 5_000_000_000, "0" * 64
     (absent / "models.json").write_text(json.dumps(am), encoding="utf-8")
     (tmp / "comfy" / "ComfyUI" / "main.py").write_text("# fake\n", encoding="utf-8")
-    speech = wf_root / "stand-in-speech"
-    speech.mkdir()
-    shutil.copy(ROOT / "internal" / "catalog" / "testdata" / "stand-in-speech" / "manifest.json", speech / "manifest.json")
+    if with_speech:
+        speech = wf_root / "stand-in-speech"
+        speech.mkdir()
+        shutil.copy(ROOT / "internal" / "catalog" / "testdata" / "stand-in-speech" / "manifest.json", speech / "manifest.json")
     return {"workflows": str(wf_root), "comfy": str(tmp / "comfy"), "models": str(models_root)}
 
 
@@ -513,7 +514,7 @@ def main() -> int:
     threading.Thread(target=HTTPD.serve_forever, daemon=True).start()
     with tempfile.TemporaryDirectory(prefix="horus-contract-") as td:
         tmp = Path(td)
-        sandbox = make_sandbox(tmp)
+        sandbox = make_sandbox(tmp, with_speech=True)
         try:
             asyncio.run(run(a.server_cmd, sandbox, HTTPD.server_address[1], tmp, c))
         except Exception as exc:  # the server did not start or the session broke

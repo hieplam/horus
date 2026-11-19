@@ -2,10 +2,12 @@
 //
 // A workflow is a folder workflows/<name>/ with:
 //
-//	manifest.json     the public contract: summary, what it is good for,
-//	                  output sizes, how to write the subject, and which graph
-//	                  inputs horus sets (graph.inputs).
-//	workflow.json     the ComfyUI graph in UI format.
+//	manifest.json     the public contract: the kind, the summary and what it
+//	                  is good for. An image manifest also has the output
+//	                  sizes, how to write the subject and which graph inputs
+//	                  horus sets (graph.inputs). A speech manifest has the
+//	                  limits of the text, the voices, the tags and the formats.
+//	workflow.json     the ComfyUI graph in UI format (an image workflow only).
 //	models.json       the model files, with size and SHA-256.
 //
 // A workflow is style-neutral. horus sends the caller's subject to the model
@@ -33,6 +35,20 @@ import (
 // newline at the end.
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\n?$`)
 
+// The kinds of a workflow. A manifest without "kind" is of the kind image.
+const (
+	KindImage  = "image"
+	KindSpeech = "speech"
+)
+
+// The keys that a manifest must have, for each kind. A speech manifest has
+// none of imageOnlyKeys.
+var (
+	speechKeys    = []string{"name", "title", "summary", "text", "voices", "default_voice", "tags", "formats"}
+	imageKeys     = []string{"name", "title", "summary", "output", "subject", "graph"}
+	imageOnlyKeys = []string{"graph", "subject", "output"}
+)
+
 // requiredInputs are the graph inputs that every manifest must name.
 var requiredInputs = []string{"caption", "seed", "width", "height", "filename_prefix"}
 
@@ -41,6 +57,19 @@ type Workflow struct {
 	Name     string
 	Dir      string
 	Manifest *Object
+}
+
+// Kind is what the workflow makes: KindImage or KindSpeech. A manifest without
+// the field "kind" is of the kind image. All checks the value, so a workflow
+// that All returns has one of the two kinds.
+func (w *Workflow) Kind() string { return kindOf(w.Manifest) }
+
+func kindOf(m *Object) string {
+	var k string
+	if m.Has("kind") && m.Decode("kind", &k) == nil && k != "" {
+		return k
+	}
+	return KindImage
 }
 
 // GraphPath is the path of the UI-format graph.
@@ -117,8 +146,21 @@ func (w *Workflow) License() (License, error) {
 }
 
 func checkManifest(name string, m *Object) error {
+	kind := KindImage
+	if m.Has("kind") {
+		var raw any
+		_ = m.Decode("kind", &raw)
+		if k, ok := raw.(string); !ok || (k != KindImage && k != KindSpeech) {
+			return fmt.Errorf("manifest.json of %s has kind %s: allowed are 'image' and 'speech'", name, pyRepr(raw))
+		}
+		kind = kindOf(m)
+	}
+	required := imageKeys
+	if kind == KindSpeech {
+		required = speechKeys
+	}
 	var missing []string
-	for _, k := range []string{"name", "title", "summary", "output", "subject", "graph"} {
+	for _, k := range required {
 		if !m.Has(k) {
 			missing = append(missing, k)
 		}
@@ -140,6 +182,9 @@ func checkManifest(name string, m *Object) error {
 	if s, ok := got.(string); !ok || s != name {
 		return fmt.Errorf("manifest.json of %s has name %s", name, pyRepr(got))
 	}
+	if kind == KindSpeech {
+		return checkSpeech(name, m)
+	}
 	graph, err := m.Object("graph")
 	if err != nil {
 		return fmt.Errorf("manifest.json of %s: %w", name, err)
@@ -158,6 +203,46 @@ func checkManifest(name string, m *Object) error {
 	}
 	if len(absent) > 0 {
 		return fmt.Errorf("manifest.json of %s: graph.inputs lacks %s", name, strings.Join(absent, ", "))
+	}
+	return nil
+}
+
+// checkSpeech checks the part of a speech manifest that is not in an image
+// manifest. A speech workflow has no ComfyUI graph, no subject and no output
+// size.
+func checkSpeech(name string, m *Object) error {
+	var extra []string
+	for _, k := range imageOnlyKeys {
+		if m.Has(k) {
+			extra = append(extra, k)
+		}
+	}
+	if len(extra) > 0 {
+		return fmt.Errorf("manifest.json of %s has %s: a speech workflow has no graph, no subject and no output", name, strings.Join(extra, ", "))
+	}
+	var voices []string
+	if err := m.Decode("voices", &voices); err != nil || len(voices) == 0 {
+		return fmt.Errorf("manifest.json of %s: voices must be a list of voice names, not empty", name)
+	}
+	var def string
+	if err := m.Decode("default_voice", &def); err != nil {
+		return fmt.Errorf("manifest.json of %s: default_voice must be a voice name", name)
+	}
+	known := false
+	for _, v := range voices {
+		known = known || v == def
+	}
+	if !known {
+		return fmt.Errorf("manifest.json of %s: default_voice %s is not in voices", name, pyRepr(def))
+	}
+	for _, k := range []string{"tags", "formats"} {
+		var list []string
+		if err := m.Decode(k, &list); err != nil {
+			return fmt.Errorf("manifest.json of %s: %s must be a list of strings", name, k)
+		}
+	}
+	if _, err := m.Object("text"); err != nil {
+		return fmt.Errorf("manifest.json of %s: %w", name, err)
 	}
 	return nil
 }
@@ -228,6 +313,7 @@ type Output struct {
 // catalog.summary.
 type Summary struct {
 	Name           string          `json:"name"`
+	Kind           string          `json:"kind"`
 	Title          json.RawMessage `json:"title"`
 	Summary        json.RawMessage `json:"summary"`
 	GoodFor        json.RawMessage `json:"good_for"`
@@ -253,6 +339,17 @@ func orNull(raw json.RawMessage) json.RawMessage {
 // SummaryOf returns the short view of a workflow.
 func SummaryOf(w *Workflow) (Summary, error) {
 	m := w.Manifest
+	if w.Kind() == KindSpeech {
+		return Summary{
+			Name:           w.Name,
+			Kind:           KindSpeech,
+			Title:          m.Raw("title"),
+			Summary:        m.Raw("summary"),
+			GoodFor:        orEmptyList(m.Raw("good_for")),
+			NotGoodFor:     orEmptyList(m.Raw("not_good_for")),
+			TypicalSeconds: typicalSeconds(m),
+		}, nil
+	}
 	out, err := m.Object("output")
 	if err != nil || out == nil {
 		return Summary{}, fmt.Errorf("manifest.json of %s: output is not an object", w.Name)
@@ -262,28 +359,46 @@ func SummaryOf(w *Workflow) (Summary, error) {
 			return Summary{}, fmt.Errorf("manifest.json of %s: output lacks %s", w.Name, k)
 		}
 	}
-	var typical json.RawMessage
-	if timing, err := m.Object("timing"); err == nil && timing != nil {
-		typical = timing.Raw("measured_seconds")
-	}
 	return Summary{
 		Name:           w.Name,
+		Kind:           KindImage,
 		Title:          m.Raw("title"),
 		Summary:        m.Raw("summary"),
 		GoodFor:        orEmptyList(m.Raw("good_for")),
 		NotGoodFor:     orEmptyList(m.Raw("not_good_for")),
 		Output:         Output{out.Raw("format"), out.Raw("default_width"), out.Raw("default_height")},
-		TypicalSeconds: orNull(typical),
+		TypicalSeconds: typicalSeconds(m),
 	}, nil
+}
+
+func typicalSeconds(m *Object) json.RawMessage {
+	var typical json.RawMessage
+	if timing, err := m.Object("timing"); err == nil && timing != nil {
+		typical = timing.Raw("measured_seconds")
+	}
+	return orNull(typical)
 }
 
 // Detail is the full view for describe_workflow, with the keys in the order of
 // catalog.detail. It has no ComfyUI details (graph, node names).
 type Detail struct {
 	Summary
-	Subject *Object         `json:"subject"`
+	Subject *Object `json:"subject"`
+	// Speech is set for a workflow of the kind speech: the limits of the text,
+	// the voices, the default voice, the tags and the formats.
+	Speech  *SpeechView
 	Timing  json.RawMessage `json:"timing"`
 	License License         `json:"license"`
+}
+
+// SpeechView is what describe_workflow shows of a speech workflow, in the order
+// of the manifest keys.
+type SpeechView struct {
+	Text         *Object         `json:"text"`
+	Voices       json.RawMessage `json:"voices"`
+	DefaultVoice json.RawMessage `json:"default_voice"`
+	Tags         json.RawMessage `json:"tags"`
+	Formats      json.RawMessage `json:"formats"`
 }
 
 // MarshalJSON writes the keys in the order of catalog.detail:
@@ -297,11 +412,18 @@ func (d Detail) MarshalJSON() ([]byte, error) {
 	if err := json.Unmarshal(sum, o); err != nil {
 		return nil, err
 	}
-	for _, kv := range []struct {
+	type kv struct {
 		k string
 		v any
-	}{{"output", d.Output}, {"subject", d.Subject}, {"timing", d.Timing}, {"license", d.License}} {
-		if err := o.Set(kv.k, kv.v); err != nil {
+	}
+	rows := []kv{{"output", d.Output}, {"subject", d.Subject}}
+	if d.Speech != nil {
+		rows = []kv{{"output", nil}, {"subject", nil}, {"text", d.Speech.Text}, {"voices", d.Speech.Voices},
+			{"default_voice", d.Speech.DefaultVoice}, {"tags", d.Speech.Tags}, {"formats", d.Speech.Formats}}
+	}
+	rows = append(rows, kv{"timing", d.Timing}, kv{"license", d.License})
+	for _, r := range rows {
+		if err := o.Set(r.k, r.v); err != nil {
 			return nil, err
 		}
 	}
@@ -315,6 +437,19 @@ func DetailOf(w *Workflow) (Detail, error) {
 		return Detail{}, err
 	}
 	m := w.Manifest
+	if w.Kind() == KindSpeech {
+		text, err := m.Object("text")
+		if err != nil {
+			return Detail{}, fmt.Errorf("manifest.json of %s: %w", w.Name, err)
+		}
+		lic, err := w.License()
+		if err != nil {
+			return Detail{}, err
+		}
+		return Detail{Summary: sum, Timing: orNull(m.Raw("timing")), License: lic, Speech: &SpeechView{
+			Text: text, Voices: m.Raw("voices"), DefaultVoice: m.Raw("default_voice"), Tags: m.Raw("tags"), Formats: m.Raw("formats"),
+		}}, nil
+	}
 	sum.Output = orNull(m.Raw("output"))
 	subject, err := m.Object("subject")
 	if err != nil || subject == nil {

@@ -320,6 +320,12 @@ func (s *Service) Generate(ctx context.Context, r Request, o Options) (*Result, 
 	if err != nil {
 		return nil, err
 	}
+	if k := w.Kind(); k != catalog.KindImage {
+		e := invalid(fmt.Sprintf("workflow %s is of the kind %s: generate_image makes images only", pyQuote(w.Name), pyQuote(k)),
+			map[string]any{"field": "workflow", "kind": k})
+		e.NextStep = fmt.Sprintf("Call generate_speech with workflow=%s, or choose a workflow of the kind image from list_workflows.", pyQuote(w.Name))
+		return nil, e
+	}
 	req, err := validate(w, r)
 	if err != nil {
 		return nil, err

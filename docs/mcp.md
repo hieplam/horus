@@ -8,7 +8,7 @@ Terms:
 
 - **MCP (Model Context Protocol):** the standard way for an agent to call the tools of another program.
 - **stdio:** the agent harness starts the server as a child process and sends messages through its standard input and output. Nothing listens on the network.
-- **Workflow:** one image model and its ComfyUI graph, a folder under `workflows/`. A workflow has no style of its own. The server offers each folder that has a `manifest.json`.
+- **Workflow:** one model and what it makes, a folder under `workflows/`. A workflow has a kind: `image` (a model and its ComfyUI graph) or `speech`. A workflow has no style of its own. The server offers each folder that has a `manifest.json`.
 - **Envelope:** the one result shape that every tool returns (below).
 
 The server is one process: `horus mcp`. It starts no other horus process.
@@ -205,11 +205,13 @@ it starts ComfyUI, and `horus stop-comfyui` reads it.
 
 | Tool | Does | Changes the PC |
 |---|---|---|
-| `list_workflows` | Lists the workflows: name, summary, `good_for`, `not_good_for`, default size, measured time, `install_state`. | No |
-| `describe_workflow(workflow)` | One workflow in full: size limits, how to write the subject (rules and examples), license, the state of each model file. | No |
+| `list_workflows` | Lists the workflows: name, `kind` (`image` or `speech`), summary, `good_for`, `not_good_for`, default size, measured time, `install_state`. | No |
+| `describe_workflow(workflow)` | One workflow in full, with its `kind`. An image workflow shows size limits and how to write the subject (rules and examples). A speech workflow shows `text` (limits), `voices`, `default_voice`, `tags` and `formats`, and no graph. Both show the license and the state of each model file. | No |
 | `install_workflow(workflow, accept_license=false, accept_setup=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license and the size. On a machine without ComfyUI it first runs the setup plan: without `accept_setup=true` it returns `SETUP_CONFIRMATION_REQUIRED` with the steps. | Yes: downloads GB, installs ComfyUI and a system package |
 | `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another workflow lists is kept unless `remove_shared=true`. | Yes: deletes files |
 | `generate_image(workflow, subject, out_path?, seed?, width?, height?, overwrite=false)` | Makes one PNG and waits until it is on disk. Returns the absolute path and the seed. | Writes one PNG |
+
+`generate_image` accepts a workflow of the kind `image` only. With a workflow of the kind `speech` it answers `INVALID_ARGUMENT`, and `next_step` names `generate_speech`.
 
 The subject is the whole prompt. The server sends it to the model exactly as
 written and adds nothing. The caller owns the look: style, palette, light,
@@ -305,6 +307,7 @@ and change every field. The fields:
 | Field | What it is |
 |---|---|
 | `name` | Must equal the folder name. |
+| `kind` | `image` or `speech`. Without it the kind is `image`. Any other value is refused. |
 | `title`, `summary`, `good_for`, `not_good_for` | What the caller reads to choose a workflow. Write what the model can and cannot draw. Do not describe a look: the caller owns the look. |
 | `output` | `default_width`, `default_height`, `min_side`, `max_side`, `multiple_of`. Set `max_side` to a size that you ran on the target GPU. |
 | `subject` | `min_chars`, `max_chars`, `how_to_write`, `rules`, `examples` (subject, image, seed). The caller writes the subject from these. |
@@ -313,6 +316,16 @@ and change every field. The fields:
 | `graph.inputs` | For each of `caption`, `seed`, `width`, `height`, `filename_prefix`: the node class and the input name that horus sets. Exactly one node of that class must exist. |
 
 The caller never sees `graph`: `describe_workflow` leaves it out.
+
+A manifest of the kind `speech` has no `graph`, no `subject` and no `output`: the server refuses a speech manifest that has one. It has these fields instead:
+
+| Field | What it is |
+|---|---|
+| `name`, `title`, `summary` | As for an image manifest. `good_for`, `not_good_for` and `timing` are optional. |
+| `text` | The limits of the text: `min_chars`, `max_chars`, and how to write it. |
+| `voices`, `default_voice` | The voice names, not empty. `default_voice` is one of them. |
+| `tags` | The `[tag]` markers that the model performs. |
+| `formats` | The audio formats of the result. |
 
 Also add the folder name to the `go:embed` line of
 [`workflows/embed.go`](../workflows/embed.go). The release program holds only

@@ -98,6 +98,8 @@ func tEnum(values ...string) obj {
 	return obj{"enum": vs, "type": "string"}
 }
 
+var tKind = tEnum("image", "speech")
+
 var tInstallState = tEnum("installed", "partially_installed", "not_installed")
 
 // errorInfoModel is the schema of the error in an envelope.

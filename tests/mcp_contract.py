@@ -125,7 +125,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_sandbox(tmp: Path) -> dict[str, str]:
-    """Workflows: it-illustration (installed, tiny stand-in files) and absent-style (no files)."""
+    """Workflows: it-illustration (installed, tiny stand-in files), absent-style (no files) and
+    stand-in-speech (a manifest of the kind speech, no files)."""
     wf_root, models_root = tmp / "workflows", tmp / "comfy" / "ComfyUI" / "models"
     src = ROOT / "workflows" / "it-illustration"
     dst = wf_root / "it-illustration"
@@ -155,6 +156,9 @@ def make_sandbox(tmp: Path) -> dict[str, str]:
     am["files"][0]["bytes"], am["files"][0]["sha256"] = 5_000_000_000, "0" * 64
     (absent / "models.json").write_text(json.dumps(am), encoding="utf-8")
     (tmp / "comfy" / "ComfyUI" / "main.py").write_text("# fake\n", encoding="utf-8")
+    speech = wf_root / "stand-in-speech"
+    speech.mkdir()
+    shutil.copy(ROOT / "internal" / "catalog" / "testdata" / "stand-in-speech" / "manifest.json", speech / "manifest.json")
     return {"workflows": str(wf_root), "comfy": str(tmp / "comfy"), "models": str(models_root)}
 
 
@@ -245,7 +249,23 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
             # absent-style shares the text encoder and the VAE with it-illustration, so 2 of its 3 files are present.
             c.check("list_workflows shows installed and partially_installed styles",
-                    res["ok"] and states == {"it-illustration": "installed", "absent-style": "partially_installed"}, json.dumps(res)[:400])
+                    res["ok"] and states == {"it-illustration": "installed", "absent-style": "partially_installed",
+                                             "stand-in-speech": "not_installed"}, json.dumps(res)[:400])
+            kinds = {w["name"]: w.get("kind") for w in (res.get("result") or {}).get("workflows", [])}
+            c.check("list_workflows shows the kind of each workflow: a manifest without kind is image",
+                    kinds == {"it-illustration": "image", "absent-style": "image", "stand-in-speech": "speech"}, str(kinds))
+            res = env_of(await s.call_tool("describe_workflow", {"workflow": "stand-in-speech"}))
+            r = res.get("result") or {}
+            c.check("describe_workflow of a speech workflow shows the voices, tags and formats, and no graph",
+                    res["ok"] and r.get("kind") == "speech" and r.get("voices") == ["alpha", "beta"] and r.get("default_voice") == "alpha"
+                    and r.get("tags") and r.get("formats") == ["wav", "mp3"] and r.get("text", {}).get("max_chars")
+                    and r.get("output") is None and r.get("subject") is None and "graph" not in json.dumps(res), json.dumps(res)[:400])
+            jobs = len(Fake.prompts)
+            res = env_of(await s.call_tool("generate_image", {"workflow": "stand-in-speech", "subject": SUBJECT}))
+            e = res.get("error") or {}
+            c.check("generate_image with a speech workflow -> INVALID_ARGUMENT, action_by=caller, next_step names generate_speech",
+                    e.get("code") == "INVALID_ARGUMENT" and e.get("action_by") == "caller" and "generate_speech" in e.get("next_step", "")
+                    and e["details"].get("field") == "workflow" and len(Fake.prompts) == jobs, json.dumps(res)[:400])
 
             raw = await s.call_tool("describe_workflow", {"workflow": "it-illustration"})
             res = env_of(raw)
@@ -360,7 +380,7 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             res = env_of(await s.call_tool("list_workflows", {}))
             states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
             c.check("after uninstall, list_workflows shows both styles not_installed",
-                    states == {"it-illustration": "not_installed", "absent-style": "not_installed"}, json.dumps(states))
+                    states == {"it-illustration": "not_installed", "absent-style": "not_installed", "stand-in-speech": "not_installed"}, json.dumps(states))
 
             res = env_of(await s.call_tool("generate_image", {"workflow": "nope-style", "subject": SUBJECT}))
             c.check("errors are the same envelope in structuredContent and in text",
@@ -503,7 +523,7 @@ def main() -> int:
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
     passed = sum(1 for ok, _, _ in c.rows if ok)
     shipped = sum(1 for d in (ROOT / "workflows").iterdir() if (d / "manifest.json").is_file())
-    total = 35 + 2 * shipped  # 35 server checks, plus 2 style-neutral checks for each shipped workflow
+    total = 38 + 2 * shipped  # 38 server checks, plus 2 style-neutral checks for each shipped workflow
     print(f"contract: {passed} of {total} passed")
     return 0 if passed == total and len(c.rows) == total else 1
 

@@ -200,3 +200,125 @@ func TestPyRepr(t *testing.T) {
 		}
 	}
 }
+
+// useStandInSpeech copies the stand-in speech manifest of testdata into root.
+func useStandInSpeech(t *testing.T, root string, edit func(m map[string]any)) {
+	t.Helper()
+	src, err := os.ReadFile(filepath.Join("testdata", "stand-in-speech", "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(src, &m); err != nil {
+		t.Fatal(err)
+	}
+	if edit != nil {
+		edit(m)
+	}
+	dir := filepath.Join(root, "stand-in-speech")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(m)
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestKindOfAManifest(t *testing.T) {
+	root := t.TempDir()
+	useWorkflows(t, root)
+	writeManifest(t, root, "plain", nil) // no "kind": the kind image
+	writeManifest(t, root, "marked", func(m map[string]any) { m["kind"] = "image" })
+	useStandInSpeech(t, root, nil)
+	for name, want := range map[string]string{"plain": KindImage, "marked": KindImage, "stand-in-speech": KindSpeech} {
+		w, err := Get(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if w.Kind() != want {
+			t.Errorf("%s: kind %q, want %q", name, w.Kind(), want)
+		}
+		sum, err := SummaryOf(w)
+		if err != nil || sum.Kind != want {
+			t.Errorf("%s: summary kind %q, %v, want %q", name, sum.Kind, err, want)
+		}
+	}
+}
+
+func TestKindSpeechDetailHasTheSpeechFieldsAndNoGraph(t *testing.T) {
+	root := t.TempDir()
+	useWorkflows(t, root)
+	useStandInSpeech(t, root, nil)
+	w, err := Get("stand-in-speech")
+	if err != nil {
+		t.Fatal(err)
+	}
+	det, err := DetailOf(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(compactText(t, det, w.Dir)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["kind"] != "speech" || got["default_voice"] != "alpha" {
+		t.Errorf("detail %v", got)
+	}
+	if v, _ := got["voices"].([]any); len(v) != 2 {
+		t.Errorf("voices %v", got["voices"])
+	}
+	if tags, _ := got["tags"].([]any); len(tags) != 2 {
+		t.Errorf("tags %v", got["tags"])
+	}
+	if f, _ := got["formats"].([]any); len(f) != 2 {
+		t.Errorf("formats %v", got["formats"])
+	}
+	if txt, _ := got["text"].(map[string]any); txt["max_chars"] != float64(500) {
+		t.Errorf("text %v", got["text"])
+	}
+	for _, k := range []string{"output", "subject"} {
+		if got[k] != nil {
+			t.Errorf("a speech detail has %s: %v", k, got[k])
+		}
+	}
+	if sum, _ := SummaryOf(w); string(sum.TypicalSeconds) != "[3, 9]" && string(sum.TypicalSeconds) != "[3,9]" {
+		t.Errorf("typical_seconds %s", sum.TypicalSeconds)
+	}
+}
+
+func TestKindSpeechManifestChecks(t *testing.T) {
+	cases := []struct {
+		name string
+		edit func(m map[string]any)
+		want string
+	}{
+		{"graph", func(m map[string]any) { m["graph"] = map[string]any{} }, "has graph: a speech workflow has no graph, no subject and no output"},
+		{"subject-output", func(m map[string]any) { m["subject"], m["output"] = 1, 2 }, "has subject, output: a speech workflow"},
+		{"lacks", func(m map[string]any) { delete(m, "voices"); delete(m, "text") }, "lacks: text, voices"},
+		{"unknown-voice", func(m map[string]any) { m["default_voice"] = "gamma" }, "default_voice 'gamma' is not in voices"},
+		{"empty-voices", func(m map[string]any) { m["voices"] = []any{} }, "voices must be a list of voice names, not empty"},
+		{"theme", func(m map[string]any) { m["theme"] = "navy" }, "has theme: a workflow must not add a style"},
+		{"kind", func(m map[string]any) { m["kind"] = "video" }, "has kind 'video': allowed are 'image' and 'speech'"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := t.TempDir()
+			useWorkflows(t, root)
+			useStandInSpeech(t, root, c.edit)
+			_, err := All()
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error %v, want %q", err, c.want)
+			}
+		})
+	}
+}
+
+func TestKindUnknownIsRefused(t *testing.T) {
+	root := t.TempDir()
+	useWorkflows(t, root)
+	writeManifest(t, root, "odd", func(m map[string]any) { m["kind"] = 7 })
+	if _, err := All(); err == nil || !strings.Contains(err.Error(), "has kind 7") {
+		t.Fatalf("error %v", err)
+	}
+}

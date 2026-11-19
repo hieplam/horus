@@ -174,6 +174,7 @@ func TestComfyDirDefaultIsTheFolderOfPlatform(t *testing.T) {
 var settingVars = []string{
 	"HORUS_HOME", "HORUS_ROOT", "HORUS_WORKFLOWS_DIR", "HORUS_OUTPUT_DIR",
 	"HORUS_COMFYUI_URL", "HORUS_COMFYUI_DIR", "HORUS_AUTOSTART", "HORUS_GENERATE_TIMEOUT",
+	"HORUS_DATABASE_URL", "HORUS_WORKER_CONCURRENCY", "HORUS_JOB_RETENTION_DAYS",
 }
 
 // noClone makes this process a machine with only the program: a new home
@@ -431,6 +432,35 @@ func TestHelperListTheCopy(t *testing.T) {
 	for _, e := range entries {
 		if e.IsDir() && platform.IsFile(filepath.Join(dir, e.Name(), "manifest.json")) {
 			fmt.Println("LISTED", e.Name())
+		}
+	}
+}
+
+// TestWorkerSettings: the defaults of the worker settings, a value from the
+// environment, and a value that is not a whole number of 1 or more.
+func TestWorkerSettings(t *testing.T) {
+	sandbox(t, "HORUS_JOB_RETENTION_DAYS=7\n")
+	if got := DatabaseURL(); got != "" {
+		t.Errorf("DatabaseURL without the setting: %q", got)
+	}
+	if n, err := WorkerConcurrency(); err != nil || n != 1 {
+		t.Errorf("WorkerConcurrency default: %d, %v", n, err)
+	}
+	if n, err := JobRetentionDays(); err != nil || n != 7 {
+		t.Errorf("JobRetentionDays from .env: %d, %v", n, err)
+	}
+	t.Setenv("HORUS_DATABASE_URL", " postgres://horus@horus-db:5432/horus ")
+	t.Setenv("HORUS_WORKER_CONCURRENCY", "3")
+	if got := DatabaseURL(); got != "postgres://horus@horus-db:5432/horus" {
+		t.Errorf("DatabaseURL: %q", got)
+	}
+	if n, err := WorkerConcurrency(); err != nil || n != 3 {
+		t.Errorf("WorkerConcurrency: %d, %v", n, err)
+	}
+	for _, v := range []string{"0", "-2", "two"} {
+		t.Setenv("HORUS_WORKER_CONCURRENCY", v)
+		if _, err := WorkerConcurrency(); err == nil || !strings.Contains(err.Error(), "HORUS_WORKER_CONCURRENCY must be a whole number of 1 or more") {
+			t.Errorf("WorkerConcurrency %q: %v", v, err)
 		}
 	}
 }

@@ -226,3 +226,25 @@ func GenerateTimeout() (int, error) {
 	}
 	return n, nil
 }
+
+// DatabaseURL is HORUS_DATABASE_URL: the connection to horus-db. When it is
+// set, the job queue is on. Empty: the direct path.
+func DatabaseURL() string { return strings.TrimSpace(Get("HORUS_DATABASE_URL", "")) }
+
+// positive reads the setting name as a whole number of 1 or more.
+func positive(name, def string) (int, error) {
+	v := Get(name, def)
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s must be a whole number of 1 or more: %q", name, v)
+	}
+	return n, nil
+}
+
+// WorkerConcurrency is HORUS_WORKER_CONCURRENCY: the slots of the worker,
+// the count of jobs that it runs at the same time. Default 1.
+func WorkerConcurrency() (int, error) { return positive("HORUS_WORKER_CONCURRENCY", "1") }
+
+// JobRetentionDays is HORUS_JOB_RETENTION_DAYS: the age in days at which the
+// worker deletes an ended job and its events. Default 30.
+func JobRetentionDays() (int, error) { return positive("HORUS_JOB_RETENTION_DAYS", "30") }

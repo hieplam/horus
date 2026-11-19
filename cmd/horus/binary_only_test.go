@@ -77,7 +77,7 @@ func TestListWorkflowsOfTheMCPServerWithoutAClonePrintsTheBuiltInWorkflows(t *te
 	must(t, os.WriteFile(filepath.Join(home, "horus", ".env"), []byte("HORUS_COMFYUI_URL="+up.URL+"\n"), 0o600))
 	settings.Reset()
 
-	cs := connect(t, mcpserver.New(newImages(""), newSetup(cli.SetupPlace{}, seams{})), nil)
+	cs := connect(t, mcpserver.New(newImages(""), newSetup(cli.SetupPlace{}, seams{}), nil), nil)
 	env := envelopeOf(t, callTool(t, cs, "list_workflows", map[string]any{}))
 	r, _ := env["result"].(map[string]any)
 	if env["ok"] != true || r == nil {

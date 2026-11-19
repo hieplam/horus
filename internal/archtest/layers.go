@@ -24,6 +24,7 @@ var layers = map[string]string{
 	"internal/doctor":                  service,
 	"internal/devtools":                service,
 	"internal/jobs":                    service,
+	"internal/speak":                   service,
 	"internal/comfy":                   adapter,
 	"internal/download":                adapter,
 	"internal/modelfiles":              adapter,
@@ -35,6 +36,7 @@ var layers = map[string]string{
 	"internal/jobdata":                 base,
 	"internal/settings":                base,
 	"internal/platform":                base,
+	"internal/speechsetup":             base,
 	"internal/version":                 base,
 	"workflows":                        base, // the built-in workflows (go:embed)
 	"internal/archtest":                test,

@@ -18,6 +18,9 @@ import (
 	"github.com/hieplam/horus/internal/modelfiles"
 	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/provision"
+	"github.com/hieplam/horus/internal/speak"
+	"github.com/hieplam/horus/internal/speechsetup"
+	"github.com/hieplam/horus/internal/speechworker"
 )
 
 // newImages makes the image service on the ComfyUI adapter and the backend.
@@ -156,6 +159,39 @@ func (d downloader) Download(ctx context.Context, f provision.Fetch, out io.Writ
 	}
 	return res.Skipped, err
 }
+
+// newSpeech makes the speak service on the speech worker adapter and the
+// programs of this machine. Each speech worker that it starts ends when life
+// ends. The error output of a worker goes to the error output of this
+// process, so the log of the MCP client has it.
+func newSpeech(life context.Context) *speak.Service {
+	return speak.New(func(p speechsetup.Place) speak.Worker {
+		return speechGlue{speechworker.New(life, speechworker.Config{Python: p.Python, Script: p.Script, Models: p.Models, Log: os.Stderr})}
+	}, platform.Programs{})
+}
+
+// speechGlue gives internal/speak the adapter internal/speechworker. The
+// service cannot name the types of an adapter, so this glue copies the request
+// in, and the answer and the kind of a failure out.
+type speechGlue struct{ w *speechworker.Worker }
+
+func (g speechGlue) Speak(ctx context.Context, t speak.Text) (speak.Speech, error) {
+	sp, err := g.w.Speak(ctx, speechworker.Text{Text: t.Text, Voice: t.Voice, Out: t.Out, Format: t.Format})
+	var we *speechworker.Error
+	switch {
+	case errors.As(err, &we):
+		return speak.Speech{}, &speak.WorkerError{Stopped: errors.Is(err, speechworker.ErrStopped), Message: we.Message, Output: we.Stderr}
+	case errors.Is(err, speechworker.ErrClosed):
+		return speak.Speech{}, &speak.WorkerError{Stopped: true, Message: err.Error()}
+	case err != nil:
+		return speak.Speech{}, err
+	}
+	return speak.Speech{Path: sp.Path, Bytes: sp.Bytes, Format: sp.Format, AudioSeconds: sp.AudioSeconds, Transcript: sp.Transcript, Started: sp.Started}, nil
+}
+
+func (g speechGlue) Running() bool { return g.w.PID() != 0 }
+
+func (g speechGlue) Close() error { return g.w.Close() }
 
 // doctorAt is the doctor service, and the setup service for the model
 // check, for the flags of horus doctor. The model check reads the address of

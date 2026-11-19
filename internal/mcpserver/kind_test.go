@@ -46,7 +46,7 @@ func useKindWorkflows(t *testing.T) {
 
 func TestKindIsInListWorkflows(t *testing.T) {
 	useKindWorkflows(t)
-	cs := connect(t, New(&fakeImages{}, noFilesSetup{}), nil)
+	cs := connect(t, New(&fakeImages{}, noFilesSetup{}, nil), nil)
 	res, _ := envelopeOf(t, callTool(t, cs, "list_workflows", map[string]any{}))["result"].(map[string]any)
 	kinds := map[string]any{}
 	outputs := map[string]any{}
@@ -65,7 +65,7 @@ func TestKindIsInListWorkflows(t *testing.T) {
 
 func TestKindSpeechDescribeShowsTheSpeechFields(t *testing.T) {
 	useKindWorkflows(t)
-	cs := connect(t, New(&fakeImages{}, noFilesSetup{}), nil)
+	cs := connect(t, New(&fakeImages{}, noFilesSetup{}, nil), nil)
 	env := envelopeOf(t, callTool(t, cs, "describe_workflow", map[string]any{"workflow": "stand-in-speech"}))
 	r, _ := env["result"].(map[string]any)
 	if env["ok"] != true || r == nil {
@@ -89,7 +89,7 @@ func TestKindSpeechDescribeShowsTheSpeechFields(t *testing.T) {
 
 func TestKindImageDescribeHasNoSpeechFields(t *testing.T) {
 	useKindWorkflows(t)
-	cs := connect(t, New(&fakeImages{}, noFilesSetup{}), nil)
+	cs := connect(t, New(&fakeImages{}, noFilesSetup{}, nil), nil)
 	r, _ := envelopeOf(t, callTool(t, cs, "describe_workflow", map[string]any{"workflow": "it-illustration"}))["result"].(map[string]any)
 	if r["kind"] != "image" {
 		t.Errorf("kind %v", r["kind"])

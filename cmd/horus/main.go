@@ -99,10 +99,12 @@ var commands = map[string]command{
 	"errors": {"print the table of error codes (-json for JSON)", func(args []string) int {
 		return cli.Errors(args, os.Stdout, os.Stderr)
 	}},
-	"mcp": {"serve the 5 horus tools over stdio (MCP)", func(args []string) int {
+	"mcp": {"serve the 6 horus tools over stdio (MCP)", func(args []string) int {
 		return withSignal(func(ctx context.Context) int {
 			return cli.MCP(ctx, args, os.Stderr, func(ctx context.Context) error {
-				return mcpserver.Run(ctx, newImages(""), newSetup(cli.SetupPlace{}, seams{}))
+				speech := newSpeech(ctx)
+				defer speech.Close() // the speech worker ends with horus mcp
+				return mcpserver.Run(ctx, newImages(""), newSetup(cli.SetupPlace{}, seams{}), speech)
 			})
 		})
 	}},

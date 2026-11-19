@@ -58,7 +58,7 @@ func TestGenerateStartsComfyUIThroughTheComfyCLIBackend(t *testing.T) {
 	fake.Proxy(t, f.URL())
 
 	svc := imagesFor("", seams{goos: "darwin"})
-	cs := connect(t, mcpserver.New(svc, nil), nil)
+	cs := connect(t, mcpserver.New(svc, nil, nil), nil)
 	out := filepath.Join(tmp, "images", "a.png")
 	res := callTool(t, cs, "generate_image", map[string]any{"workflow": "it-illustration", "subject": testSubject, "out_path": out})
 	env := envelopeOf(t, res)

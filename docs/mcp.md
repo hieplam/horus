@@ -1,8 +1,8 @@
 # horus as an MCP server
 
-The horus MCP server lets any AI agent on this PC make an image with a named
-workflow. The agent calls five tools. It does not need to know ComfyUI, the
-model files, the graph or the GPU.
+The horus MCP server lets any AI agent on this PC make an image or speech with
+a named workflow. The agent calls six tools. It does not need to know ComfyUI,
+the model files, the graph, the GPU, the speech model, Python or ffmpeg.
 
 Terms:
 
@@ -20,17 +20,20 @@ the other way. The spec
 [`docs/specs/2026-11-11-restructure.md`](specs/2026-11-11-restructure.md) gives
 the full rules, and `go test ./internal/archtest` enforces them.
 
-Five parts take part in the diagrams below.
+These parts take part in the diagrams below.
 
 - The **agent** calls the tools.
 - **`horus mcp`** is the handler. It answers the agent.
 - The **provision service** (`internal/provision`) sets up the model files of a workflow. It lists, checks, installs and removes them.
 - The **generate service** (`internal/generate`) makes one image.
 - **ComfyUI** is the program that makes the picture.
+- The **speak service** (`internal/speak`) makes one speech file.
+- The **speech worker** is the Python process that holds the speech model and the speech recognition model in memory ([ADR 0022](adr/0022-speech-runs-in-a-python-speech-worker.md)). `horus mcp` starts it with the Python of the speech venv.
 
 The adapters are `internal/modelfiles` (the model files on the disk),
 `internal/download` (the download from huggingface.co), `internal/comfy` (the
-ComfyUI client) and `internal/backend` (the install of ComfyUI).
+ComfyUI client), `internal/backend` (the install of ComfyUI) and
+`internal/speechworker` (the speech worker process and its JSON lines).
 
 Each diagram below is one thing that an agent asks for, in order from top to
 bottom. A line is an action, named by what it does.
@@ -171,6 +174,49 @@ them, the call returns `WORKFLOW_NOT_INSTALLED`, which tells the agent to run
 `install_workflow` first. The backend starts ComfyUI so that it keeps running
 after `horus mcp` ends. `horus stop-comfyui` stops it.
 
+### 4. The agent makes speech (`generate_speech`)
+
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant S as horus mcp
+  participant K as speak service
+  participant D as Speech folder on disk
+  participant W as speech worker (Python)
+  participant F as Output folder
+  A->>S: call generate_speech with a text and a voice
+  S->>K: make one speech file
+  K->>K: check the text, the [tag] markers, the voice and out_path against manifest.json
+  K->>D: are the Python of the speech venv, ffmpeg, ffprobe and each model file there?
+  alt a part is missing
+    K-->>S: WORKFLOW_NOT_INSTALLED, details.missing names the parts
+    S-->>A: return the error
+  else each part is there
+    opt the first call of this horus mcp
+      K->>W: write worker.py, then start it with the Python of the speech venv
+      W->>D: load the speech model and the speech recognition model one time
+      W-->>K: the first line: ready
+    end
+    K->>W: one JSON line: speak the text with the voice into out_path
+    S-->>A: send a progress message every 10 s
+    W->>F: write the audio file at -18 LUFS (ffmpeg)
+    W->>W: read the file back with the speech recognition model: the transcript
+    W-->>K: one JSON line: the file, its length and the transcript
+    K-->>S: return the path and the transcript
+    S-->>A: return the result
+  end
+  Note over S,W: The worker stays for the next call. It ends when horus mcp ends.
+```
+
+The speak service never calls the provision service. A speech file needs the
+speech setup to be there already. If a part is missing, the call returns
+`WORKFLOW_NOT_INSTALLED`, and its `next_step` tells the agent to run
+`install_workflow` first. One worker makes one file at a time, so a second call
+waits. If the worker stops or answers with an error, the call returns
+`GENERATION_FAILED`, and the next call starts a new worker. A call that runs
+longer than `HORUS_GENERATE_TIMEOUT` returns `GENERATION_TIMEOUT`, and horus
+stops the worker.
+
 ## Install and connect
 
 Install the program with the install line of the [README](../README.md#install-horus) or of [step 0 of `setup.md`](setup.md#step-0-install-the-horus-program). Then run:
@@ -210,8 +256,9 @@ it starts ComfyUI, and `horus stop-comfyui` reads it.
 | `install_workflow(workflow, accept_license=false, accept_setup=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license and the size. On a machine without ComfyUI it first runs the setup plan: without `accept_setup=true` it returns `SETUP_CONFIRMATION_REQUIRED` with the steps. | Yes: downloads GB, installs ComfyUI and a system package |
 | `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another workflow lists is kept unless `remove_shared=true`. | Yes: deletes files |
 | `generate_image(workflow, subject, out_path?, seed?, width?, height?, overwrite=false)` | Makes one PNG and waits until it is on disk. Returns the absolute path and the seed. | Writes one PNG |
+| `generate_speech(workflow, text, voice?, out_path?, overwrite=false)` | Makes one audio file and waits until it is on disk. Returns the absolute path and the transcript. | Writes one audio file |
 
-`generate_image` accepts a workflow of the kind `image` only. With a workflow of the kind `speech` it answers `INVALID_ARGUMENT`, and `next_step` names `generate_speech`.
+`generate_image` accepts a workflow of the kind `image` only. With a workflow of the kind `speech` it answers `INVALID_ARGUMENT`, and `next_step` names `generate_speech`. `generate_speech` accepts a workflow of the kind `speech` only. With a workflow of the kind `image` it answers `INVALID_ARGUMENT`, and `next_step` names `generate_image`.
 
 The subject is the whole prompt. The server sends it to the model exactly as
 written and adds nothing. The caller owns the look: style, palette, light,
@@ -223,6 +270,43 @@ refuses a `manifest.json` that has `theme` or `caption`, and
 `HORUS_OUTPUT_DIR` (default `.scratch/outputs/<workflow>/` in this repo, or
 `<user folder>/outputs/<workflow>/` without a repo). The
 server never replaces a file unless `overwrite=true`.
+
+### `generate_speech`
+
+The caller gives only a text and a voice. No argument names the speech model,
+Python, ffmpeg or the loudness ([ADR 0023](adr/0023-a-workflow-has-a-kind-and-each-kind-has-its-tool.md)).
+
+| Argument | What it is |
+|---|---|
+| `workflow` | A workflow of the kind `speech` from `list_workflows`. |
+| `text` | The text to speak. horus sends it to the speech worker as written: it adds no words and removes no words. Its length must be in `text.min_chars` to `text.max_chars` of `describe_workflow`. A `[tag]` in the text must be one of `tags` of `describe_workflow`, because the speech model reads any other `[tag]` aloud. |
+| `voice` | A name from `voices` of `describe_workflow`. Default: `default_voice`. |
+| `out_path` | An absolute path that ends with `.wav` or `.mp3`. The end gives the format. Default: a new `.wav` file in `HORUS_OUTPUT_DIR/<workflow>/`. |
+| `overwrite` | Replace `out_path` when it exists. Default: `false`. |
+
+The result has `workflow`, `voice`, `path`, `bytes`, `format`, `audio_seconds`,
+`transcript`, `seconds` and `started_worker`. `.wav` is 48 kHz, 16-bit, mono.
+`.mp3` is 44.1 kHz, 128 kbps, mono. The loudness of each file is -18 LUFS
+(Loudness Units relative to Full Scale), and the caller cannot change it.
+
+The `transcript` is the words that the speech recognition model reads from the
+audio file. An agent cannot listen to the file, so it compares the transcript
+with its text and decides. horus does not compare them
+([ADR 0024](adr/0024-generate-speech-returns-a-transcript.md)).
+`started_worker` is `true` when the call had to start the speech worker first:
+the first call of a `horus mcp` process also loads the models (5 to 20 s).
+
+Before the speech worker runs, the speak service checks the speech setup in the
+speech folder (`HORUS_SPEECH_DIR`, default `<user folder>/speech`,
+[ADR 0032](adr/0032-the-speech-setup-is-one-folder-in-the-user-folder.md)):
+
+- `venv/`: the speech venv. Its Python runs the speech worker.
+- `models/`: the model files of `models.json`, each in its `folder`, with its byte size.
+- `worker.py`: the file of the speech worker. horus writes it before each start.
+- The programs `ffmpeg` and `ffprobe` on the PATH.
+
+A part that is not there gives `WORKFLOW_NOT_INSTALLED`, and `details.missing`
+names each missing part.
 
 ## The envelope
 
@@ -257,7 +341,7 @@ The single source is the Go package `internal/herr`. It has 22 codes. `horus err
 |---|---|---|---|
 | `INVALID_ARGUMENT` | no | caller | Fix the argument named in `details.field`, then call again. `details` gives the limits. |
 | `WORKFLOW_NOT_FOUND` | no | caller | Call `list_workflows` and use one of the names in `details.known`. |
-| `WORKFLOW_NOT_INSTALLED` | no | caller | Call `install_workflow` for this workflow, then call `generate_image` again. |
+| `WORKFLOW_NOT_INSTALLED` | no | caller | Call `install_workflow` for this workflow, then call `generate_image` (or `generate_speech`) again. For speech, `details.missing` names the missing parts: `speech venv`, `ffmpeg`, `ffprobe` or a model file. |
 | `LICENSE_CONFIRMATION_REQUIRED` | no | human | Show the license and the download size to the user. When the user agrees, call `install_workflow` again with `accept_license=true`. |
 | `SETUP_CONFIRMATION_REQUIRED` | no | human | Show each step in `details.steps` to the user. When the user agrees, call `install_workflow` again with `accept_setup=true`. |
 | `CONFIRMATION_REQUIRED` | no | human | Show the plan in `details.files` to the user. When the user agrees, call again with `confirm=true`. |
@@ -273,8 +357,8 @@ The single source is the Go package `internal/herr`. It has 22 codes. `horus err
 | `FILE_IN_USE` | yes | human | Windows does not let horus delete a model file that ComfyUI has open. The user stops ComfyUI, then the caller calls again. |
 | `DOWNLOAD_FAILED` | yes | retry | Call `install_workflow` again. It resumes the partial download. |
 | `OUT_OF_MEMORY` | yes | caller | The GPU ran out of memory. Call again. If it fails again, use a smaller width and height. |
-| `GENERATION_FAILED` | yes | retry | Call again with the same arguments. If it fails twice, report `details.backend_message` to the user. Some causes are not retryable; then `retryable` is `false` and `next_step` says why. |
-| `GENERATION_TIMEOUT` | yes | retry | The job ran longer than `HORUS_GENERATE_TIMEOUT` (default 1800 s). horus removed it from the ComfyUI queue. Call again later. |
+| `GENERATION_FAILED` | yes | retry | Call again with the same arguments. If it fails twice, report `details.backend_message` to the user. Some causes are not retryable; then `retryable` is `false` and `next_step` says why. For speech, the speech worker stopped or answered with an error: report `details.worker_message`. The next call starts a new speech worker. |
+| `GENERATION_TIMEOUT` | yes | retry | The job ran longer than `HORUS_GENERATE_TIMEOUT` (default 1800 s). horus removed it from the ComfyUI queue, or stopped the speech worker. Call again later. |
 | `CANCELLED` | yes | retry | Someone cancelled the job in ComfyUI. Call again if the image is still needed. |
 | `INTERNAL` | no | human | A defect in horus or in a workflow. Report `details` to the user. |
 
@@ -282,14 +366,16 @@ The single source is the Go package `internal/herr`. It has 22 codes. `horus err
 
 `generate_image` is a direct call: it returns when the PNG is on disk. One
 image takes 3 to 8 minutes on a 6 GB GPU, and longer when ComfyUI must start
-and load 11 GB of model files first. `install_workflow` can take an hour.
+and load 11 GB of model files first. `generate_speech` is a direct call too: a
+sentence takes 5 to 9 s on the CPU, a text of 4,000 characters about 4.5
+minutes. `install_workflow` can take an hour.
 
 What the harness does with a long call (Claude Code docs, read 2026-11-06,
 https://code.claude.com/docs/en/mcp.md):
 
 - A call in the main conversation that runs longer than 2 minutes moves to a background task. The agent gets a task id at once, continues with other work, and gets the result as a notification. `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS` changes the 2 minutes.
 - The default tool-call time limit is about 28 hours (`MCP_TOOL_TIMEOUT`).
-- A stdio call that sends no result and no progress for 30 minutes is stopped (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`). horus sends a progress notification every 10 s while it waits for an image, and every 5 s while it downloads. A progress notification needs a `progressToken` from the caller.
+- A stdio call that sends no result and no progress for 30 minutes is stopped (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`). horus sends a progress notification every 10 s while it waits for an image or for a speech file, and every 5 s while it downloads. A progress notification needs a `progressToken` from the caller.
 - Measured 2026-11-10: headless Claude Code 2.1.322 (`claude -p --mcp-config <file> --strict-mcp-config`) sends a `progressToken` in `tools/call`. The server log shows `call generate_image progress_token=2`, then one `progress` line every 10 s for 211 s. An older measurement (2026-11-06, Claude Code 2.1.318) showed `progress_token=None`, so update an older Claude Code. An interactive session is not measured.
 - Not verified: that a progress notification resets the 30-minute idle timer of 2.1.322. The docs say only that a call stops after 30 minutes with "no response and no progress notification". No `install_workflow` run of more than 30 minutes is measured. So for a long install, keep `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0`, or run `horus workflow install <name>` once by hand.
 - In `claude -p` (headless), a backgrounded call loses its result when the run ends. A headless caller must wait for the call.
@@ -343,9 +429,10 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | `HORUS_HOME` | `<home>/horus` | The user folder: `.env` and `outputs/` without a repo root, and the copy of the built-in workflows. Only the environment sets it, not `.env`. |
 | `HORUS_COMFYUI_URL` | `http://127.0.0.1:8188` | The ComfyUI address. `horus doctor`, `horus start-comfyui` and `horus stop-comfyui` also use it when they get no `-server-url`. |
 | `HORUS_COMFYUI_DIR` | Windows: `%USERPROFILE%\ComfyUI_windows_portable`. macOS: `~/horus`. | The install folder of ComfyUI. ComfyUI itself is in its subfolder `ComfyUI`. |
-| `HORUS_OUTPUT_DIR` | `.scratch/outputs` in this repo, else `<user folder>/outputs` | Where a PNG goes when the call has no `out_path`. |
+| `HORUS_OUTPUT_DIR` | `.scratch/outputs` in this repo, else `<user folder>/outputs` | Where a PNG or an audio file goes when the call has no `out_path`. |
 | `HORUS_AUTOSTART` | `1` | `0`: never start ComfyUI; return `BACKEND_UNAVAILABLE`. |
-| `HORUS_GENERATE_TIMEOUT` | `1800` | Seconds before horus cancels a job and returns `GENERATION_TIMEOUT`. |
+| `HORUS_GENERATE_TIMEOUT` | `1800` | Seconds before horus cancels a job, or stops the speech worker, and returns `GENERATION_TIMEOUT`. |
+| `HORUS_SPEECH_DIR` | `<user folder>/speech` | The speech folder: the speech venv (`venv/`), the model files of the speech workflows (`models/`) and the file of the speech worker (`worker.py`). |
 | `HORUS_WORKFLOWS_DIR` | `workflows` in this repo, else the copy of the built-in workflows | Another workflows folder (tests use it). It replaces the built-in workflows. `horus workflow`, `horus setup` and `horus doctor -workflow` also use it. |
 | `HORUS_LOG_FILE` | none | Also write the server log to this file. Each call logs its tool name and its `progressToken`. |
 
@@ -356,8 +443,10 @@ process, so the token is in the memory of `horus mcp` while an install runs. The
 
 ## Test the server
 
-The test tools are Python programs for developers. `horus` itself needs no Python.
-Make a Python virtual environment (venv) with Python 3.12 and the MCP client, one time:
+The test tools are Python programs for developers. `horus` itself needs no
+Python for an image. The contract test also needs Go: it builds the fake speech
+worker. Make a Python virtual environment (venv) with Python 3.12 and the MCP
+client, one time:
 
 ```
 py -3.12 -m venv .scratch\test-venv
@@ -386,10 +475,25 @@ name a closed port, so no real package manager runs and no download leaves the
 machine. These checks prove the setup consent: no change on disk before
 `accept_setup=true`, the order of the two consents, and the package step with
 the arguments of the spec.
-It ends with `contract: N of M passed` and exits 0 only when all pass.
-The total M is 38 server checks plus 2 for each shipped workflow. The second
-check of a workflow depends on its kind: an image workflow has no style words in
-its graph, and a speech workflow has no graph, no subject and no output.
+
+The speech checks use the fake speech worker
+(`internal/speechworker/fakeworker`). The test builds it with `go build` as the
+Python of a speech venv in its temporary folder, and puts a fake `ffmpeg` and
+`ffprobe` on the PATH of the server. The fake worker loads no model. It writes
+a short WAV file and answers with the text as the transcript. The checks read
+the schema of `generate_speech`, make two files on one worker, and give one
+check to each failure of the table "Failures" of the spec
+[`2026-11-20-text-to-speech.md`](specs/2026-11-20-text-to-speech.md). For the
+failure of the worker, the test starts the server two more times, with the
+fake worker in the modes `die` and `error`.
+
+It ends with `contract: N of M passed` and exits 0 only when all pass. The total
+M is 38 server checks of the image tools and the kind, plus 12 speech checks,
+plus 2 for each shipped workflow. The second check of a workflow depends on its
+kind: an image workflow has no style words in its graph, and a speech workflow
+has no graph, no subject and no output. `--report <file>` also writes each
+check, and the answers of the server to the speech checks, as JSON. The goal
+suite `goals/2026-11-20-text-to-speech` reads that file.
 
 ### The peak tool
 

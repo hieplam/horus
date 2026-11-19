@@ -63,3 +63,4 @@ record. You do not need to remember it:
 | [0029](0029-horus-runs-as-a-stack-of-three-containers.md) | horus runs as a Docker stack of 3 containers next to the ComfyUI of the host, and serves only when the 4 are up | Accepted |
 | [0030](0030-horus-api-serves-mcp-over-stdio-and-http.md) | `horus-api` serves MCP over stdio and over HTTP | Accepted |
 | [0031](0031-the-store-writes-each-event-and-the-service-sends-the-signal.md) | The job store writes each event row, and the service sends the signal after the move | Accepted |
+| [0032](0032-the-speech-setup-is-one-folder-in-the-user-folder.md) | The speech setup is one folder in the user folder | Accepted |

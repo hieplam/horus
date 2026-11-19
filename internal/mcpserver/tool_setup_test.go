@@ -159,7 +159,7 @@ func TestInstallReportsProgressAndACancelStopsTheDownload(t *testing.T) {
 	dl := &slowDownloader{part: 2_500_000, ready: make(chan string, 1)}
 	setup := provision.New(diskFiles{models}, dl, downComfy{}, diskFiles{models}, "")
 	got := make(chan string, 100)
-	cs := connect(t, New(&fakeImages{}, setup), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
+	cs := connect(t, New(&fakeImages{}, setup, nil), &mcp.ClientOptions{ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
 		select {
 		case got <- fmt.Sprintf("%v/%v %s", r.Params.Progress, r.Params.Total, r.Params.Message):
 		default:
@@ -340,7 +340,7 @@ func TestUninstallPlanAndRemoveOnTheService(t *testing.T) {
 		paths = append(paths, p)
 	}
 	images := &fakeImages{}
-	cs := connect(t, New(images, provision.New(diskFiles{models}, nil, downComfy{}, diskFiles{models}, "")), nil)
+	cs := connect(t, New(images, provision.New(diskFiles{models}, nil, downComfy{}, diskFiles{models}, ""), nil), nil)
 	env := envelopeOf(t, callTool(t, cs, "uninstall_workflow", map[string]any{"workflow": "it-illustration"}))
 	if e, _ := env["error"].(map[string]any); e["code"] != "CONFIRMATION_REQUIRED" || images.frees() != 0 {
 		t.Fatalf("plan: %v, %d frees", env, images.frees())
@@ -396,7 +396,7 @@ func TestBothToolsGiveTheSameInstallState(t *testing.T) {
 		present int
 		want    string
 	}{{0, "not_installed"}, {1, "partially_installed"}, {3, "installed"}} {
-		cs := connect(t, New(&fakeImages{}, stateSetup{present: c.present}), nil)
+		cs := connect(t, New(&fakeImages{}, stateSetup{present: c.present}, nil), nil)
 		list, _ := envelopeOf(t, callTool(t, cs, "list_workflows", map[string]any{}))["result"].(map[string]any)
 		listed := ""
 		flows, _ := list["workflows"].([]any)

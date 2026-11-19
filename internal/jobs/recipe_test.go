@@ -91,23 +91,23 @@ var vectors = []vector{
 		name: "out_path on Windows",
 		in: with(func(r *Request) {
 			r.Seed = u64(42)
-			r.OutPath = `C:\Users\agent\Pictures\..\Shared/Blog\Header.PNG`
+			r.OutPath = `C:\Users\Public\Pictures\..\Shared/Blog\Header.PNG`
 			r.PathStyle = PathWindows
 		}),
-		text: `{"v":1,"tool":"generate_image","workflow":"it-illustration","workflow_rev":"dd1d52408eb4e198491c6226f216f36cff1d362059f7dfcc314e0b6aa16a3c79","subject":"A flat vector illustration: a message queue & 3 laptops","seed":"42","width":1024,"height":1024,"out_path":"c:\\users\\agent\\shared\\blog\\header.png","overwrite":false}`,
-		sha:  "74ade219be9f5bdb5d5e512c085203ed0ae7e7fc74cb1bdc0ba6390c4f94a24d",
-		key:  "f1:74ade219be9f5bdb5d5e512c085203ed0ae7e7fc74cb1bdc0ba6390c4f94a24d",
+		text: `{"v":1,"tool":"generate_image","workflow":"it-illustration","workflow_rev":"dd1d52408eb4e198491c6226f216f36cff1d362059f7dfcc314e0b6aa16a3c79","subject":"A flat vector illustration: a message queue & 3 laptops","seed":"42","width":1024,"height":1024,"out_path":"c:\\users\\public\\shared\\blog\\header.png","overwrite":false}`,
+		sha:  "6c756c719f0942eacce2158902fee45397abc19e42b5ee2acacacff3133377a4",
+		key:  "f1:6c756c719f0942eacce2158902fee45397abc19e42b5ee2acacacff3133377a4",
 	},
 	{
 		name: "out_path on macOS",
 		in: with(func(r *Request) {
 			r.Seed = u64(42)
-			r.OutPath = `/Users/agent/Shared//Blog/./Header.PNG`
+			r.OutPath = `/Volumes/Shared//Blog/./Header.PNG`
 			r.PathStyle = PathMacOS
 		}),
-		text: `{"v":1,"tool":"generate_image","workflow":"it-illustration","workflow_rev":"dd1d52408eb4e198491c6226f216f36cff1d362059f7dfcc314e0b6aa16a3c79","subject":"A flat vector illustration: a message queue & 3 laptops","seed":"42","width":1024,"height":1024,"out_path":"/users/agent/shared/blog/header.png","overwrite":false}`,
-		sha:  "d3f11a9f1c7ae7b62667cdcc82eed80bf65ecf190b41bf14821f9c683f26268a",
-		key:  "f1:d3f11a9f1c7ae7b62667cdcc82eed80bf65ecf190b41bf14821f9c683f26268a",
+		text: `{"v":1,"tool":"generate_image","workflow":"it-illustration","workflow_rev":"dd1d52408eb4e198491c6226f216f36cff1d362059f7dfcc314e0b6aa16a3c79","subject":"A flat vector illustration: a message queue & 3 laptops","seed":"42","width":1024,"height":1024,"out_path":"/volumes/shared/blog/header.png","overwrite":false}`,
+		sha:  "3518d61ff986bd6a2bb397059c7f25130b0fb0d935446218c8d89d51e08381c6",
+		key:  "f1:3518d61ff986bd6a2bb397059c7f25130b0fb0d935446218c8d89d51e08381c6",
 	},
 	{
 		name: "out_path on Linux",
@@ -233,12 +233,12 @@ func TestCleanPath(t *testing.T) {
 		style PathStyle
 		want  string
 	}{
-		{`C:\Users\A\..\B\x.PNG`, PathWindows, `c:\users\b\x.png`},
-		{`c:/users//b/./x.png`, PathWindows, `c:\users\b\x.png`},
+		{`D:\Data\A\..\B\x.PNG`, PathWindows, `d:\data\b\x.png`},
+		{`d:/data//b/./x.png`, PathWindows, `d:\data\b\x.png`},
 		{`C:\..\x.png`, PathWindows, `c:\x.png`},
 		{`\\Server\Share\Out\..\x.png`, PathWindows, `\\server\share\x.png`},
-		{`/Users/A/../B/x.PNG`, PathMacOS, `/users/b/x.png`},
-		{`/home/A//B/./x.PNG`, PathLinux, `/home/A/B/x.PNG`},
+		{`/Volumes/A/../B/x.PNG`, PathMacOS, `/volumes/b/x.png`},
+		{`/srv/A//B/./x.PNG`, PathLinux, `/srv/A/B/x.PNG`},
 	} {
 		got, err := CleanPath(c.in, c.style)
 		if err != nil || got != c.want {

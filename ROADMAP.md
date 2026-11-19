@@ -42,11 +42,18 @@ An agent that needs an image does not read docs. It calls a tool.
 - Every result is one envelope with typed errors (`code`, `retryable`,
   `action_by`, `next_step`).
 
+## Next: the job queue
+
+[Epic #180](https://github.com/hieplam/horus/issues/180), spec
+[`2026-11-19-job-queue.md`](docs/specs/2026-11-19-job-queue.md). horus runs as
+a Docker stack of 3 containers next to the ComfyUI of the host: `horus-api`,
+`horus-worker` and `horus-db`. All agents share one queue and one worker, so
+ComfyUI never gets more jobs than the worker has slots. horus serves only when
+its 4 dependencies are up. Agents connect over stdio or over HTTP. A read-only
+page, the Horus UI, shows the queue.
+
 ## Later
 
-- **`horus serve` (Phase 5 of [issue #4](https://github.com/hieplam/horus/issues/4)).**
-  One long-lived horus server that several agents share. It waits because it needs
-  MCP tasks, and the Go MCP SDK v1.8.0 has no MCP tasks. See the next item.
 - **MCP tasks for long calls.** Claude Code moves a long MCP call to the
   background after 2 minutes, so a direct call works today. Claude Code also
   supports MCP tasks (protocol revision 2026-07-28): the server returns a task
@@ -54,6 +61,5 @@ An agent that needs an image does not read docs. It calls a tool.
   long installs. Not built: it needs an SDK and harnesses that speak that
   revision.
 - **`add_style(description)`**: run Flow 2 from the server and save the new workflow.
-- **A queue view**: which jobs of other agents wait on the same GPU.
 
 Ideas and pull requests are welcome.

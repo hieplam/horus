@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """Contract test of the horus MCP server. No GPU, no network, no real model files.
 
-    python tests/mcp_contract.py [--server-cmd <exe> ...]      (Python 3.12 with mcp==2.3.0)
+    python tests/mcp_contract.py [--server-cmd <exe> ...] [--report <file>]      (Python 3.12 with mcp==2.3.0, and Go)
 
 The test starts the server over stdio, like an agent harness does, and talks to
 it with the official MCP client. A fake ComfyUI (a small HTTP server in this
 process) answers the backend calls. A temporary folder holds a copy of the
-it-illustration workflow, tiny stand-in model files, and a second workflow
-whose files are absent.
+it-illustration workflow, tiny stand-in model files, a second workflow
+whose files are absent, and the stand-in speech workflow. The speech checks use
+the fake speech worker (internal/speechworker/fakeworker): the test builds it
+with `go build` as the Python of a sandbox speech venv, and puts a fake ffmpeg
+and ffprobe on the PATH of the server.
 
 It prints one PASS or FAIL line per check and "contract: N of M passed".
 Exit code 0 only when all checks pass. The default server command is
 `horus mcp`, with `horus` found on the PATH. The list of error codes comes from
-`<server program> errors -json`.
+`<server program> errors -json`. --report writes each check, and the answers of
+the server to the speech checks, as JSON (the goal suite reads it).
 """
 
 from __future__ import annotations
@@ -39,8 +43,15 @@ ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = json.loads((ROOT / "tests" / "fixtures" / "object_info.json").read_text(encoding="utf-8"))
 SUBJECT = ("On the left, a mint-green server box sends sun-yellow envelopes onto a lilac conveyor belt. "
            "On the right, a sky-blue server box takes them off the belt.")
-EXPECTED_TOOLS = {"list_workflows", "describe_workflow", "install_workflow", "uninstall_workflow", "generate_image"}
+EXPECTED_TOOLS = {"list_workflows", "describe_workflow", "install_workflow", "uninstall_workflow", "generate_image", "generate_speech"}
 ERROR_KEYS = {"code", "message", "retryable", "action_by", "next_step", "details"}
+# The speech checks. The stand-in speech workflow has the voices alpha and beta, the tags [laugh] and [sigh], and a text
+# of 2 to 500 characters. The fake speech worker answers with the text as the transcript.
+SPEECH = "stand-in-speech"
+SPEECH_TEXT = "Xin chào  [laugh] các bạn, hôm nay chúng ta nói về hàng đợi."
+SPEECH_ARGUMENTS = {"workflow", "text", "voice", "out_path", "overwrite"}
+# Words that an argument of generate_speech must not have: the caller gives only a text and a voice (goal row speech-hidden).
+SETUP_WORDS = ("engine", "python", "ffmpeg", "ffprobe", "loudness", "lufs", "venv", "vieneu", "whisper")
 
 
 def tiny_png() -> bytes:
@@ -156,20 +167,61 @@ def make_sandbox(tmp: Path, with_speech: bool = False) -> dict[str, str]:
     am["files"][0]["bytes"], am["files"][0]["sha256"] = 5_000_000_000, "0" * 64
     (absent / "models.json").write_text(json.dumps(am), encoding="utf-8")
     (tmp / "comfy" / "ComfyUI" / "main.py").write_text("# fake\n", encoding="utf-8")
+    out = {"workflows": str(wf_root), "comfy": str(tmp / "comfy"), "models": str(models_root)}
     if with_speech:
-        speech = wf_root / "stand-in-speech"
-        speech.mkdir()
-        shutil.copy(ROOT / "internal" / "catalog" / "testdata" / "stand-in-speech" / "manifest.json", speech / "manifest.json")
-    return {"workflows": str(wf_root), "comfy": str(tmp / "comfy"), "models": str(models_root)}
+        out.update(make_speech_setup(tmp, wf_root))
+    return out
+
+
+def make_speech_setup(tmp: Path, wf_root: Path) -> dict[str, str]:
+    """The stand-in speech workflow with one stand-in model file, and a speech folder (HORUS_SPEECH_DIR) with each
+    part of the speech setup: the venv whose Python is the fake speech worker, and the model file. A folder of fake
+    programs holds ffmpeg and ffprobe; the fake worker runs neither."""
+    speech = wf_root / SPEECH
+    speech.mkdir()
+    shutil.copy(ROOT / "internal" / "catalog" / "testdata" / "stand-in-speech" / "manifest.json", speech / "manifest.json")
+    data = b"stand-in speech model"
+    models = {"repo": "stand-in/speech", "license": "Apache-2.0", "files": [
+        {"role": "speech", "repo_path": "model.bin", "folder": "tts", "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}]}
+    (speech / "models.json").write_text(json.dumps(models, indent=1), encoding="utf-8")
+    speech_dir = tmp / "speech"
+    model = speech_dir / "models" / "tts" / "model.bin"
+    model.parent.mkdir(parents=True)
+    model.write_bytes(data)
+    python = speech_dir / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    python.parent.mkdir(parents=True)
+    try:
+        build = subprocess.run(["go", "build", "-o", str(python), "./internal/speechworker/fakeworker"], cwd=ROOT,
+                               capture_output=True, text=True, timeout=600)
+        if build.returncode != 0:
+            print(f"the fake speech worker did not build: {build.stdout}{build.stderr}", flush=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"the fake speech worker did not build (Go is needed): {exc}", flush=True)
+    bindir = tmp / "speech-bin"
+    bindir.mkdir()
+    for name in ("ffmpeg", "ffprobe"):
+        fake_program(bindir, name, tmp / f"{name}.args")
+    return {"speech_dir": str(speech_dir), "speech_model": str(model), "speech_bin": str(bindir)}
 
 
 class Checks:
     def __init__(self) -> None:
         self.rows: list[tuple[bool, str, str]] = []
+        self.keys: list[str] = []          # the key of each row; "" for a row without a key
+        self.answers: dict[str, list] = {}  # key -> the errors that the server gave in that check
+        self.speech_schema: dict = {}       # the input schema of generate_speech, as the server gave it
 
-    def check(self, name: str, ok: bool, detail: str = "") -> None:
+    def check(self, name: str, ok: bool, detail: str = "", key: str = "", answers: list | None = None) -> None:
         self.rows.append((bool(ok), name, detail))
+        self.keys.append(key)
+        if key and answers is not None:
+            self.answers[key] = answers
         print(f"{'PASS' if ok else 'FAIL'}  {name}{'' if ok else '  -- ' + detail}", flush=True)
+
+    def report(self, total: int) -> dict:
+        return {"total": total, "passed": sum(1 for ok, _, _ in self.rows if ok),
+                "checks": [{"key": k, "name": n, "ok": ok, "detail": d} for (ok, n, d), k in zip(self.rows, self.keys)],
+                "speech": {"input_schema": self.speech_schema, "answers": self.answers}}
 
 
 def env_of(res) -> dict:
@@ -197,10 +249,13 @@ async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Pa
         "HORUS_COMFYUI_URL": f"http://127.0.0.1:{port}", "HORUS_AUTOSTART": "0",
         "HORUS_OUTPUT_DIR": str(tmp / "out"), "HORUS_GENERATE_TIMEOUT": "12",
         "PYTHONUTF8": "1",
+        "HORUS_SPEECH_DIR": sandbox["speech_dir"], "HORUS_FAKE_SPEECH_RECORD": str(tmp / "speech-worker.record"),
+        "PATH": os.pathsep.join([sandbox["speech_bin"], os.environ.get("PATH", "")]),
     }
     params = StdioServerParameters(command=server_cmd[0], args=server_cmd[1:], env=env)
     with open(tmp / "server.stderr.log", "w", encoding="utf-8") as errlog:
         await session_checks(params, errlog, sandbox, tmp, c)
+    await speech_worker_checks(server_cmd, env, tmp, c)
     await setup_checks(server_cmd, env, tmp, c)
 
     neutral_checks(c)
@@ -244,7 +299,16 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
                     init.server_info.name == "horus" and bool(init.instructions), str(init.server_info))
 
             tools = {t.name: t for t in (await s.list_tools()).tools}
-            c.check("tools/list has exactly the 5 tools", set(tools) == EXPECTED_TOOLS, str(sorted(tools)))
+            c.check("tools/list has exactly the 6 tools", set(tools) == EXPECTED_TOOLS, str(sorted(tools)))
+            schema = tools["generate_speech"].input_schema if "generate_speech" in tools else {}
+            c.speech_schema = schema
+            props = schema.get("properties", {})
+            words = sorted({w for name, p in props.items() for w in SETUP_WORDS
+                            if w in f"{name} {p.get('title', '')} {p.get('description', '')}".lower()})
+            c.check("generate_speech takes only workflow, text, voice, out_path and overwrite; no argument names an engine, "
+                    "Python, ffmpeg or the loudness", set(props) == SPEECH_ARGUMENTS and not words
+                    and set(schema.get("required", [])) == {"workflow", "text"}, f"arguments {sorted(props)}, words {words}",
+                    key="speech-hidden")
             c.check("every tool has an outputSchema with ok, result, error",
                     all(t.output_schema and {"ok", "result", "error"} <= set(t.output_schema.get("properties", {}))
                         for t in tools.values()), "")
@@ -273,6 +337,7 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             c.check("generate_image with a speech workflow -> INVALID_ARGUMENT, action_by=caller, next_step names generate_speech",
                     e.get("code") == "INVALID_ARGUMENT" and e.get("action_by") == "caller" and "generate_speech" in e.get("next_step", "")
                     and e["details"].get("field") == "workflow" and len(Fake.prompts) == jobs, json.dumps(res)[:400])
+            await speech_checks(s, sandbox, tmp, c)
 
             raw = await s.call_tool("describe_workflow", {"workflow": "it-illustration"})
             res = env_of(raw)
@@ -401,6 +466,127 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
                     e.get("code") == "BACKEND_UNAVAILABLE" and e["action_by"] == "human", json.dumps(res)[:300])
 
 
+def speech_record(tmp: Path) -> list[str]:
+    """The lines of the record file of the fake speech worker: "start <args>" for each start, "<op> <id>" for each request."""
+    p = tmp / "speech-worker.record"
+    return p.read_text(encoding="utf-8").splitlines() if p.is_file() else []
+
+
+def refusal(errs: list[dict], code: str, action_by: str) -> bool:
+    """Each error has the code, the action_by, a next_step and the keys of an error."""
+    return bool(errs) and all(e.get("code") == code and e.get("action_by") == action_by and e.get("next_step")
+                              and set(e) == ERROR_KEYS for e in errs)
+
+
+async def speech_checks(s: ClientSession, sandbox: dict[str, str], tmp: Path, c: Checks) -> None:
+    """generate_speech with the fake speech worker: one file, a second call on the same worker, progress, and one check
+    for each failure of the spec table "Failures" that the server finds before the worker runs. Those calls must not
+    reach the worker: its record has no more speak requests after them."""
+    progress: list[str] = []
+
+    async def on_progress(p, total, message):
+        progress.append(message or "")
+
+    out = tmp / "speech-out" / "one.wav"
+    res = env_of(await s.call_tool("generate_speech", {"workflow": SPEECH, "text": SPEECH_TEXT, "voice": "beta", "out_path": str(out)},
+                                   progress_callback=on_progress))
+    r = res.get("result") or {}
+    data = out.read_bytes() if out.is_file() else b""
+    c.check("generate_speech writes the audio file at out_path and returns the transcript of the worker (the text as written)",
+            res["ok"] and Path(r.get("path", "")) == out and data[:4] == b"RIFF" and r.get("bytes") == len(data)
+            and r.get("transcript") == SPEECH_TEXT and r.get("voice") == "beta" and r.get("format") == "wav"
+            and r.get("audio_seconds", 0) > 0 and r.get("started_worker") is True, json.dumps(res)[:400], key="speech-file")
+    c.check("generate_speech sends progress notifications", len(progress) >= 1, str(progress), key="speech-progress")
+
+    res = env_of(await s.call_tool("generate_speech", {"workflow": SPEECH, "text": "Một câu nữa."}))
+    r = res.get("result") or {}
+    starts = [ln for ln in speech_record(tmp) if ln.startswith("start ")]
+    default = Path(r.get("path", ""))
+    c.check("a second call keeps the speech worker (started_worker false, 1 start), with the default voice and a new .wav in the output folder",
+            res["ok"] and r.get("started_worker") is False and len(starts) == 1 and r.get("voice") == "alpha"
+            and default.parent == tmp / "out" / SPEECH and default.suffix == ".wav" and default.is_file(),
+            json.dumps(res)[:300] + f" starts={starts}", key="speech-worker-kept")
+
+    def speaks() -> int:
+        return sum(1 for ln in speech_record(tmp) if ln.startswith("speak "))
+
+    async def errors(*calls: dict) -> list[dict]:
+        got = []
+        for args in calls:
+            got.append(env_of(await s.call_tool("generate_speech", {"workflow": SPEECH, "text": SPEECH_TEXT, **args})).get("error") or {})
+        return got
+
+    def details(errs: list[dict], key: str) -> list:
+        return [(e.get("details") or {}).get(key) for e in errs]
+
+    before = speaks()
+    errs = await errors({"text": ""}, {"text": "a"}, {"text": "x" * 501})
+    c.check("an empty, too short or too long text -> INVALID_ARGUMENT field=text with the limits, action_by=caller",
+            refusal(errs, "INVALID_ARGUMENT", "caller") and details(errs, "field") == ["text"] * 3
+            and details(errs, "min_chars") == [2] * 3 and details(errs, "max_chars") == [500] * 3 and speaks() == before,
+            json.dumps(errs)[:500], key="speech-failure:text-length", answers=errs)
+
+    errs = await errors({"text": "Xin chào [cough] các bạn [laugh]."})
+    c.check("a tag that the model does not perform -> INVALID_ARGUMENT with details.allowed_tags",
+            refusal(errs, "INVALID_ARGUMENT", "caller") and details(errs, "allowed_tags") == [["[laugh]", "[sigh]"]]
+            and details(errs, "found") == [["[cough]"]] and speaks() == before,
+            json.dumps(errs)[:400], key="speech-failure:text-tag", answers=errs)
+
+    errs = await errors({"voice": "gamma"})
+    c.check("a voice that the workflow does not have -> INVALID_ARGUMENT field=voice with details.known",
+            refusal(errs, "INVALID_ARGUMENT", "caller") and details(errs, "field") == ["voice"]
+            and details(errs, "known") == [["alpha", "beta"]] and speaks() == before,
+            json.dumps(errs)[:400], key="speech-failure:voice", answers=errs)
+
+    errs = await errors({"out_path": "speech-out/relative.wav"}, {"out_path": str(tmp / "speech-out" / "a.ogg")})
+    c.check("out_path not absolute, or not .wav or .mp3 -> INVALID_ARGUMENT field=out_path",
+            refusal(errs, "INVALID_ARGUMENT", "caller") and details(errs, "field") == ["out_path"] * 2 and speaks() == before,
+            json.dumps(errs)[:400], key="speech-failure:out-path", answers=errs)
+
+    errs = await errors({"workflow": "it-illustration"})
+    c.check("generate_speech with an image workflow -> INVALID_ARGUMENT, next_step names generate_image",
+            refusal(errs, "INVALID_ARGUMENT", "caller") and details(errs, "field") == ["workflow"]
+            and "generate_image" in errs[0].get("next_step", "") and speaks() == before,
+            json.dumps(errs)[:400], key="speech-failure:kind", answers=errs)
+
+    errs = await errors({"out_path": str(out)})
+    c.check("an existing out_path without overwrite -> OUTPUT_EXISTS",
+            refusal(errs, "OUTPUT_EXISTS", "caller") and details(errs, "path") == [str(out)] and speaks() == before,
+            json.dumps(errs)[:400], key="speech-failure:output-exists", answers=errs)
+
+    model = Path(sandbox["speech_model"])
+    hidden = model.with_name(model.name + ".away")
+    model.rename(hidden)
+    try:
+        errs = await errors({})
+    finally:
+        hidden.rename(model)
+    c.check("a missing part of the speech setup (a model file) -> WORKFLOW_NOT_INSTALLED naming it, next_step names install_workflow",
+            refusal(errs, "WORKFLOW_NOT_INSTALLED", "caller") and "model.bin" in (details(errs, "missing")[0] or [])
+            and "install_workflow" in errs[0].get("next_step", "") and speaks() == before,
+            json.dumps(errs)[:400], key="speech-failure:not-installed", answers=errs)
+
+
+async def speech_worker_checks(server_cmd: list[str], base_env: dict[str, str], tmp: Path, c: Checks) -> None:
+    """The failure "the speech worker stops or reports an error while it makes the file": one server for each mode of
+    the fake speech worker (die: the process ends in the request; error: it answers ok=false)."""
+    errs, left = [], []
+    for mode in ("die", "error"):
+        params = StdioServerParameters(command=server_cmd[0], args=server_cmd[1:], env={**base_env, "HORUS_FAKE_SPEECH": mode})
+        out = tmp / "speech-out" / f"{mode}.wav"
+        with open(tmp / f"server-speech-{mode}.stderr.log", "w", encoding="utf-8") as errlog:
+            async with stdio_client(params, errlog=errlog) as (read, write):
+                async with ClientSession(read, write) as s:
+                    await s.initialize()
+                    res = env_of(await s.call_tool("generate_speech", {"workflow": SPEECH, "text": SPEECH_TEXT, "out_path": str(out)}))
+        errs.append(res.get("error") or {})
+        left.append(out.exists())
+    c.check("a speech worker that stops or reports an error -> GENERATION_FAILED, retryable, action_by=retry, with details.worker_message",
+            refusal(errs, "GENERATION_FAILED", "retry") and all(e.get("retryable") is True and "generate_speech" in e.get("next_step", "")
+                                                               and (e.get("details") or {}).get("worker_message") for e in errs)
+            and not any(left), json.dumps(errs)[:500] + f" files left={left}", key="speech-failure:worker-failed", answers=errs)
+
+
 # The system package that the install of ComfyUI needs (spec docs/specs/2026-11-15-release-install.md,
 # "The setup plan"): its name, its package manager, the arguments of the manager and its program.
 PACKAGE = (("7-Zip", "winget", ["install", "--id", "7zip.7zip", "-e", "--accept-source-agreements", "--accept-package-agreements"], "7z")
@@ -513,6 +699,7 @@ def main() -> int:
     global HTTPD
     ap = argparse.ArgumentParser()
     ap.add_argument("--server-cmd", nargs="+", default=["horus", "mcp"])
+    ap.add_argument("--report", type=Path, help="write each check and the answers of the speech checks to this JSON file")
     a = ap.parse_args()
     sys.path.insert(0, str(ROOT))
     c = Checks()
@@ -530,7 +717,10 @@ def main() -> int:
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
     passed = sum(1 for ok, _, _ in c.rows if ok)
     shipped = sum(1 for d in (ROOT / "workflows").iterdir() if (d / "manifest.json").is_file())
-    total = 38 + 2 * shipped  # 38 server checks, plus 2 style-neutral checks for each shipped workflow
+    # 38 server checks of the image tools and the kind, 12 speech checks, plus 2 style-neutral checks for each shipped workflow
+    total = 38 + 12 + 2 * shipped
+    if a.report:
+        a.report.write_text(json.dumps(c.report(total), indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"contract: {passed} of {total} passed")
     return 0 if passed == total and len(c.rows) == total else 1
 

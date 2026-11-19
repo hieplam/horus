@@ -529,3 +529,19 @@ func isRegular(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.Mode().IsRegular()
 }
+
+// KindOfDir gives the kind of the workflow in the folder dir: the field "kind"
+// of its manifest.json, or KindImage when the file or the field is not there.
+func KindOfDir(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		return KindImage
+	}
+	var m struct {
+		Kind string `json:"kind"`
+	}
+	if json.Unmarshal(data, &m) != nil || m.Kind == "" {
+		return KindImage
+	}
+	return m.Kind
+}

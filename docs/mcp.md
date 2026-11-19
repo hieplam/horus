@@ -258,6 +258,8 @@ it starts ComfyUI, and `horus stop-comfyui` reads it.
 | `generate_image(workflow, subject, out_path?, seed?, width?, height?, overwrite=false)` | Makes one PNG and waits until it is on disk. Returns the absolute path and the seed. | Writes one PNG |
 | `generate_speech(workflow, text, voice?, out_path?, overwrite=false)` | Makes one audio file and waits until it is on disk. Returns the absolute path and the transcript. | Writes one audio file |
 
+The install state (`install_state`: `installed`, `partially_installed` or `not_installed`) counts the parts that the workflow needs. An image workflow has its model files in the model folders of ComfyUI. A speech workflow has its parts in the speech folder (ADR 0032): the speech venv, each model file of `models.json` at `<speech folder>/models/<folder>/<file>` with its size, and the programs `ffmpeg` and `ffprobe` on the PATH. `install_state` is `installed` only when `generate_speech` finds each part. `describe_workflow` shows each model file as `present`, `missing` or `wrong_size`.
+
 `generate_image` accepts a workflow of the kind `image` only. With a workflow of the kind `speech` it answers `INVALID_ARGUMENT`, and `next_step` names `generate_speech`. `generate_speech` accepts a workflow of the kind `speech` only. With a workflow of the kind `image` it answers `INVALID_ARGUMENT`, and `next_step` names `generate_image`.
 
 The subject is the whole prompt. The server sends it to the model exactly as

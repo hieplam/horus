@@ -269,6 +269,8 @@ func checkLine(it provision.Item, quick bool) string {
 		return fmt.Sprintf("OK        %s %s (%d bytes)", it.Role, it.Path, it.Bytes)
 	case it.Kind == "file":
 		return fmt.Sprintf("OK        %s %s (%d bytes, SHA-256 verified)", it.Role, it.Path, it.Bytes)
+	case it.Kind == "venv" || it.Kind == "program":
+		return fmt.Sprintf("OK        %s", it.File)
 	case it.Kind == "graph":
 		return fmt.Sprintf("OK        models.json lists all %d model file(s) that workflow.json loads", it.Count)
 	case it.File == "":

@@ -533,3 +533,65 @@ func TestWaitTouches(t *testing.T) {
 		t.Errorf("state %s", s)
 	}
 }
+
+// TestReadyGatesTheRun: Handle runs nothing while Consumer.Ready waits, and
+// the job stays queued. When ctx ends during the wait, the outcome is
+// Stopped, the delivery gets no ack and the job is still queued. When Ready
+// returns, the same delivery runs the job.
+func TestReadyGatesTheRun(t *testing.T) {
+	e := newEnv(t, jobs.Config{})
+	j := submit(t, e)
+	var calls atomic.Int32
+	up := make(chan struct{})
+	ready := func(ctx context.Context) error {
+		select {
+		case <-up:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	c := jobs.Consumer{WorkerID: "w", Run: ok(&calls), Ready: ready}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	d := delivery(t, e)
+	if o, err := e.svc.Handle(ctx, c, d); o != jobs.Stopped || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Handle while Ready waits: %s %v, want stopped and the error of ctx", o, err)
+	}
+	if g := get(t, e, j.ID); g.State != jobdata.Queued || calls.Load() != 0 {
+		t.Fatalf("the job after Ready waited: %s with %d runs, want queued with 0 runs", g.State, calls.Load())
+	}
+	close(up)
+	if o, err := e.svc.Handle(context.Background(), c, d); o != jobs.Ran || err != nil {
+		t.Fatalf("Handle after Ready: %s %v", o, err)
+	}
+	if g := get(t, e, j.ID); g.State != jobdata.Succeeded || calls.Load() != 1 {
+		t.Errorf("the job after Ready: %s with %d runs, want succeeded with 1 run", g.State, calls.Load())
+	}
+}
+
+// TestSubmitted: Submitted saves backend_job_id of a running job with the
+// event job.submitted, and changes no job that is not running.
+func TestSubmitted(t *testing.T) {
+	e := newEnv(t, jobs.Config{})
+	j := submit(t, e)
+	if err := e.svc.Submitted(context.Background(), j.ID, "prompt-1"); err != nil {
+		t.Fatal(err)
+	}
+	if g := get(t, e, j.ID); g.BackendJobID != "" {
+		t.Errorf("Submitted of a queued job: backend_job_id %q, want empty", g.BackendJobID)
+	}
+	if _, err := e.store.Move(context.Background(), j.ID, []jobdata.State{jobdata.Queued}, jobdata.Running,
+		jobdata.Change{At: t0, WorkerID: "w"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.Submitted(context.Background(), j.ID, "prompt-2"); err != nil {
+		t.Fatal(err)
+	}
+	if g := get(t, e, j.ID); g.BackendJobID != "prompt-2" || g.State != jobdata.Running {
+		t.Errorf("Submitted of a running job: %s with backend_job_id %q, want running with prompt-2", g.State, g.BackendJobID)
+	}
+	if ev := e.store.Events(j.ID); !slices.Equal(ev, []string{"job.queued", "job.running", "job.submitted"}) {
+		t.Errorf("events %v", ev)
+	}
+}

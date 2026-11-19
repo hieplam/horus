@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"io"
 	"os"
@@ -15,12 +16,17 @@ import (
 	"github.com/hieplam/horus/internal/doctor"
 	"github.com/hieplam/horus/internal/download"
 	"github.com/hieplam/horus/internal/generate"
+	"github.com/hieplam/horus/internal/jobs"
 	"github.com/hieplam/horus/internal/modelfiles"
 	"github.com/hieplam/horus/internal/platform"
+	"github.com/hieplam/horus/internal/postgres"
 	"github.com/hieplam/horus/internal/provision"
+	"github.com/hieplam/horus/internal/settings"
 	"github.com/hieplam/horus/internal/speak"
 	"github.com/hieplam/horus/internal/speechsetup"
 	"github.com/hieplam/horus/internal/speechworker"
+	"github.com/hieplam/horus/internal/version"
+	"github.com/hieplam/horus/internal/worker"
 )
 
 // newImages makes the image service on the ComfyUI adapter and the backend.
@@ -200,4 +206,48 @@ func doctorAt(p cli.DoctorPlace) (cli.Doctor, cli.Setup) {
 	install := newBackend(cli.BackendPlace{Dir: p.ComfyUIDir, ServerURL: p.ServerURL})
 	setup := setupAt(cli.SetupPlace{ComfyUIDir: p.ComfyUIDir, ModelsDir: p.ModelsDir, TextEncoderDir: p.TextEncoderDir})
 	return doctor.New(comfy.New(p.ServerURL), install, platform.Programs{}), setup
+}
+
+// runWorker is horus worker. It connects the job store and the broker of
+// HORUS_DATABASE_URL, applies the schema horus, and runs the loop of
+// internal/worker with the ComfyUI of HORUS_COMFYUI_URL until ctx ends. Each
+// start gets a new worker id. The worker never starts ComfyUI.
+func runWorker(ctx context.Context, out io.Writer) error {
+	url := settings.DatabaseURL()
+	if url == "" {
+		return errors.New("HORUS_DATABASE_URL is not set: the worker needs the job store and the broker in Postgres (docs/mcp.md#the-worker)")
+	}
+	slots, err := settings.WorkerConcurrency()
+	if err != nil {
+		return err
+	}
+	days, err := settings.JobRetentionDays()
+	if err != nil {
+		return err
+	}
+	db, err := postgres.Connect(ctx, url)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if err := db.Migrate(ctx); err != nil {
+		return err
+	}
+	queue := jobs.New(postgres.NewStore(db), postgres.NewBroker(db, postgres.BrokerOptions{}), jobs.Config{Slots: slots})
+	id, err := jobs.NewID(time.Now(), rand.Reader)
+	if err != nil {
+		return err
+	}
+	host, _ := os.Hostname()
+	cfg := worker.Config{ID: id, Host: host, PID: os.Getpid(), Version: version.Version, Slots: slots,
+		Retention: time.Duration(days) * 24 * time.Hour, Log: out}
+	return worker.Run(ctx, cfg, queue, generate.New(comfy.New(""), noStart{}))
+}
+
+// noStart is the backend of the worker. The worker runs each job with
+// generate.Options.NoStart, so a call of Start is a bug.
+type noStart struct{}
+
+func (noStart) Start(context.Context, io.Writer) error {
+	return errors.New("horus worker never starts ComfyUI: the owner starts it")
 }

@@ -52,6 +52,8 @@ type Fake struct {
 	interrupts []string
 	deleted    []string
 	frees      int
+	down       bool
+	refused    int // the POST /prompt requests while down
 }
 
 // New starts a fake ComfyUI that serves objectInfo (a path) at /object_info.
@@ -116,6 +118,23 @@ func (f *Fake) Deleted() []string {
 	return append([]string(nil), f.deleted...)
 }
 
+// SetDown makes the fake stop answering (true) or answer again (false).
+// While it is down, it closes each connection without an answer, as a
+// ComfyUI that does not run.
+func (f *Fake) SetDown(down bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.down = down
+}
+
+// RefusedPrompts is the count of POST /prompt that came while the fake was
+// down.
+func (f *Fake) RefusedPrompts() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.refused
+}
+
 // Frees is the count of POST /free.
 func (f *Fake) Frees() int {
 	f.mu.Lock()
@@ -153,6 +172,22 @@ func send(w http.ResponseWriter, code int, v any) {
 
 func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
+	f.mu.Lock()
+	down := f.down
+	if down && r.Method == http.MethodPost && p == "/prompt" {
+		f.refused++
+	}
+	f.mu.Unlock()
+	if down {
+		if h, ok := w.(http.Hijacker); ok {
+			if conn, _, err := h.Hijack(); err == nil {
+				_ = conn.Close()
+				return
+			}
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
 	if r.Method == http.MethodGet {
 		switch {
 		case p == "/system_stats":

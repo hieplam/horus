@@ -96,8 +96,32 @@ func TestBrokerContract(t *testing.T) {
 	}
 }
 
+// duplicateLine is the line of the Go test TestDuplicateDelivery of
+// internal/worker: its counts of the deliveries and of the submits that the
+// fake ComfyUI received.
+var duplicateLine = regexp.MustCompile(`duplicate-delivery: (\d+) messages delivered two times: (\d+) deliveries, (\d+) submits for (\d+) jobs, (\d+) jobs with exactly one submit`)
+
+// TestDuplicateDelivery runs the Go test of internal/worker: the in-memory
+// broker delivers each of 6 messages two times to the worker, and the fake
+// ComfyUI counts the submits. The row reads the counts of the line of the
+// test, so a test that passes without the line, or with other counts, fails
+// the row.
 func TestDuplicateDelivery(t *testing.T) {
-	t.Fatal("not built: the Go test of internal/worker with each of 6 messages delivered two times")
+	code, out := run(t, root, "go", "test", "-count=1", "-run", "TestDuplicateDelivery", "-v", "./internal/worker")
+	if code != 0 || !passed(out, "TestDuplicateDelivery") {
+		t.Fatalf("go test -run TestDuplicateDelivery ./internal/worker: exit code %d:\n%s", code, out)
+	}
+	m := duplicateLine.FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("the test printed no line duplicate-delivery:\n%s", out)
+	}
+	want := []string{"6", "12", "6", "6", "6"}
+	for i, name := range []string{"messages", "deliveries", "submits", "jobs", "jobs with exactly one submit"} {
+		if m[i+1] != want[i] {
+			t.Errorf("%s: %s, want %s", name, m[i+1], want[i])
+		}
+	}
+	t.Logf("jobs with exactly one submit: %s of %s", m[5], m[4])
 }
 
 func TestSameContract(t *testing.T) {

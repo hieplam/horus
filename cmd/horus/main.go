@@ -99,6 +99,9 @@ var commands = map[string]command{
 	"errors": {"print the table of error codes (-json for JSON)", func(args []string) int {
 		return cli.Errors(args, os.Stdout, os.Stderr)
 	}},
+	"worker": {"run the jobs of the job queue on ComfyUI (needs HORUS_DATABASE_URL)", func(args []string) int {
+		return withStop(func(ctx context.Context) int { return cli.Worker(ctx, args, os.Stdout, os.Stderr, runWorker) })
+	}},
 	"mcp": {"serve the 6 horus tools over stdio (MCP)", func(args []string) int {
 		return withSignal(func(ctx context.Context) int {
 			return cli.MCP(ctx, args, os.Stderr, func(ctx context.Context) error {
@@ -113,6 +116,14 @@ var commands = map[string]command{
 // withSignal runs f with a context that Ctrl+C ends.
 func withSignal(f func(ctx context.Context) int) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	return f(ctx)
+}
+
+// withStop runs f with a context that Ctrl+C or a stop signal of the OS ends
+// (SIGTERM of docker stop on Linux and macOS).
+func withStop(f func(ctx context.Context) int) int {
+	ctx, stop := signal.NotifyContext(context.Background(), platform.StopSignals...)
 	defer stop()
 	return f(ctx)
 }

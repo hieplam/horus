@@ -391,6 +391,43 @@ FROM horus.workers ORDER BY heartbeat_at DESC NULLS LAST, id LIMIT 1`).Scan(&w.I
 	return &w, nil
 }
 
+// Heartbeat writes the row of the worker w.ID in horus.workers, with
+// heartbeat_at at the time now. The first call inserts the row, and each
+// later call writes each column again.
+func (s *Store) Heartbeat(ctx context.Context, w jobdata.Worker) error {
+	_, err := s.db.pool.Exec(ctx, `INSERT INTO horus.workers (id, host, pid, version, slots, started_at, heartbeat_at, loaded_resource_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (id) DO UPDATE SET host = excluded.host, pid = excluded.pid, version = excluded.version,
+    slots = excluded.slots, started_at = excluded.started_at, heartbeat_at = excluded.heartbeat_at,
+    loaded_resource_key = excluded.loaded_resource_key`,
+		w.ID, nullStr(w.Host), w.PID, nullStr(w.Version), w.Slots, nullTime(w.StartedAt), s.now(), nullStr(w.LoadedResourceKey))
+	if err != nil {
+		return fmt.Errorf("postgres: the heartbeat of the worker %s: %w", w.ID, err)
+	}
+	return nil
+}
+
+// DeleteOld deletes each ended job whose finished_at is more than age before
+// the time now, and each worker row whose heartbeat_at is that old, in one
+// transaction. The events of a job go with it (ON DELETE CASCADE).
+func (s *Store) DeleteOld(ctx context.Context, age time.Duration) (int, error) {
+	before := s.now().Add(-age)
+	var n int64
+	err := pgx.BeginFunc(ctx, s.db.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, "DELETE FROM horus.jobs WHERE state IN "+endedStates+" AND finished_at < $1", before)
+		if err != nil {
+			return err
+		}
+		n = tag.RowsAffected()
+		_, err = tx.Exec(ctx, "DELETE FROM horus.workers WHERE heartbeat_at < $1", before)
+		return err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("postgres: delete the old jobs: %w", err)
+	}
+	return int(n), nil
+}
+
 // Events gives the event rows of the job, oldest first. Seq is the id of the
 // row.
 func (s *Store) Events(ctx context.Context, id string) ([]jobdata.Event, error) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/hieplam/horus/internal/herr"
 	"github.com/hieplam/horus/internal/jobdata"
@@ -29,6 +30,10 @@ type Consumer struct {
 	// Slots is the count of jobs that run at the same time: the prefetch.
 	Slots int
 	Run   RunFunc
+	// Ready, when it is not nil, returns when the backend answers, or with an
+	// error when ctx ends. Handle calls it first: a delivery waits while the
+	// backend does not answer, and its job stays queued at its place.
+	Ready func(ctx context.Context) error
 	// Done, when it is not nil, gets the outcome of each delivery.
 	Done func(m jobdata.Message, o Outcome, err error)
 }
@@ -51,7 +56,9 @@ const (
 	// Requeued: the job store failed before the run. Nack with requeue.
 	Requeued Outcome = "requeued"
 	// Stopped: ctx ended while the job ran. No ack: the message comes again,
-	// and the next worker ends the job with WORKER_LOST.
+	// and the next worker ends the job with WORKER_LOST. ctx also ends while
+	// a delivery waits for Consumer.Ready: then the job is still queued, and
+	// the next worker runs it.
 	Stopped Outcome = "stopped"
 )
 
@@ -83,6 +90,7 @@ func (s *Service) Consume(ctx context.Context, c Consumer) error {
 
 // Handle handles one delivery as an idempotent consumer:
 //
+//  0. Wait for Consumer.Ready: no job starts while the backend does not answer.
 //  1. Sweep the job store, so that an expired or abandoned job never starts.
 //  2. Move the job from queued to running. Only then run it.
 //  3. The job was not queued: when it is running on another worker, that
@@ -92,6 +100,14 @@ func (s *Service) Consume(ctx context.Context, c Consumer) error {
 //     cancelled (a cancel request and an error). Ack.
 func (s *Service) Handle(ctx context.Context, c Consumer, d jobdata.Delivery) (Outcome, error) {
 	id := d.Message.JobID
+	if c.Ready != nil {
+		if err := c.Ready(ctx); err != nil {
+			if ctx.Err() != nil {
+				return Stopped, ctx.Err()
+			}
+			return requeue(ctx, d, err)
+		}
+	}
 	if _, _, err := s.store.Sweep(ctx); err != nil {
 		return requeue(ctx, d, err)
 	}
@@ -161,4 +177,41 @@ func jobError(err error) *jobdata.JobError {
 		return &jobdata.JobError{Code: he.Code, Message: he.Message, Details: he.Details}
 	}
 	return &jobdata.JobError{Code: "INTERNAL", Message: err.Error()}
+}
+
+// WorkerLock takes the one-worker lock of the job store. It gives
+// jobdata.ErrWorkerLocked when another worker holds it.
+func (s *Service) WorkerLock(ctx context.Context) (release func(), err error) {
+	return s.store.WorkerLock(ctx)
+}
+
+// Heartbeat writes the row of the worker w in horus.workers, with the time now.
+func (s *Service) Heartbeat(ctx context.Context, w jobdata.Worker) error {
+	return s.store.Heartbeat(ctx, w)
+}
+
+// Sweep moves each queued job after its deadline to expired, and each queued
+// job with no waiter for jobdata.AbandonAfter to abandoned. The sweep sends no
+// signal: a waiter sees the state at its next read of the job store (ADR 0031).
+func (s *Service) Sweep(ctx context.Context) (expired, abandoned int, err error) {
+	return s.store.Sweep(ctx)
+}
+
+// DeleteOld deletes the ended jobs and the worker rows that are older than age:
+// HORUS_JOB_RETENTION_DAYS.
+func (s *Service) DeleteOld(ctx context.Context, age time.Duration) (int, error) {
+	return s.store.DeleteOld(ctx, age)
+}
+
+// Summary gives the counts and the lists of the job store now, with the worker
+// row of the newest heartbeat.
+func (s *Service) Summary(ctx context.Context) (jobdata.Summary, error) { return s.store.Summary(ctx) }
+
+// Submitted saves the id of the job on its backend, before the worker waits
+// for the job: the event job.submitted. A job that is not running does not
+// change.
+func (s *Service) Submitted(ctx context.Context, id, backendJobID string) error {
+	_, err := s.move(ctx, id, []jobdata.State{jobdata.Running}, jobdata.Running,
+		jobdata.Change{At: s.cfg.Now(), BackendJobID: backendJobID, Event: jobdata.EventSubmitted})
+	return err
 }

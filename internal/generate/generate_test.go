@@ -550,3 +550,110 @@ func TestKindSpeechWorkflowIsRefused(t *testing.T) {
 		t.Fatalf("the refusal reached the backend: %d jobs", len(e.fake.Jobs()))
 	}
 }
+
+// TestCheckThenRun: Check calls no ComfyUI and fixes the seed and the default
+// path. Its plan goes through JSON, as the payload of a job, and Run makes the
+// PNG at the path of the plan with the seed of the plan.
+func TestCheckThenRun(t *testing.T) {
+	e := setup(t)
+	e.fake.SetDown()
+	big := new(big.Int).SetUint64(18446744073709551615)
+	p, err := e.svc.Check(Request{Workflow: "it-illustration", Subject: "  " + subject + "\n", Seed: big})
+	if err != nil {
+		t.Fatalf("Check while ComfyUI is down: %v", err)
+	}
+	if len(e.fake.Jobs()) != 0 || e.back.Starts() != 0 {
+		t.Fatalf("Check called ComfyUI: %d jobs, %d starts", len(e.fake.Jobs()), e.back.Starts())
+	}
+	if p.Workflow != "it-illustration" || p.Subject != subject || p.Seed != 18446744073709551615 || p.Width != 1536 || p.Height != 1024 ||
+		!filepath.IsAbs(p.Path) || !strings.HasSuffix(p.Path, "-18446744073709551615.png") {
+		t.Fatalf("plan: %+v", p)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Plan
+	if err := json.Unmarshal(raw, &back); err != nil || !reflect.DeepEqual(back, p) {
+		t.Fatalf("the plan after JSON: %+v, %v; want %+v", back, err, p)
+	}
+	e.fake.SetUp()
+	res, err := e.svc.Run(context.Background(), back, e.opts(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Path != p.Path || res.Seed != p.Seed {
+		t.Fatalf("result: %+v", res)
+	}
+	if _, err := os.Stat(p.Path); err != nil {
+		t.Fatalf("no PNG at the path of the plan: %v", err)
+	}
+	if got := inputsOf(t, e.fake.Job("job-1").Graph, "KSampler")["seed"]; got != 18446744073709551615.0 {
+		t.Fatalf("seed: %v", got)
+	}
+	// A plan whose workflow is gone.
+	back.Workflow = "gone"
+	if _, err := e.svc.Run(context.Background(), back, e.opts(nil)); codeOf(err) != "WORKFLOW_NOT_FOUND" {
+		t.Fatalf("Run of a plan of a gone workflow: %v", err)
+	}
+}
+
+// TestCheckRefusesWhatGenerateRefuses: Check gives the same errors as
+// Generate for a bad argument and for a speech workflow.
+func TestCheckRefusesWhatGenerateRefuses(t *testing.T) {
+	e := setup(t)
+	for _, r := range []Request{
+		{Workflow: "it-illustration", Subject: "short"},
+		{Workflow: "it-illustration", Subject: subject, Width: int64(1000)},
+		{Workflow: "nope", Subject: subject},
+	} {
+		_, cerr := e.svc.Check(r)
+		_, gerr := e.svc.Generate(context.Background(), r, e.opts(nil))
+		if cerr == nil || codeOf(cerr) != codeOf(gerr) || cerr.Error() != gerr.Error() {
+			t.Errorf("%+v: Check %v, Generate %v", r, cerr, gerr)
+		}
+	}
+	if len(e.fake.Jobs()) != 0 {
+		t.Errorf("%d jobs", len(e.fake.Jobs()))
+	}
+}
+
+// TestRunNoStart: with NoStart, a ComfyUI that does not answer gives
+// BACKEND_UNAVAILABLE and no start, also when HORUS_AUTOSTART is on.
+func TestRunNoStart(t *testing.T) {
+	e := setup(t)
+	t.Setenv("HORUS_AUTOSTART", "1")
+	settings.Reset()
+	p, err := e.svc.Check(Request{Workflow: "it-illustration", Subject: subject})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.fake.SetDown()
+	o := e.opts(nil)
+	o.NoStart = true
+	_, err = e.svc.Run(context.Background(), p, o)
+	if codeOf(err) != "BACKEND_UNAVAILABLE" || e.back.Starts() != 0 || len(e.fake.Jobs()) != 0 {
+		t.Fatalf("Run with NoStart: %v, %d starts, %d jobs", err, e.back.Starts(), len(e.fake.Jobs()))
+	}
+}
+
+// TestRunSubmittedBeforeTheWait: Options.Submitted gets the id of the job
+// before the first poll of the job.
+func TestRunSubmittedBeforeTheWait(t *testing.T) {
+	e := setup(t)
+	p, err := e.svc.Check(Request{Workflow: "it-illustration", Subject: subject})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	o := e.opts(nil)
+	o.Submitted = func(_ context.Context, id string) {
+		got = append(got, fmt.Sprintf("%s after %d polls", id, e.fake.Polls(id)))
+	}
+	if _, err := e.svc.Run(context.Background(), p, o); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []string{"job-1 after 0 polls"}) {
+		t.Fatalf("Submitted: %q", got)
+	}
+}

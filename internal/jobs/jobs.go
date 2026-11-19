@@ -73,6 +73,15 @@ type Store interface {
 	// WorkerLock takes the one-worker lock. It gives jobdata.ErrWorkerLocked
 	// when another worker holds it.
 	WorkerLock(ctx context.Context) (release func(), err error)
+	// Heartbeat writes the row of the worker w.ID in horus.workers, with
+	// heartbeat_at at the time now. The first call inserts the row. The
+	// summary gives the row with the newest heartbeat.
+	Heartbeat(ctx context.Context, w jobdata.Worker) error
+	// DeleteOld deletes each ended job whose finished_at is more than age
+	// before the time now, with its events, and each worker row whose
+	// heartbeat_at is more than age before the time now. It gives the count
+	// of deleted jobs. It never deletes a queued or a running job.
+	DeleteOld(ctx context.Context, age time.Duration) (int, error)
 }
 
 // Config holds the settings of the service. A zero field gets its default.

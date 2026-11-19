@@ -38,6 +38,8 @@ var storeChecks = []storeCheck{
 	{"sweep", checkSweep},
 	{"summary", checkSummary},
 	{"worker_lock", checkWorkerLock},
+	{"heartbeat", checkHeartbeat},
+	{"delete_old", checkDeleteOld},
 }
 
 // StoreNames are the names of the checks of the store contract.
@@ -523,4 +525,131 @@ func checkWorkerLock(t testing.TB, s jobs.Store, _ func(string) []string, _ *clo
 	}
 	again()
 	again()
+}
+
+// sameWorker checks the worker row of the summary against want.
+func sameWorker(t testing.TB, what string, got *jobdata.Worker, want jobdata.Worker) {
+	t.Helper()
+	if got == nil {
+		t.Errorf("%s: Summary worker <nil>, want %+v", what, want)
+		return
+	}
+	if got.ID != want.ID || got.Host != want.Host || got.PID != want.PID || got.Version != want.Version ||
+		got.Slots != want.Slots || !got.StartedAt.Equal(want.StartedAt) || !got.HeartbeatAt.Equal(want.HeartbeatAt) ||
+		got.LoadedResourceKey != want.LoadedResourceKey {
+		t.Errorf("%s: Summary worker\n got  %+v\n want %+v", what, *got, want)
+	}
+}
+
+// summaryWorker gives the worker row of the summary.
+func summaryWorker(t testing.TB, s jobs.Store) *jobdata.Worker {
+	t.Helper()
+	sum, err := s.Summary(context.Background())
+	if err != nil {
+		t.Fatalf("Summary: %v", err)
+	}
+	return sum.Worker
+}
+
+// checkHeartbeat: Heartbeat writes the worker row with heartbeat_at at the
+// time of the clock, not the time in its argument. A second call writes each
+// column again. The summary gives the row with the newest heartbeat.
+func checkHeartbeat(t testing.TB, s jobs.Store, _ func(string) []string, clk *clock) {
+	ctx := context.Background()
+	beat := func(w jobdata.Worker) {
+		t.Helper()
+		if err := s.Heartbeat(ctx, w); err != nil {
+			t.Fatalf("Heartbeat %s: %v", w.ID, err)
+		}
+	}
+	if w := summaryWorker(t, s); w != nil {
+		t.Errorf("before a heartbeat: Summary worker %+v, want <nil>", *w)
+	}
+	first := jobdata.Worker{ID: "worker-1", Host: "horus-worker", PID: 7, Version: "0.9.0", Slots: 2,
+		StartedAt: t0.Add(-time.Minute), HeartbeatAt: t0.Add(-time.Hour)}
+	beat(first)
+	want := first
+	want.HeartbeatAt = t0
+	sameWorker(t, "after the first heartbeat", summaryWorker(t, s), want)
+
+	clk.Set(t0.Add(5 * time.Second))
+	first.Slots, first.LoadedResourceKey = 3, "flux-3-klein"
+	beat(first)
+	want = first
+	want.HeartbeatAt = t0.Add(5 * time.Second)
+	sameWorker(t, "after the second heartbeat", summaryWorker(t, s), want)
+
+	clk.Set(t0.Add(10 * time.Second))
+	second := jobdata.Worker{ID: "worker-2", Host: "horus-worker", PID: 8, Version: "0.9.0", Slots: 1, StartedAt: t0.Add(9 * time.Second)}
+	beat(second)
+	want = second
+	want.HeartbeatAt = t0.Add(10 * time.Second)
+	sameWorker(t, "after a heartbeat of a second worker", summaryWorker(t, s), want)
+
+	clk.Set(t0.Add(15 * time.Second))
+	beat(first)
+	want = first
+	want.HeartbeatAt = t0.Add(15 * time.Second)
+	sameWorker(t, "after a newer heartbeat of the first worker", summaryWorker(t, s), want)
+}
+
+// checkDeleteOld: DeleteOld deletes each ended job that finished more than
+// age before the time of the clock, with its events, and each worker row with
+// a heartbeat that old. It keeps a job that finished exactly age before, a
+// newer job, and a queued or a running job of any age.
+func checkDeleteOld(t testing.TB, s jobs.Store, events func(string) []string, clk *clock) {
+	ctx := context.Background()
+	const age = 30 * 24 * time.Hour
+	old := t0.Add(-age - time.Second)
+	ended := func(i int, state jobdata.State, finished time.Time) jobdata.Job {
+		j := queuedJob(i, finished.Add(-time.Minute))
+		j.State, j.FinishedAt = state, finished
+		if state != jobdata.Abandoned {
+			j.StartedAt, j.Attempt = finished.Add(-30*time.Second), 1
+		}
+		return j
+	}
+	running := queuedJob(7, old.Add(-time.Minute))
+	running.State, running.StartedAt, running.Attempt = jobdata.Running, old, 1
+	for _, j := range []jobdata.Job{
+		ended(1, jobdata.Succeeded, old),          // deleted
+		ended(2, jobdata.Failed, old),             // deleted
+		ended(3, jobdata.Abandoned, old),          // deleted
+		ended(4, jobdata.Succeeded, t0.Add(-age)), // kept: exactly age
+		ended(5, jobdata.Succeeded, t0.Add(-time.Hour)),
+		queuedJob(6, old.Add(-time.Minute)), // kept: queued
+		running,                             // kept: running
+	} {
+		insert(t, s, j)
+	}
+	clk.Set(old)
+	if err := s.Heartbeat(ctx, jobdata.Worker{ID: "worker-old", Slots: 1, StartedAt: old}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	clk.Set(t0)
+	n, err := s.DeleteOld(ctx, age)
+	if err != nil || n != 3 {
+		t.Errorf("DeleteOld: %d deleted, %v; want 3 (the jobs 1, 2 and 3)", n, err)
+	}
+	for i := 1; i <= 3; i++ {
+		_, err := s.Get(ctx, uid(i))
+		notFound(t, fmt.Sprintf("Get of the old job %d after DeleteOld", i), err)
+		eventsAre(t, events, uid(i))
+	}
+	for i := 4; i <= 7; i++ {
+		get(t, s, uid(i))
+	}
+	eventsAre(t, events, uid(4), "job.queued")
+	if w := summaryWorker(t, s); w != nil {
+		t.Errorf("after DeleteOld: Summary worker %+v, want <nil>: its heartbeat is older than the age", *w)
+	}
+	young := jobdata.Worker{ID: "worker-young", Slots: 1, StartedAt: t0}
+	if err := s.Heartbeat(ctx, young); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	if n, err := s.DeleteOld(ctx, age); err != nil || n != 0 {
+		t.Errorf("a second DeleteOld: %d deleted, %v; want 0", n, err)
+	}
+	young.HeartbeatAt = t0
+	sameWorker(t, "after a second DeleteOld", summaryWorker(t, s), young)
 }

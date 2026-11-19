@@ -19,6 +19,7 @@ var layers = map[string]string{
 	"cmd/horus":                        wiring,
 	"internal/cli":                     handler,
 	"internal/mcpserver":               handler,
+	"internal/worker":                  handler, // the loop of horus worker: it joins jobs and generate
 	"internal/generate":                service,
 	"internal/provision":               service,
 	"internal/doctor":                  service,

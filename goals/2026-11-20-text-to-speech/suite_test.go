@@ -172,8 +172,200 @@ func TestSpeechContract(t *testing.T) {
 	t.Logf("contract checks: %d of %d passed (%d of the image tools and the setup, %d speech checks)", n, total, image, speech)
 }
 
+// TestSpeechMacos reads two things. First ci.yml: the job "contract" must run
+// tests/mcp_contract.py on macOS and must test the total of its output against
+// the total of the run of this suite. Second the last finished CI run of main:
+// each macOS job is green, and the log of "contract macos-latest" has the
+// speech checks. Mutated copies of both inputs must fail, so a fixed string
+// cannot pass the row.
 func TestSpeechMacos(t *testing.T) {
-	t.Fatal("not built: a speech check in the macOS job of CI")
+	local := contract(t)
+	ciFile, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatalf("missing: .github/workflows/ci.yml")
+	}
+	ci := strings.ReplaceAll(string(ciFile), "\r\n", "\n")
+	if bad := macosCiProblems(ci, local.report.Total); len(bad) > 0 {
+		t.Errorf("ci.yml: %s", strings.Join(bad, "; "))
+	}
+	// Stub check: a ci.yml without the step, or without macOS, must fail.
+	step := "      - name: Contract test against the Go binary\n"
+	mutants := map[string]string{
+		"no contract step":     strings.ReplaceAll(ci, "tests/mcp_contract.py", "tests/other.py"),
+		"no macOS in matrix":   strings.Replace(ci, "os: [windows-latest, macos-latest]", "os: [windows-latest]", 1),
+		"step only on Windows": strings.Replace(ci, step, step+"        if: runner.os == 'Windows'\n", 1),
+		"wrong total":          strings.Replace(ci, fmt.Sprintf("contract: %d of %d passed", local.report.Total, local.report.Total), "contract: 1 of 1 passed", 1),
+	}
+	for name, text := range mutants {
+		if text == ci {
+			t.Errorf("the mutant %q did not change ci.yml: the self-check is broken", name)
+		} else if len(macosCiProblems(text, local.report.Total)) == 0 {
+			t.Errorf("a ci.yml with the mutation %q passes the read of ci.yml", name)
+		}
+	}
+
+	// The last finished CI run of main.
+	id, jobs := lastMainRun(t)
+	names := []string{}
+	for _, j := range jobs {
+		names = append(names, j.Name)
+	}
+	if bad := macosJobProblems(jobs); len(bad) > 0 {
+		t.Errorf("the last finished CI run of main (%d, jobs %v): %s", id, names, strings.Join(bad, "; "))
+	}
+	for _, j := range jobs {
+		if j.Name != "contract macos-latest" {
+			continue
+		}
+		log := ghOutput(t, "run", "view", fmt.Sprint(id), "--log", "--job", fmt.Sprint(j.ID))
+		var want []string
+		for _, key := range []string{"speech-hidden", "speech-file", "speech-progress", "speech-worker-kept"} {
+			want = append(want, local.check(t, key).Name)
+		}
+		if bad := macosLogProblems(log, want); len(bad) > 0 {
+			t.Errorf("the log of %q in CI run %d: %s", j.Name, id, strings.Join(bad, "; "))
+		}
+		// Stub check: a log without a speech check, or with a total that is not all passed, fails.
+		if len(macosLogProblems(strings.ReplaceAll(log, want[0], "x"), want)) == 0 {
+			t.Errorf("a log without the check %q passes the read of the log", want[0])
+		}
+		if len(macosLogProblems(regexp.MustCompile(`contract: (\d+) of \d+ passed`).ReplaceAllString(log, "contract: $1 of 99 passed"), want)) == 0 {
+			t.Errorf("a log with a total that is not all passed passes the read of the log")
+		}
+	}
+	// Stub check: a red macOS job must fail the read of the jobs.
+	red := append([]ciJob{}, jobs...)
+	for i := range red {
+		if strings.Contains(red[i].Name, "macos") {
+			red[i].Conclusion = "failure"
+			break
+		}
+	}
+	if len(macosJobProblems(red)) == 0 {
+		t.Errorf("a red macOS job passes the read of the jobs")
+	}
+	t.Logf("CI run %d of main: jobs %v", id, names)
+}
+
+// ciJob is a job of a CI run (gh run view --json jobs).
+type ciJob struct {
+	ID         int64  `json:"databaseId"`
+	Name       string `json:"name"`
+	Conclusion string `json:"conclusion"`
+}
+
+// macosCiProblems reads the text of ci.yml: the job "contract" has macOS in its
+// matrix, runs tests/mcp_contract.py in a step that no condition limits, and
+// tests that the output says "contract: total of total passed".
+func macosCiProblems(ci string, total int) []string {
+	lines := strings.Split(strings.ReplaceAll(ci, "\r\n", "\n"), "\n")
+	start := -1
+	for i, l := range lines {
+		if l == "  contract:" {
+			start = i
+		}
+	}
+	if start < 0 {
+		return []string{"no job named contract"}
+	}
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		if l := lines[i]; len(l) > 2 && l[0] == ' ' && l[1] == ' ' && l[2] != ' ' && l[2] != '#' {
+			end = i
+			break
+		}
+	}
+	job := strings.Join(lines[start:end], "\n")
+	var bad []string
+	if !regexp.MustCompile(`(?m)^\s+os: \[[^\]]*macos-latest[^\]]*\]`).MatchString(job) {
+		bad = append(bad, "the matrix of the job contract has no macos-latest")
+	}
+	if !strings.Contains(job, "runs-on: ${{ matrix.os }}") {
+		bad = append(bad, "the job contract does not run on matrix.os")
+	}
+	if regexp.MustCompile(`(?m)^\s+(if|continue-on-error):`).MatchString(job) {
+		bad = append(bad, "the job contract has a condition or continue-on-error")
+	}
+	if !regexp.MustCompile(`python tests/mcp_contract\.py [^\n]*mcp`).MatchString(job) {
+		bad = append(bad, "no step runs tests/mcp_contract.py")
+	}
+	if !strings.Contains(job, fmt.Sprintf(`grep -q "contract: %d of %d passed" contract.log`, total, total)) {
+		bad = append(bad, fmt.Sprintf("no step tests the line 'contract: %d of %d passed' (the total of the contract run of this suite)", total, total))
+	}
+	return bad
+}
+
+// macosJobProblems: each macOS job of a CI run is green, and the contract job
+// of macOS is there.
+func macosJobProblems(jobs []ciJob) []string {
+	var bad []string
+	seen := false
+	for _, j := range jobs {
+		if !strings.Contains(j.Name, "macos") && !strings.Contains(j.Name, "darwin") {
+			continue
+		}
+		if j.Name == "contract macos-latest" {
+			seen = true
+		}
+		if j.Conclusion != "success" {
+			bad = append(bad, fmt.Sprintf("the job %q has the result %q", j.Name, j.Conclusion))
+		}
+	}
+	if !seen {
+		bad = append(bad, "the run has no job 'contract macos-latest'")
+	}
+	return bad
+}
+
+// macosLogProblems: the log has one line "contract: N of N passed" (N at least
+// the 47 checks of the spec), and a PASS line for each wanted speech check.
+func macosLogProblems(log string, speechChecks []string) []string {
+	m := regexp.MustCompile(`(?m)contract: (\d+) of (\d+) passed\s*$`).FindAllStringSubmatch(log, -1)
+	if len(m) != 1 {
+		return []string{fmt.Sprintf("%d lines 'contract: N of M passed', want 1", len(m))}
+	}
+	var bad []string
+	var n, total int
+	fmt.Sscan(m[0][1], &n)
+	fmt.Sscan(m[0][2], &total)
+	if n != total || total < 47 {
+		bad = append(bad, fmt.Sprintf("contract: %d of %d passed", n, total))
+	}
+	for _, name := range speechChecks {
+		if !strings.Contains(log, "PASS  "+name) {
+			bad = append(bad, "no PASS line for the speech check: "+name)
+		}
+	}
+	return bad
+}
+
+// ghOutput runs the gh program. A missing gh or a failed call fails the row.
+func ghOutput(t *testing.T, args ...string) string {
+	t.Helper()
+	out, err := command(root, nil, "gh", args...).Output()
+	if err != nil {
+		t.Fatalf("gh %s: %v (the row reads the CI run of main with gh, which needs a login)", strings.Join(args, " "), err)
+	}
+	return string(out)
+}
+
+// lastMainRun gives the last finished CI run of main (a push) and its jobs.
+func lastMainRun(t *testing.T) (int64, []ciJob) {
+	t.Helper()
+	var runs []struct {
+		ID int64 `json:"databaseId"`
+	}
+	list := ghOutput(t, "run", "list", "--workflow", "ci.yml", "--branch", "main", "--event", "push", "--status", "completed", "--limit", "1", "--json", "databaseId")
+	if err := json.Unmarshal([]byte(list), &runs); err != nil || len(runs) != 1 {
+		t.Fatalf("gh run list gave no finished CI run of main: %v %q", err, list)
+	}
+	var view struct {
+		Jobs []ciJob `json:"jobs"`
+	}
+	if err := json.Unmarshal([]byte(ghOutput(t, "run", "view", fmt.Sprint(runs[0].ID), "--json", "jobs")), &view); err != nil {
+		t.Fatalf("gh run view: %v", err)
+	}
+	return runs[0].ID, view.Jobs
 }
 
 // ---------------------------------------------------------------------------

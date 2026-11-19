@@ -77,7 +77,7 @@ type Images interface {
 
 // tools is the list of the 6 tools. Each tool lives in its own file.
 func tools(images Images, setup Setup, speech Speech) []tool {
-	return []tool{listWorkflows(images, setup), describeWorkflow(setup), installWorkflow(setup), uninstallWorkflow(images, setup),
+	return []tool{listWorkflows(images, setup), describeWorkflow(setup), installWorkflow(setup), uninstallWorkflow(images, setup, speech),
 		generateImage(images), generateSpeech(speech)}
 }
 

@@ -17,11 +17,11 @@ type UninstallResult struct {
 	FreedBytes int64         `json:"freed_bytes"`
 }
 
-func uninstallWorkflow(images Images, setup Setup) tool {
+func uninstallWorkflow(images Images, setup Setup, speech Speech) tool {
 	return tool{
 		name:  "uninstall_workflow",
-		title: "Uninstall an image workflow",
-		description: "Delete the model files of one image workflow to free disk space. A file that another installed workflow also " +
+		title: "Uninstall a workflow",
+		description: "Delete the model files of one workflow (image or speech) to free disk space. A file that another installed workflow also " +
 			"uses is kept unless remove_shared=true. Without confirm=true nothing is deleted: the call returns the error " +
 			"CONFIRMATION_REQUIRED with the list of files and sizes. Show it to the user, then call again with confirm=true.",
 		annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: ptr(true), IdempotentHint: true, OpenWorldHint: ptr(false)},
@@ -44,8 +44,15 @@ func uninstallWorkflow(images Images, setup Setup) tool {
 				return nil, err
 			}
 			confirm := c.args.boolean("confirm")
-			if confirm {
-				images.FreeMemory(ctx) // an open model file cannot be deleted on Windows
+			// An open model file cannot be deleted on Windows: the image
+			// backend unloads its models, and the speech worker of this server ends.
+			switch {
+			case confirm && w.Kind() == catalog.KindSpeech:
+				if speech != nil {
+					speech.StopWorkers()
+				}
+			case confirm:
+				images.FreeMemory(ctx)
 			}
 			req := request(w)
 			req.Yes, req.Force = confirm, c.args.boolean("remove_shared")

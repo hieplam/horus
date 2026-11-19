@@ -5,11 +5,18 @@
 // "horus uninstall"):
 //
 //   - The model files of each workflow go by the rules of horus workflow
-//     remove. A file whose size differs from models.json stays.
+//     remove. A file whose size differs from models.json stays. The files of
+//     a speech workflow are in the speech folder (ADR 0032).
 //   - The ComfyUI folder and the venv of horus install-comfy-mcp go only
 //     when they hold the install record (platform.InstallRecordName). A
 //     ComfyUI that answers and that horus did not start keeps its folder.
 //     horus first stops a ComfyUI that horus started.
+//   - In the speech folder, the speech venv goes only when it holds the
+//     install record of the kind speech-venv (ADR 0035). The file of the
+//     speech worker goes: horus writes it before each start of the worker.
+//     Then each empty folder of the speech folder goes, and the speech folder
+//     itself when it is empty. Python 3.12 and FFmpeg stay: they are system
+//     packages.
 //   - The server horus of Claude Code and of Codex goes when the client is
 //     found and knows the server.
 //   - In the user folder, the copy of the built-in workflows and the state
@@ -33,6 +40,7 @@ import (
 	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
+	"github.com/hieplam/horus/internal/speechsetup"
 )
 
 // The parts of an uninstall, in the order of the run.
@@ -40,6 +48,7 @@ const (
 	PartModels  = "models"  // the model files of each workflow
 	PartComfyUI = "comfyui" // the ComfyUI install folder
 	PartVenv    = "venv"    // the venv of horus install-comfy-mcp
+	PartSpeech  = "speech"  // the speech venv and the file of the speech worker
 	PartMCP     = "mcp"     // the server horus of Claude Code and of Codex
 	PartUser    = "user"    // the files of horus in the user folder
 	PartPath    = "path"    // the PATH entry of the install scripts
@@ -102,7 +111,8 @@ type UninstallRequest struct {
 // parts gives the parts of the request.
 func (r UninstallRequest) parts() map[string]bool {
 	if !r.Models && !r.MCP {
-		return map[string]bool{PartModels: true, PartComfyUI: true, PartVenv: true, PartMCP: true, PartUser: true, PartPath: true, PartProgram: true}
+		return map[string]bool{PartModels: true, PartComfyUI: true, PartVenv: true, PartSpeech: true, PartMCP: true, PartUser: true,
+			PartPath: true, PartProgram: true}
 	}
 	return map[string]bool{PartModels: r.Models, PartMCP: r.MCP}
 }
@@ -146,12 +156,17 @@ type UninstallFacts struct {
 	ComfyAnswers, ComfyStarted bool
 	VenvPath                   string
 	VenvExists, VenvRecord     bool
-	Clients                    []ClientFact
-	UserDir                    string
-	UserFiles                  []string // the files and folders of horus in the user folder
-	StateFile                  string   // the state file of a started ComfyUI in the user folder, or ""
-	PathPlaces                 []string // the places of the PATH entry
-	Program                    string   // the file of the running program, or ""
+	// The speech folder, the speech venv in it, and the file of the speech
+	// worker ("" when it is not there).
+	SpeechDir, SpeechVenv              string
+	SpeechVenvExists, SpeechVenvRecord bool
+	SpeechScript                       string
+	Clients                            []ClientFact
+	UserDir                            string
+	UserFiles                          []string // the files and folders of horus in the user folder
+	StateFile                          string   // the state file of a started ComfyUI in the user folder, or ""
+	PathPlaces                         []string // the places of the PATH entry
+	Program                            string   // the file of the running program, or ""
 }
 
 // Uninstall is the plan of horus uninstall: the facts and the items, in the
@@ -178,7 +193,7 @@ func (u *Uninstall) Removes() int {
 func (u *Uninstall) Paths() []string {
 	f := u.Facts
 	var out []string
-	for _, p := range []string{f.ComfyFolder, f.VenvPath, f.UserDir, f.Program, f.StateFile} {
+	for _, p := range []string{f.ComfyFolder, f.VenvPath, f.SpeechDir, f.UserDir, f.Program, f.StateFile} {
 		if p != "" {
 			out = append(out, p)
 		}
@@ -251,6 +266,20 @@ func planUninstall(f UninstallFacts) []UninstallItem {
 		}
 		add(it)
 	}
+	if f.Parts[PartSpeech] {
+		if f.SpeechVenvExists {
+			it := UninstallItem{Part: PartSpeech, What: "the speech venv", Path: f.SpeechVenv, Remove: f.SpeechVenvRecord,
+				Why: "a speech worker that runs holds files of it, so first close each agent program that uses horus"}
+			if !f.SpeechVenvRecord {
+				it.Why = whyNoRecord
+			}
+			add(it)
+		}
+		if f.SpeechScript != "" {
+			add(UninstallItem{Part: PartSpeech, Remove: true, What: "the file of the speech worker", Path: f.SpeechScript,
+				Why: "horus writes it before each start of the speech worker"})
+		}
+	}
 	if f.Parts[PartMCP] {
 		for _, c := range f.Clients {
 			if c.Program == "" || !c.Knows {
@@ -284,7 +313,7 @@ func planUninstall(f UninstallFacts) []UninstallItem {
 	}
 	if f.Parts[PartProgram] && f.Program != "" {
 		add(UninstallItem{Part: PartProgram, Remove: true, What: "the program file", Path: f.Program,
-			Why: "the last item. A system package (7-Zip, Python) stays."})
+			Why: "the last item. A system package (7-Zip, Python, FFmpeg) stays."})
 	}
 	return out
 }
@@ -365,6 +394,15 @@ func (s *Service) UninstallPlan(ctx context.Context, req UninstallRequest) (*Uni
 		f.VenvPath = s.uninstallVenv()
 		f.VenvExists = exists(f.VenvPath)
 		f.VenvRecord = f.VenvExists && platform.HasInstallRecord(f.VenvPath, platform.RecordComfyMCP)
+	}
+	if f.Parts[PartSpeech] {
+		place := speechsetup.Here()
+		f.SpeechDir, f.SpeechVenv = place.Dir, place.Venv
+		f.SpeechVenvExists = exists(place.Venv)
+		f.SpeechVenvRecord = f.SpeechVenvExists && platform.HasInstallRecord(place.Venv, platform.RecordSpeechVenv)
+		if exists(place.Script) {
+			f.SpeechScript = place.Script
+		}
 	}
 	if f.Parts[PartMCP] && s.un.Programs != nil {
 		f.Clients = s.clientFacts(ctx)
@@ -489,7 +527,7 @@ func (s *Service) RunUninstall(ctx context.Context, u *Uninstall, out io.Writer)
 			if errors.Is(it.Err, fs.ErrNotExist) {
 				it.Err = nil
 			}
-		case PartComfyUI, PartVenv, PartUser:
+		case PartComfyUI, PartVenv, PartSpeech, PartUser:
 			it.Err = platform.RemoveTree(it.Path)
 		case PartMCP:
 			code, err := s.un.Programs.Run(ctx, platform.Command{Path: it.Command[0], Args: it.Command[1:], Dir: s.askDir(), Stdout: out, Stderr: out})
@@ -505,6 +543,12 @@ func (s *Service) RunUninstall(ctx context.Context, u *Uninstall, out io.Writer)
 		case PartProgram:
 			it.Err = s.un.OS.RemoveProgram()
 		}
+	}
+	// The empty folders of the speech folder go, and the speech folder itself
+	// when nothing is left in it. It is in the user folder by default, so this
+	// comes before the user folder.
+	if u.Facts.Parts[PartSpeech] && u.Facts.SpeechDir != "" && removeEmptyDirs(u.Facts.SpeechDir) {
+		fmt.Fprintf(out, "OK: removed the empty speech folder %s\n", u.Facts.SpeechDir)
 	}
 	// The user folder itself goes when nothing is left in it.
 	if u.Facts.Parts[PartUser] && u.Facts.UserDir != "" {
@@ -544,6 +588,28 @@ func (s *Service) RunUninstall(ctx context.Context, u *Uninstall, out io.Writer)
 		return fmt.Errorf("%d of %d REMOVE item(s) are still there. See the FAIL lines.", left, u.Removes())
 	}
 	return nil
+}
+
+// removeEmptyDirs removes each empty folder under dir, from the deepest one
+// up, then dir itself when it is empty. It deletes no file. It never enters
+// or removes a link or a junction: such an entry stays, so its folder is not
+// empty. It reports if dir is gone.
+func removeEmptyDirs(dir string) bool {
+	fi, err := os.Lstat(dir)
+	if err != nil || platform.IsLink(fi.Mode()) || !fi.IsDir() {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	left := 0
+	for _, e := range entries {
+		if !removeEmptyDirs(filepath.Join(dir, e.Name())) {
+			left++
+		}
+	}
+	return left == 0 && os.Remove(dir) == nil
 }
 
 func contains(list []string, s string) bool {

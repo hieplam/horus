@@ -143,15 +143,28 @@ const setupDescription = " On a machine that needs a setup step first, the first
 	"for a speech workflow Python 3.12, FFmpeg and the speech venv. " +
 	"Ask the user, then call again with accept_setup=true. The setup consent comes before the license consent."
 
-// addSetupConsent puts two changes into the golden tool list. Phase 4:
+// addSetupConsent puts three changes into the golden tool list. Phase 4:
 // install_workflow has the argument accept_setup and a description that
 // names it (spec docs/specs/2026-11-15-release-install.md, "Setup through
 // MCP"). The speech epic: install_workflow also installs a speech workflow,
-// so its title and its first sentence name no kind (spec
-// docs/specs/2026-11-20-text-to-speech.md, "Install and uninstall"). The
-// golden file itself does not change.
+// so its title and its first sentence name no kind, and uninstall_workflow
+// also uninstalls one, so its title names no kind and its first sentence
+// names both (spec docs/specs/2026-11-20-text-to-speech.md, "Install and
+// uninstall"). The golden file itself does not change.
 func addSetupConsent(t *testing.T, tools []map[string]any) {
 	t.Helper()
+	uninstall := false
+	for _, py := range tools {
+		if py["name"] == "uninstall_workflow" {
+			py["title"] = "Uninstall a workflow"
+			py["description"] = strings.Replace(py["description"].(string), "of one image workflow to free disk space.",
+				"of one workflow (image or speech) to free disk space.", 1)
+			uninstall = true
+		}
+	}
+	if !uninstall {
+		t.Fatal("the golden file has no uninstall_workflow")
+	}
 	for _, py := range tools {
 		if py["name"] != "install_workflow" {
 			continue

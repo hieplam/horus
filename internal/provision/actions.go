@@ -12,6 +12,7 @@ import (
 
 	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/graph"
+	"github.com/hieplam/horus/internal/speechsetup"
 )
 
 // List gives every workflow of the folder with its model files and the
@@ -446,8 +447,10 @@ func failDetail(err error) string {
 
 // Remove deletes the model files of the workflow (Yes), or gives the plan.
 // It refuses a file whose size differs from models.json, keeps a file that
-// another workflow lists (unless Force), and also deletes an unfinished
-// download (<file>.part).
+// another workflow of the same kind lists (unless Force), and also deletes an
+// unfinished download (<file>.part). The files of a speech workflow are in the
+// speech folder (ADR 0032), the files of an image workflow in the model
+// folders of ComfyUI.
 func (s *Service) Remove(ctx context.Context, req Request) (*Result, error) {
 	res, m, _, err := begin("remove", req)
 	if err != nil {
@@ -457,13 +460,17 @@ func (s *Service) Remove(ctx context.Context, req Request) (*Result, error) {
 	if err != nil {
 		return end(res, err, "")
 	}
+	where, err := s.locator(req)
+	if err != nil {
+		return end(res, err, "")
+	}
 	var plan []Item
 	refused := 0
 	for _, f := range files {
-		p := s.find(f)
-		for _, d := range s.files.Dirs(f.Folder) {
-			if pp := filepath.Join(d, f.Name+".part"); s.files.Size(pp) >= 0 {
-				plan = append(plan, Item{Kind: "file", Role: f.Role, File: f.Name + ".part", Path: pp, Bytes: s.files.Size(pp), Part: true})
+		p, downloads := where(f)
+		for _, pp := range downloads {
+			if n := s.files.Size(pp); n >= 0 {
+				plan = append(plan, Item{Kind: "file", Role: f.Role, File: filepath.Base(pp), Path: pp, Bytes: n, Part: true})
 			}
 		}
 		var size int64
@@ -541,16 +548,55 @@ func removeDecision(f catalog.ListedFile, p string, size int64, users []string, 
 	return it, false
 }
 
-// otherUsers is Get-OtherUsers: the other workflows that list the same
-// folder and file name.
+// locator gives the function that finds a file of models.json of the
+// workflow of req: the path of the file ("" when it is not there), and the
+// paths where an unfinished download of it (<file>.part) can be. A speech
+// workflow has one path for each file, in the speech folder (speechParts). An
+// image workflow looks in each model folder of its folder (find).
+func (s *Service) locator(req Request) (func(f catalog.ListedFile) (string, []string), error) {
+	if dir := filepath.Join(req.WorkflowsDir, req.Workflow); req.ModelsJSON == "" && isSpeech(dir) {
+		parts, err := s.speechParts(req.Workflow, dir)
+		if err != nil {
+			return nil, err
+		}
+		at := map[catalog.ListedFile]string{}
+		for _, sp := range parts {
+			if sp.part.Kind == speechsetup.KindModelFile {
+				at[sp.file] = sp.part.Path
+			}
+		}
+		return func(f catalog.ListedFile) (string, []string) {
+			p := at[f]
+			if p == "" {
+				return "", nil
+			}
+			if s.files.Size(p) < 0 {
+				return "", []string{p + ".part"}
+			}
+			return p, []string{p + ".part"}
+		}, nil
+	}
+	return func(f catalog.ListedFile) (string, []string) {
+		var downloads []string
+		for _, d := range s.files.Dirs(f.Folder) {
+			downloads = append(downloads, filepath.Join(d, f.Name+".part"))
+		}
+		return s.find(f), downloads
+	}, nil
+}
+
+// otherUsers is Get-OtherUsers: the other workflows of the same kind that
+// list the same folder and file name. A speech workflow and an image workflow
+// never share a file: their files are in different folders.
 func (s *Service) otherUsers(req Request, f catalog.ListedFile) ([]string, error) {
 	ws, err := catalog.Folders(req.WorkflowsDir)
 	if err != nil {
 		return nil, err
 	}
+	speech := isSpeech(filepath.Join(req.WorkflowsDir, req.Workflow))
 	var users []string
 	for _, w := range ws {
-		if strings.EqualFold(w.Name, req.Workflow) || w.ModelsJSON == "" {
+		if strings.EqualFold(w.Name, req.Workflow) || w.ModelsJSON == "" || isSpeech(w.Dir) != speech {
 			continue
 		}
 		m, err := catalog.ReadModelList(w.ModelsJSON)

@@ -33,7 +33,7 @@ one file with VieNeu on the CPU.
 - **Kind:** what a workflow makes: `image` or `speech`.
 - **LUFS (Loudness Units relative to Full Scale):** the unit of the loudness
   of an audio file.
-- **Preset voice:** a voice that the VieNeu model files hold. There are 25.
+- **Preset voice:** a voice that the Python package `vieneu` holds. There are 25.
 - **Share of wrong words:** the words of the text that the transcript does
   not have, divided by the words of the text. Both texts are in lower case
   and without punctuation.

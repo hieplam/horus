@@ -23,6 +23,7 @@ var layers = map[string]string{
 	"internal/provision":               service,
 	"internal/doctor":                  service,
 	"internal/devtools":                service,
+	"internal/jobs":                    service,
 	"internal/comfy":                   adapter,
 	"internal/download":                adapter,
 	"internal/modelfiles":              adapter,
@@ -31,6 +32,7 @@ var layers = map[string]string{
 	"internal/catalog":                 base,
 	"internal/graph":                   base,
 	"internal/herr":                    base,
+	"internal/jobdata":                 base,
 	"internal/settings":                base,
 	"internal/platform":                base,
 	"internal/version":                 base,
@@ -38,6 +40,7 @@ var layers = map[string]string{
 	"internal/archtest":                test,
 	"internal/comfy/comfytest":         test,
 	"internal/backend/comfyclitest":    test,
+	"internal/brokertest":              test, // the contract suite of jobs.Broker, the in-memory broker and job store
 	"internal/speechworker/fakeworker": test, // the fake speech worker: a program that the tests build
 	"goals":                            test, // the link check of the goal suites
 }

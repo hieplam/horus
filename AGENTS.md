@@ -116,13 +116,15 @@ internal/generate/                service: make one image
 internal/provision/               service: set up a machine (backend, model files, comfy-mcp and `horus comfy-mcp`, register, the plan of `horus setup`, the plan of `horus uninstall`)
 internal/doctor/                  service: the checks of `horus doctor`
 internal/devtools/                service: new-workflow and sync-workflows
+internal/jobs/                    service: the job queue: the moves of a job, the recipe of the idempotency key, submit and wait, the delivery loop of the worker; it declares Broker and Store
 internal/comfy/                   adapter: the ComfyUI REST client (comfy/comfytest is the fake ComfyUI for tests)
 internal/download/                adapter: download with resume, size and SHA-256 check; the only code that reads HF_TOKEN
 internal/modelfiles/              adapter: find, check and remove model files, extra_model_paths.yaml
 internal/backend/                 adapter: Install, Start, Stop and Installed of a ComfyUI install (the Windows portable build; comfy-cli on macOS; backend/comfyclitest is the fake comfy for tests)
 internal/speechworker/            adapter: start the Python speech worker (worker.py, go:embed), send a request, read the answer, stop it; speechworker/fakeworker is the fake worker for tests
-internal/catalog/, graph/, herr/, settings/, platform/, version/    base: manifests, graph conversion, error codes, settings, processes and OS facts, the program version
+internal/catalog/, graph/, herr/, jobdata/, settings/, platform/, version/    base: manifests, graph conversion, error codes, the data of a job and the readiness report, settings, processes and OS facts, the program version
 internal/archtest/                the test of the design rules
+internal/brokertest/              the contract suite of a broker (each broker passes it), the in-memory broker and the in-memory job store of the tests
 scripts/                          lint-public.py (a Python check before a pull request: private data, dead links, the ADR folder), frozen-suites.py (refuses a change to a frozen goal suite), build-release.sh (builds the 3 release assets)
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), peak_load.py (the peak tool: many agents at once), workflow_parity.py, requirements.txt
 tests/speech/                     the tests with the real speech models (not in CI): baseline.py, worker_real.py (it runs only with HORUS_SPEECH_REAL=1)

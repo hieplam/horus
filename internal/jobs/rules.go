@@ -16,8 +16,9 @@ import (
 // An end state has no move.
 var moves = map[jobdata.State][]jobdata.State{
 	// The worker starts the job, the API process cancels it, the sweep
-	// expires or abandons it.
-	jobdata.Queued: {jobdata.Running, jobdata.Cancelled, jobdata.Expired, jobdata.Abandoned},
+	// expires or abandons it. The API process fails it when the broker
+	// refuses its message: no worker can run a job without a message.
+	jobdata.Queued: {jobdata.Running, jobdata.Failed, jobdata.Cancelled, jobdata.Expired, jobdata.Abandoned},
 	// The worker updates the job, or ends it.
 	jobdata.Running: {jobdata.Running, jobdata.Succeeded, jobdata.Failed, jobdata.Cancelled},
 }

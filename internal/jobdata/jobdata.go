@@ -146,7 +146,7 @@ type Change struct {
 // result and the error that the change sets. nil when it sets none.
 func (c Change) EventData() json.RawMessage {
 	data := struct {
-		Progress *Progress      `json:"progress,omitempty"`
+		Progress *Progress       `json:"progress,omitempty"`
 		Result   json.RawMessage `json:"result,omitempty"`
 		Error    *JobError       `json:"error,omitempty"`
 	}{c.Progress, c.Result, c.Error}

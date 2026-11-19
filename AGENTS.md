@@ -30,6 +30,7 @@ kinds of work:
 | Why this model, and GPU traps | [`docs/why-flux3-klein.md`](docs/why-flux3-klein.md) |
 | A term you must explain to the user | [`docs/concepts.md`](docs/concepts.md) |
 | Change the horus MCP server, its tools or its errors | [`docs/mcp.md`](docs/mcp.md), then run `go test ./...` and `tests/mcp_contract.py` |
+| Change the speech worker (`internal/speechworker/worker.py`) | The docstring of `worker.py` gives the protocol. The Go tests use a fake worker, so also run `tests/speech/worker_real.py` with the real models: its docstring gives the command ([ADR 0022](docs/adr/0022-speech-runs-in-a-python-speech-worker.md)) |
 | The flags of a `horus` command | `horus <command> -h` |
 | Why horus does something in a specific way, or the history of a rule | The decision records: [`docs/adr/README.md`](docs/adr/README.md). Do not undo a decision without a new record. |
 | Start feature work, or record a decision, a plan or a proof | [Feature work](#feature-work-one-place-for-each-record) below |
@@ -118,10 +119,12 @@ internal/comfy/                   adapter: the ComfyUI REST client (comfy/comfyt
 internal/download/                adapter: download with resume, size and SHA-256 check; the only code that reads HF_TOKEN
 internal/modelfiles/              adapter: find, check and remove model files, extra_model_paths.yaml
 internal/backend/                 adapter: Install, Start, Stop and Installed of a ComfyUI install (the Windows portable build; comfy-cli on macOS; backend/comfyclitest is the fake comfy for tests)
+internal/speechworker/            adapter: start the Python speech worker (worker.py, go:embed), send a request, read the answer, stop it; speechworker/fakeworker is the fake worker for tests
 internal/catalog/, graph/, herr/, settings/, platform/, version/    base: manifests, graph conversion, error codes, settings, processes and OS facts, the program version
 internal/archtest/                the test of the design rules
 scripts/                          lint-public.py (a Python check before a pull request: private data, dead links, the ADR folder), frozen-suites.py (refuses a change to a frozen goal suite), build-release.sh (builds the 3 release assets)
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), peak_load.py (the peak tool: many agents at once), workflow_parity.py, requirements.txt
+tests/speech/                     the tests with the real speech models (not in CI): baseline.py, worker_real.py (it runs only with HORUS_SPEECH_REAL=1)
 workflows/embed.go                the go:embed line: the program holds each workflow folder (add a new folder there)
 workflows/<name>/                 manifest.json, workflow.json, models.json, README.md, examples/
 workflows/_template/README.md     template for a new workflow README

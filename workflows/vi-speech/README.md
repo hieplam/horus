@@ -15,9 +15,9 @@ recognition model **Whisper small** (reads the transcript) and the audio codec
 |---|---|
 | The folder, `manifest.json` and `models.json` | Done. The program holds the folder. |
 | `list_workflows` and `describe_workflow` show `vi-speech` | Done. The kind is `speech`. `describe_workflow` shows the text limits, the voices, the tags and the formats. |
-| The tool `generate_speech` | Not in the program yet. |
-| `install_workflow`, `horus setup` and `horus doctor` for this workflow | Not in the program yet. |
-| A real run through the horus MCP server | Not recorded yet. See the section "Evidence". |
+| The tool `generate_speech` | Done. |
+| `install_workflow`, `horus setup` and `horus doctor` for this workflow | Done. |
+| A real run through the horus MCP server | Done. See the section "Evidence". |
 
 ## Files in this folder
 
@@ -88,8 +88,44 @@ AMD Ryzen 7 4800H, CPU only, Windows 11. The details are in the section
 
 ## Evidence
 
-A workflow is not done until it has run end to end through the horus MCP
-server. No such run exists yet. The real run on the PC is the issue
-[#190](https://github.com/hieplam/horus/issues/190) of the epic
-[#181](https://github.com/hieplam/horus/issues/181). That run fills this
-section.
+The real run on the PC, through the horus MCP server, on 2026-11-20.
+Hardware: AMD Ryzen 7 4800H, CPU only, Windows 11. The install used
+`install_workflow` with both consents (219 s, 19 model files). The run is
+`HORUS_SPEECH_REAL=1 go test -tags goal -v -run 'TestSpeechReal$' ./goals/2026-11-20-text-to-speech`.
+The test starts `horus mcp` through [`tests/speech/real_run.py`](../../tests/speech/real_run.py),
+calls `generate_speech` for the 5 sentences of
+[`tests/speech/sentences.json`](../../tests/speech/sentences.json), measures the
+loudness of each file with ffmpeg, and computes the share of wrong words from the
+transcript of the tool. It reads the limit, 0.344, from the row `speech-real` of
+[the spec](../../docs/specs/2026-11-20-text-to-speech.md).
+
+Three runs, all passed. Each cell is the share of wrong words, then the seconds
+of the call. The first call of each run also starts the speech worker.
+
+| Sentence | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| `plain` | 0.000, 14.3 s | 0.125, 14.6 s | 0.000, 12.2 s |
+| `commas` | 0.176, 7.1 s | 0.235, 7.7 s | 0.059, 7.0 s |
+| `english-words` | 0.000, 6.8 s | 0.000, 7.2 s | 0.000, 6.5 s |
+| `tag` | 0.062, 7.5 s | 0.000, 7.2 s | 0.000, 7.0 s |
+| `two-sentences` | 0.120, 8.7 s | 0.000, 9.8 s | 0.080, 8.7 s |
+
+The loudness of all 15 files is -18.0 to -17.9 LUFS.
+
+Differences between a text and its transcript, from these runs:
+
+| Sentence | Difference |
+|---|---|
+| `plain` | A word with another vowel or tone in one run. |
+| `commas` | The words `Máy`, `dữ liệu`, `cho người` read as `Mái`, `giữ liệu`, `trong nơi`. The comma sentence changes most from run to run. |
+| `english-words` | `cloud` is read as `cloud`. No difference. |
+| `tag` | None, or one word with another tone. The tag `[cười]` is not in the transcript, as expected. |
+| `two-sentences` | `và` read as `vào`, `ổn định` read as `định`, `lượng` read as `lương`. One run joins the two sentences with a comma. |
+
+The speech model gives a different audio at each call, so the differences change
+from run to run. Two example files are in [`examples/`](examples/): `plain.mp3`
+and `tag.mp3` (64 kbps).
+
+What this evidence does not prove: nobody listened to the files. The check of
+the words is the transcript. It does not prove the tone, the rhythm or the
+quality of the voice.

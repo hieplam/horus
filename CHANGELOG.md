@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/hieplam/horus/compare/v0.1.5...v0.1.6) (2026-11-20)
+
+
+### Bug Fixes
+
+* **stack:** horus-db is healthy only when it accepts TCP ([#257](https://github.com/hieplam/horus/issues/257)) ([#259](https://github.com/hieplam/horus/issues/259)) ([6e83142](https://github.com/hieplam/horus/commit/6e83142f27faf5577ad874e7ee27d742bad5fe0b))
+
 ## [0.1.5](https://github.com/hieplam/horus/compare/v0.1.4...v0.1.5) (2026-11-20)
 
 

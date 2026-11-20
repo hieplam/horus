@@ -212,7 +212,7 @@ func jobError(err error) *jobdata.JobError {
 
 // WorkerLock takes the one-worker lock of the job store. It gives
 // jobdata.ErrWorkerLocked when another worker holds it.
-func (s *Service) WorkerLock(ctx context.Context) (release func(), err error) {
+func (s *Service) WorkerLock(ctx context.Context) (jobdata.Lock, error) {
 	return s.store.WorkerLock(ctx)
 }
 

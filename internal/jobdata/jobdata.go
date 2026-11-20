@@ -1,6 +1,6 @@
 // Package jobdata holds the data of the job queue: a job, its state, a change
-// of its state, a message of the broker, a delivery, an event and the summary
-// of the job store. It also holds the readiness report of horus.
+// of its state, a message of the broker, a delivery, an event, the worker lock
+// and the summary of the job store. It also holds the readiness report of horus.
 //
 // The package is in the base layer. The service internal/jobs declares the
 // interfaces Broker and Store with these types, and an adapter (for example
@@ -53,7 +53,22 @@ var (
 	ErrNotFound = errors.New("jobdata: no job with this id")
 	// ErrWorkerLocked: another worker holds the worker lock.
 	ErrWorkerLocked = errors.New("jobdata: another worker holds the worker lock")
+	// ErrLockLost: this lock no longer holds the worker lock, for example
+	// because its session ended at a restart of the database.
+	ErrLockLost = errors.New("jobdata: this worker no longer holds the worker lock")
 )
+
+// Lock is the one-worker lock that a job store gives to one worker
+// (jobs.Store.WorkerLock).
+type Lock struct {
+	// Check gives nil while this lock holds the one-worker lock. Else it gives
+	// an error that wraps ErrLockLost: the session of the lock ended, or the
+	// store cannot tell. Then the worker takes the lock again.
+	Check func(ctx context.Context) error
+	// Release gives the lock back. A second call does nothing. The release of
+	// a lost lock never frees the lock of the next holder.
+	Release func()
+}
 
 // Progress is the last progress report of a running job.
 type Progress struct {

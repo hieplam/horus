@@ -5,11 +5,13 @@
 // the API process) with generate.Run.
 //
 //	slots      HORUS_WORKER_CONCURRENCY: the jobs that run at the same time, and the prefetch of Consume
-//	gate       no delivery starts while ComfyUI does not answer; the queued jobs keep their place
+//	gate       no delivery starts while ComfyUI does not answer, or while the worker has no worker lock; the queued jobs keep their place
 //	consumer   jobs.Service.Handle: a run only after the move from queued to running (the idempotent consumer)
 //	cancel     a cancel request of a running job ends its run (jobs.Service.Handle): the event, and the job store every 5 s
-//	heartbeat  the row of this worker in horus.workers, every 5 s
-//	lock       one worker: a second horus worker prints the first one and exits
+//	heartbeat  every 5 s: a check of the worker lock, then the row of this worker in horus.workers
+//	lock       one worker: a second horus worker prints the first one and exits. When the session of the
+//	           lock ends (a restart of horus-db), the worker takes the lock again every 2 s. When another
+//	           worker took the lock in that time, this worker exits (ADR 0037)
 //	sweep      every 30 s, and at each delivery: expired after the deadline, abandoned after 60 s with no waiter
 //	retention  at the start and one time each day: delete the jobs that ended more than HORUS_JOB_RETENTION_DAYS ago
 //
@@ -50,7 +52,12 @@ const (
 	DefaultSweep       = 30 * time.Second
 	DefaultDeleteEvery = 24 * time.Hour
 	DefaultComfyPoll   = 2 * time.Second
+	DefaultLockRetry   = 2 * time.Second
 )
+
+// lockTimeout is the longest time of one check of the worker lock, and of one
+// try to take the lock again.
+const lockTimeout = 5 * time.Second
 
 // Config holds the settings of one worker process. A zero field gets its
 // default.
@@ -65,7 +72,8 @@ type Config struct {
 	Slots int
 	// Retention is HORUS_JOB_RETENTION_DAYS as a duration. Default 30 days.
 	Retention time.Duration
-	// Heartbeat is how often the worker writes its row. Default 5 s.
+	// Heartbeat is how often the worker checks its worker lock and writes its
+	// row. Default 5 s.
 	Heartbeat time.Duration
 	// Sweep is how often the worker sweeps the job store. Default 30 s.
 	Sweep time.Duration
@@ -74,8 +82,11 @@ type Config struct {
 	// ComfyPoll is how often the gate asks ComfyUI again while it does not
 	// answer. Default 2 s.
 	ComfyPoll time.Duration
+	// LockRetry is how often the worker tries to take the worker lock again
+	// after the session of its lock ended. Default 2 s.
+	LockRetry time.Duration
 	// Log gets one line for each start, each delivery, each change of the
-	// gate and each failed step. nil: no log.
+	// gate and of the worker lock, and each failed step. nil: no log.
 	Log io.Writer
 }
 
@@ -98,14 +109,18 @@ func (c Config) withDefaults() Config {
 	if c.ComfyPoll <= 0 {
 		c.ComfyPoll = DefaultComfyPoll
 	}
+	if c.LockRetry <= 0 {
+		c.LockRetry = DefaultLockRetry
+	}
 	if c.Log == nil {
 		c.Log = io.Discard
 	}
 	return c
 }
 
-// LockedError is the error of Run when another worker holds the worker lock.
-// First is the worker row with the newest heartbeat, or nil.
+// LockedError is the error of Run when another worker holds the worker lock:
+// at the start, or when this worker takes the lock again after its session
+// ended. First is the worker row with the newest heartbeat, or nil.
 type LockedError struct {
 	First *jobdata.Worker
 }
@@ -126,8 +141,17 @@ type loop struct {
 	gen  *generate.Service
 	row  jobdata.Worker
 
-	logMu sync.Mutex
-	down  atomic.Bool // the gate saw ComfyUI not answer, and logged it
+	// lock is the worker lock of this worker. Only the goroutine of the
+	// heartbeat changes it, and Run releases it after that goroutine ends.
+	lock jobdata.Lock
+	// fail stops Run with its cause: a *LockedError when another worker took
+	// the lock.
+	fail context.CancelCauseFunc
+
+	logMu    sync.Mutex
+	down     atomic.Bool // the gate saw ComfyUI not answer, and logged it
+	noLock   atomic.Bool // the session of the lock ended, and the worker does not hold the lock again yet
+	lockWait atomic.Bool // the gate holds a delivery because of noLock, and logged it
 }
 
 func (l *loop) logf(format string, args ...any) {
@@ -139,22 +163,22 @@ func (l *loop) logf(format string, args ...any) {
 // Run is the loop of horus worker. It takes the worker lock, writes the
 // heartbeat, sweeps, deletes the old jobs, and consumes the work queue
 // jobs.comfyui until ctx ends. Then it returns nil. A worker lock that another
-// worker holds gives a *LockedError at once.
+// worker holds gives a *LockedError at once. At each heartbeat, Run checks the
+// lock, and takes it again when its session ended (keepLock). When another
+// worker took the lock in that time, Run stops its jobs and gives a
+// *LockedError.
 func Run(ctx context.Context, cfg Config, j *jobs.Service, g *generate.Service) error {
 	cfg = cfg.withDefaults()
 	l := &loop{cfg: cfg, jobs: j, gen: g}
-	release, err := j.WorkerLock(ctx)
+	lock, err := j.WorkerLock(ctx)
 	if errors.Is(err, jobdata.ErrWorkerLocked) {
-		sum, serr := j.Summary(ctx)
-		if serr != nil {
-			return errors.Join(&LockedError{}, serr)
-		}
-		return &LockedError{First: sum.Worker}
+		return l.locked(ctx)
 	}
 	if err != nil {
 		return err
 	}
-	defer release()
+	l.lock = lock
+	defer func() { l.lock.Release() }()
 
 	l.row = jobdata.Worker{ID: cfg.ID, Host: cfg.Host, PID: cfg.PID, Version: cfg.Version, Slots: cfg.Slots, StartedAt: time.Now()}
 	if err := j.Heartbeat(ctx, l.row); err != nil {
@@ -164,7 +188,10 @@ func Run(ctx context.Context, cfg Config, j *jobs.Service, g *generate.Service) 
 	l.sweep(ctx)
 	l.deleteOld(ctx)
 
-	bctx, stop := context.WithCancel(ctx)
+	rctx, fail := context.WithCancelCause(ctx)
+	defer fail(nil)
+	l.fail = fail
+	bctx, stop := context.WithCancel(rctx)
 	var wg sync.WaitGroup
 	every := func(d time.Duration, f func(context.Context)) {
 		wg.Add(1)
@@ -186,7 +213,7 @@ func Run(ctx context.Context, cfg Config, j *jobs.Service, g *generate.Service) 
 	every(cfg.Sweep, l.sweep)
 	every(cfg.DeleteEvery, l.deleteOld)
 
-	err = j.Consume(ctx, jobs.Consumer{
+	err = j.Consume(rctx, jobs.Consumer{
 		WorkerID: cfg.ID,
 		Queue:    jobs.WorkQueue(Backend),
 		Slots:    cfg.Slots,
@@ -196,6 +223,11 @@ func Run(ctx context.Context, cfg Config, j *jobs.Service, g *generate.Service) 
 	})
 	stop()
 	wg.Wait()
+	var le *LockedError
+	if cause := context.Cause(rctx); errors.As(cause, &le) {
+		l.logf("stopped: id %s: %v", cfg.ID, cause)
+		return cause
+	}
 	if ctx.Err() != nil {
 		l.logf("stopped: id %s", cfg.ID)
 		return nil
@@ -203,10 +235,76 @@ func Run(ctx context.Context, cfg Config, j *jobs.Service, g *generate.Service) 
 	return err
 }
 
-// heartbeat writes the row of this worker with the time now.
+// locked gives the *LockedError of a worker lock that another worker holds,
+// with the worker row of the newest heartbeat. The row of this worker is not
+// the other worker: then First is nil.
+func (l *loop) locked(ctx context.Context) error {
+	sum, err := l.jobs.Summary(ctx)
+	if err != nil {
+		return errors.Join(&LockedError{}, err)
+	}
+	if sum.Worker != nil && sum.Worker.ID == l.cfg.ID {
+		return &LockedError{}
+	}
+	return &LockedError{First: sum.Worker}
+}
+
+// heartbeat checks the worker lock, then writes the row of this worker with
+// the time now. A worker without the lock writes no row.
 func (l *loop) heartbeat(ctx context.Context) {
+	if !l.keepLock(ctx) {
+		return
+	}
 	if err := l.jobs.Heartbeat(ctx, l.row); err != nil && ctx.Err() == nil {
 		l.logf("the heartbeat failed: %v", err)
+	}
+}
+
+// keepLock gives true while this worker holds the worker lock. When the
+// session of the lock ended (a restart of horus-db), the gate takes no new
+// delivery, and keepLock takes the lock again on a new session: at once, then
+// every Config.LockRetry. When another worker holds the lock, keepLock stops
+// Run with a *LockedError. It gives false when ctx ends or Run stops.
+func (l *loop) keepLock(ctx context.Context) bool {
+	cctx, cancel := context.WithTimeout(ctx, lockTimeout)
+	err := l.lock.Check(cctx)
+	cancel()
+	if err == nil {
+		return true
+	}
+	if ctx.Err() != nil {
+		return false
+	}
+	lost := time.Now()
+	l.noLock.Store(true)
+	l.logf("the worker lock is lost: %v: the worker takes no delivery until it holds the lock again", err)
+	l.lock.Release()
+	logged := false
+	for {
+		tctx, cancel := context.WithTimeout(ctx, lockTimeout)
+		lock, err := l.jobs.WorkerLock(tctx)
+		cancel()
+		switch {
+		case err == nil:
+			l.lock = lock
+			l.noLock.Store(false)
+			l.lockWait.Store(false)
+			l.logf("the worker holds the worker lock again, %s after the lock was lost", time.Since(lost).Round(time.Millisecond))
+			return true
+		case errors.Is(err, jobdata.ErrWorkerLocked):
+			l.fail(l.locked(ctx))
+			return false
+		case ctx.Err() != nil:
+			return false
+		case !logged:
+			l.logf("the worker cannot take the worker lock again: %v: it tries again every %s", err, l.cfg.LockRetry)
+			logged = true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(l.cfg.LockRetry):
+		}
 	}
 }
 
@@ -233,23 +331,30 @@ func (l *loop) deleteOld(ctx context.Context) {
 	}
 }
 
-// ready is the gate: it returns when ComfyUI answers, or with the error of
-// ctx. While ComfyUI does not answer, no delivery starts, so each queued job
-// keeps its place.
+// ready is the gate: it returns when this worker holds the worker lock and
+// ComfyUI answers, or with the error of ctx. While the worker has no lock or
+// ComfyUI does not answer, no delivery starts, so each queued job keeps its
+// place.
 func (l *loop) ready(ctx context.Context) error {
 	for {
-		up, err := l.gen.Running(ctx)
-		if err == nil && up {
-			if l.down.CompareAndSwap(true, false) {
-				l.logf("ComfyUI answers again: the worker takes deliveries")
+		if l.noLock.Load() {
+			if l.lockWait.CompareAndSwap(false, true) {
+				l.logf("a delivery waits until the worker holds the worker lock again")
 			}
-			return nil
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if l.down.CompareAndSwap(false, true) {
-			l.logf("ComfyUI does not answer: the worker takes no delivery until it answers")
+		} else {
+			up, err := l.gen.Running(ctx)
+			if err == nil && up {
+				if l.down.CompareAndSwap(true, false) {
+					l.logf("ComfyUI answers again: the worker takes deliveries")
+				}
+				return nil
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if l.down.CompareAndSwap(false, true) {
+				l.logf("ComfyUI does not answer: the worker takes no delivery until it answers")
+			}
 		}
 		select {
 		case <-ctx.Done():

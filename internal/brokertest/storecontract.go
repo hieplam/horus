@@ -19,13 +19,14 @@ import (
 
 // NewStoreFunc makes an empty job store for one check of RunStore. now is the
 // clock of the store. events gives the types of the event rows of a job, in
-// order.
-type NewStoreFunc func(t testing.TB, now func() time.Time) (s jobs.Store, events func(id string) []string)
+// order. endLock ends the session of the worker lock, as a restart of the
+// database does: the holder loses the lock, and the lock is free.
+type NewStoreFunc func(t testing.TB, now func() time.Time) (s jobs.Store, events func(id string) []string, endLock func())
 
 // storeCheck is one check of the store contract.
 type storeCheck struct {
 	name string
-	run  func(t testing.TB, s jobs.Store, events func(id string) []string, clk *clock)
+	run  func(t testing.TB, s jobs.Store, events func(id string) []string, clk *clock, endLock func())
 }
 
 // storeChecks are the checks of the store contract, in the order of RunStore.
@@ -38,6 +39,7 @@ var storeChecks = []storeCheck{
 	{"sweep", checkSweep},
 	{"summary", checkSummary},
 	{"worker_lock", checkWorkerLock},
+	{"worker_lock_lost", checkWorkerLockLost},
 	{"heartbeat", checkHeartbeat},
 	{"delete_old", checkDeleteOld},
 }
@@ -58,8 +60,8 @@ func RunStore(t *testing.T, newStore NewStoreFunc) {
 	for _, c := range storeChecks {
 		t.Run(c.name, func(t *testing.T) {
 			clk := &clock{now: t0}
-			s, events := newStore(t, clk.Now)
-			c.run(t, s, events, clk)
+			s, events, endLock := newStore(t, clk.Now)
+			c.run(t, s, events, clk, endLock)
 		})
 	}
 }
@@ -71,8 +73,8 @@ func storeFailures(t *testing.T, name string, newStore NewStoreFunc) []string {
 	for _, c := range storeChecks {
 		if c.name == name {
 			clk := &clock{now: t0}
-			s, events := newStore(t, clk.Now)
-			return record(t, func(r testing.TB) { c.run(r, s, events, clk) })
+			s, events, endLock := newStore(t, clk.Now)
+			return record(t, func(r testing.TB) { c.run(r, s, events, clk, endLock) })
 		}
 	}
 	t.Fatalf("no store check %s", name)
@@ -206,7 +208,7 @@ func notFound(t testing.TB, what string, err error) {
 // checkInsertGet: Get gives each field that Insert wrote, an empty field
 // stays empty, and Insert writes the event job.queued. A second Insert with
 // the same id fails and changes nothing. An unknown id gives ErrNotFound.
-func checkInsertGet(t testing.TB, s jobs.Store, events func(string) []string, _ *clock) {
+func checkInsertGet(t testing.TB, s jobs.Store, events func(string) []string, _ *clock, _ func()) {
 	full := jobdata.Job{ID: uid(1), Tool: "generate_image", Workflow: "it-illustration", Backend: "comfyui",
 		WorkQueue: "jobs.comfyui", ResourceKey: "flux-3-klein", Payload: json.RawMessage(`{"subject":"a cat on a desk","seed":7}`),
 		RequestHash: "ab12", IdempotencyKey: "k1:cd34", State: jobdata.Running, Attempt: 2,
@@ -237,7 +239,7 @@ func checkInsertGet(t testing.TB, s jobs.Store, events func(string) []string, _ 
 // jobdata.Apply does, and writes one event of the type of the change. A move
 // from another state and a move of an unknown id give false and change
 // nothing. A change with no time gets the time of the clock.
-func checkMove(t testing.TB, s jobs.Store, events func(string) []string, clk *clock) {
+func checkMove(t testing.TB, s jobs.Store, events func(string) []string, clk *clock, _ func()) {
 	ctx := context.Background()
 	move := func(id string, from []jobdata.State, to jobdata.State, c jobdata.Change, want bool) {
 		t.Helper()
@@ -296,7 +298,7 @@ func checkMove(t testing.TB, s jobs.Store, events func(string) []string, clk *cl
 
 // checkOneMoveWins: of 8 moves of one job from queued to running at the same
 // time, exactly one moves it (the idempotent consumer).
-func checkOneMoveWins(t testing.TB, s jobs.Store, events func(string) []string, _ *clock) {
+func checkOneMoveWins(t testing.TB, s jobs.Store, events func(string) []string, _ *clock, _ func()) {
 	insert(t, s, queuedJob(1, t0))
 	const n = 8
 	var wg sync.WaitGroup
@@ -332,7 +334,7 @@ func checkOneMoveWins(t testing.TB, s jobs.Store, events func(string) []string, 
 
 // checkTouch: Touch writes the time of the clock to waiter_seen_at, and
 // changes nothing else. An unknown id gives ErrNotFound.
-func checkTouch(t testing.TB, s jobs.Store, _ func(string) []string, clk *clock) {
+func checkTouch(t testing.TB, s jobs.Store, _ func(string) []string, clk *clock, _ func()) {
 	j := queuedJob(1, t0.Add(-time.Minute))
 	insert(t, s, j)
 	clk.Set(t0.Add(10 * time.Second))
@@ -349,7 +351,7 @@ func checkTouch(t testing.TB, s jobs.Store, _ func(string) []string, clk *clock)
 // checkPosition: the place of a queued job is its place among the queued jobs
 // by the time they were made, oldest first, and not by the order of Insert. A
 // job that is not queued has the place 0.
-func checkPosition(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock) {
+func checkPosition(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock, _ func()) {
 	ctx := context.Background()
 	insert(t, s, queuedJob(3, t0.Add(-10*time.Second)))
 	insert(t, s, queuedJob(1, t0.Add(-30*time.Second)))
@@ -377,7 +379,7 @@ func checkPosition(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock
 // a queued job with no waiter for more than jobdata.AbandonAfter to
 // abandoned, at the time of the clock, with the event. Expired comes first.
 // It changes no other job, and a second sweep changes nothing.
-func checkSweep(t testing.TB, s jobs.Store, events func(string) []string, _ *clock) {
+func checkSweep(t testing.TB, s jobs.Store, events func(string) []string, _ *clock, _ func()) {
 	ctx := context.Background()
 	job := func(i int, deadline, waiter time.Time) jobdata.Job {
 		j := queuedJob(i, t0.Add(-3*time.Hour))
@@ -424,7 +426,7 @@ func checkSweep(t testing.TB, s jobs.Store, events func(string) []string, _ *clo
 
 // checkSummary: the counts and the lists of the Horus UI. "Today" starts at
 // 00:00 of the day of the clock.
-func checkSummary(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock) {
+func checkSummary(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock, _ func()) {
 	ended := func(i int, state jobdata.State, started, finished time.Time, key string) jobdata.Job {
 		j := queuedJob(i, started.Add(-time.Minute))
 		j.State, j.StartedAt, j.FinishedAt, j.IdempotencyKey, j.Attempt = state, started, finished, key, 1
@@ -504,27 +506,77 @@ func checkSummary(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock)
 	}
 }
 
-// checkWorkerLock: one holder of the worker lock at a time. A release lets
-// the next one take it, and a second release does nothing.
-func checkWorkerLock(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock) {
+// checkWorkerLock: one holder of the worker lock at a time. Check gives nil
+// while the lock holds it, and ErrLockLost after the release. A release lets
+// the next one take the lock, and a second release does nothing.
+func checkWorkerLock(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock, _ func()) {
 	ctx := context.Background()
-	release, err := s.WorkerLock(ctx)
+	first, err := s.WorkerLock(ctx)
 	if err != nil {
 		t.Fatalf("the first WorkerLock: %v", err)
 	}
-	if r2, err := s.WorkerLock(ctx); !errors.Is(err, jobdata.ErrWorkerLocked) {
-		if r2 != nil {
-			r2()
+	if err := first.Check(ctx); err != nil {
+		t.Errorf("Check of the first lock while it holds the lock: %v, want nil", err)
+	}
+	if l2, err := s.WorkerLock(ctx); !errors.Is(err, jobdata.ErrWorkerLocked) {
+		if l2.Release != nil {
+			l2.Release()
 		}
 		t.Errorf("a second WorkerLock while the first holds it: error %v, want jobdata.ErrWorkerLocked", err)
 	}
-	release()
+	first.Release()
+	if err := first.Check(ctx); !errors.Is(err, jobdata.ErrLockLost) {
+		t.Errorf("Check of the first lock after its release: %v, want jobdata.ErrLockLost", err)
+	}
 	again, err := s.WorkerLock(ctx)
 	if err != nil {
 		t.Fatalf("WorkerLock after the release: %v", err)
 	}
-	again()
-	again()
+	first.Release()
+	if err := again.Check(ctx); err != nil {
+		t.Errorf("Check of the next lock after a second release of the first: %v, want nil", err)
+	}
+	again.Release()
+	again.Release()
+}
+
+// checkWorkerLockLost: when the session of the lock ends (a restart of the
+// database), Check of the lock gives ErrLockLost, and the lock is free. The
+// next WorkerLock takes it on a new session, and while it holds the lock, a
+// third WorkerLock gives ErrWorkerLocked. The release of the lost lock does
+// not free the lock of the next holder.
+func checkWorkerLockLost(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock, endLock func()) {
+	ctx := context.Background()
+	lost, err := s.WorkerLock(ctx)
+	if err != nil {
+		t.Fatalf("the first WorkerLock: %v", err)
+	}
+	defer lost.Release()
+	if err := lost.Check(ctx); err != nil {
+		t.Fatalf("Check before the session ends: %v, want nil", err)
+	}
+	endLock()
+	if err := lost.Check(ctx); !errors.Is(err, jobdata.ErrLockLost) {
+		t.Errorf("Check after the session of the lock ended: %v, want jobdata.ErrLockLost", err)
+	}
+	next, err := s.WorkerLock(ctx)
+	if err != nil {
+		t.Fatalf("WorkerLock after the session of the lock ended: %v, want the lock on a new session", err)
+	}
+	defer next.Release()
+	if err := next.Check(ctx); err != nil {
+		t.Errorf("Check of the lock on the new session: %v, want nil", err)
+	}
+	lost.Release()
+	if err := next.Check(ctx); err != nil {
+		t.Errorf("Check of the new lock after the release of the lost lock: %v, want nil", err)
+	}
+	if l3, err := s.WorkerLock(ctx); !errors.Is(err, jobdata.ErrWorkerLocked) {
+		if l3.Release != nil {
+			l3.Release()
+		}
+		t.Errorf("a third WorkerLock while the new lock holds it: error %v, want jobdata.ErrWorkerLocked", err)
+	}
 }
 
 // sameWorker checks the worker row of the summary against want.
@@ -554,7 +606,7 @@ func summaryWorker(t testing.TB, s jobs.Store) *jobdata.Worker {
 // checkHeartbeat: Heartbeat writes the worker row with heartbeat_at at the
 // time of the clock, not the time in its argument. A second call writes each
 // column again. The summary gives the row with the newest heartbeat.
-func checkHeartbeat(t testing.TB, s jobs.Store, _ func(string) []string, clk *clock) {
+func checkHeartbeat(t testing.TB, s jobs.Store, _ func(string) []string, clk *clock, _ func()) {
 	ctx := context.Background()
 	beat := func(w jobdata.Worker) {
 		t.Helper()
@@ -597,7 +649,7 @@ func checkHeartbeat(t testing.TB, s jobs.Store, _ func(string) []string, clk *cl
 // age before the time of the clock, with its events, and each worker row with
 // a heartbeat that old. It keeps a job that finished exactly age before, a
 // newer job, and a queued or a running job of any age.
-func checkDeleteOld(t testing.TB, s jobs.Store, events func(string) []string, clk *clock) {
+func checkDeleteOld(t testing.TB, s jobs.Store, events func(string) []string, clk *clock, _ func()) {
 	ctx := context.Background()
 	const age = 30 * 24 * time.Hour
 	old := t0.Add(-age - time.Second)

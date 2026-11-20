@@ -552,12 +552,95 @@ func TestHttpGuard(t *testing.T) {
 // queueText is the progress text of a queued job.
 var queueText = regexp.MustCompile(`^waiting in the horus queue, position (\d+) of (\d+), start in (about \d+ min|less than 1 min)$`)
 
+// progressRunEstimate is HORUS_RUN_ESTIMATE of the stack of TestQueueProgress,
+// in seconds. Before a job succeeded, horus uses it as the run time of one job
+// in the estimated start. With 250 s, the estimated start of call 2 stays
+// "about 4 min" and that of call 3 stays "about 8 min" while the calls 2 and 3
+// come from 0 to 40 s after the start of the run of call 1.
+const progressRunEstimate = 250
+
+// startWords is the estimated start of a queue text for a start that is in
+// away from now: the whole minutes, rounded to the nearest one, and "less
+// than 1 min" below 30 s.
+func startWords(in time.Duration) string {
+	if in >= 30*time.Second {
+		return fmt.Sprintf("about %d min", int((in+30*time.Second)/time.Minute))
+	}
+	return "less than 1 min"
+}
+
+// startRange gives each estimated start of a queue text for a start that is
+// from lo to hi away. The function knows the time of an event of horus only
+// between two of its own clock reads, so it computes the text for both ends.
+// The two ends give one text, but when a clock read is at a turn of a minute.
+func startRange(lo, hi time.Duration) []string {
+	var out []string
+	for d := lo; ; d += time.Second {
+		d = min(d, hi)
+		if w := startWords(d); !slices.Contains(out, w) {
+			out = append(out, w)
+		}
+		if d >= hi {
+			return out
+		}
+	}
+}
+
+// queuePlace is the place, the total and the estimated start of a queue text.
+type queuePlace struct {
+	pos, total int
+	start      string // "about 8 min" or "less than 1 min"
+	minutes    int    // 0 for "less than 1 min"
+}
+
+// placeOf reads a queue text. ok is false for a text of another kind.
+func placeOf(message string) (p queuePlace, ok bool) {
+	m := queueText.FindStringSubmatch(message)
+	if m == nil {
+		return queuePlace{}, false
+	}
+	p.pos, _ = strconv.Atoi(m[1])
+	p.total, _ = strconv.Atoi(m[2])
+	p.start = m[3]
+	if f := strings.Fields(m[3]); f[0] == "about" {
+		p.minutes, _ = strconv.Atoi(f[1])
+	}
+	return p, true
+}
+
+// queueTexts gives the queue texts of notes, in their order.
+func queueTexts(notes []progressNote) []string {
+	texts := []string{}
+	for _, n := range notes {
+		if queueText.MatchString(n.message) {
+			texts = append(texts, n.message)
+		}
+	}
+	return texts
+}
+
 // TestQueueProgress makes 3 calls on the test stack, one after the other,
-// while the first one runs. The third call gets its place in the queue
-// ("position 2 of 2" or less) and its estimated start as progress, at least
-// every 10 s, and then its PNG.
+// while the first one runs. The stack has one slot, a job runs for 15 s, and
+// HORUS_RUN_ESTIMATE is progressRunEstimate. Each call gets its place in the
+// queue and its estimated start as progress:
+//
+//   - Call 1 comes to an empty queue and a free slot: "position 1 of 1, start
+//     in less than 1 min".
+//   - Call 2 comes while call 1 runs: its first message is "position 1 of 1",
+//     and its start is one run estimate after the start of call 1. After
+//     call 3 comes, its text is "position 1 of 2".
+//   - Call 3 comes while call 1 runs and call 2 waits: its first message is
+//     "position 2 of 2", and its start is two run estimates after the start
+//     of call 1. After call 1 ends, call 2 runs and call 3 gets "position 1 of
+//     1", with a start that is at most the run time of call 1 away.
+//
+// The third call gets a message at least every 10 s, and then its PNG.
 func TestQueueProgress(t *testing.T) {
-	f, st := e2eStack(t, 15*time.Second)
+	const jobRun = 15 * time.Second
+	estimate := progressRunEstimate * time.Second
+	f := startJobFake(t, jobRun)
+	st := newQueueStack(t, f.port, "HORUS_WORKER_CONCURRENCY=1", "HORUS_RUN_ESTIMATE="+strconv.Itoa(progressRunEstimate))
+	upWait(t, st.env)
 	var sessions []*session
 	for i := 0; i < 3; i++ {
 		s, err := openSession(t, 60*time.Second)
@@ -572,9 +655,12 @@ func TestQueueProgress(t *testing.T) {
 			"out_path": filepath.Join(st.shared, fmt.Sprintf("progress-%d.png", n))}
 	}
 	results := make([]chan envelope, 3)
-	firsts := make([]string, 2) // the first progress message of the calls 1 and 2
+	firsts := make([]progressNote, 2) // the first progress message of the calls 1 and 2
+	sent := make([]time.Time, 2)      // the time before the calls 1 and 2 went out
+	var runSeen time.Time             // a time when call 1 was in ComfyUI: its run started before
 	for n := 1; n <= 2; n++ {
 		results[n-1] = make(chan envelope, 1)
+		sent[n-1] = time.Now()
 		go func(n int) {
 			e, err := sessions[n-1].callToken("generate_image", args(n), fmt.Sprintf("p%d", n), 180*time.Second)
 			if err != nil {
@@ -585,7 +671,7 @@ func TestQueueProgress(t *testing.T) {
 		// The next call starts when this one is in the queue of horus.
 		select {
 		case note := <-sessions[n-1].progress:
-			firsts[n-1] = note.message
+			firsts[n-1] = note
 		case <-time.After(60 * time.Second):
 			t.Fatalf("call %d: no progress in 60 s", n)
 		}
@@ -598,6 +684,7 @@ func TestQueueProgress(t *testing.T) {
 			}); why != "" {
 				t.Fatal(why)
 			}
+			runSeen = time.Now()
 		}
 	}
 	start := time.Now()
@@ -610,8 +697,25 @@ func TestQueueProgress(t *testing.T) {
 	for len(sessions[2].progress) > 0 {
 		notes = append(notes, <-sessions[2].progress)
 	}
+	// The messages of the 3 calls. The run output shows their queue texts.
+	all := [][]progressNote{{firsts[0]}, {firsts[1]}, notes}
+	for n := 1; n <= 2; n++ {
+		e := <-results[n-1]
+		if !e.OK {
+			t.Errorf("call %d: %+v", n, e)
+		}
+		for len(sessions[n-1].progress) > 0 {
+			all[n-1] = append(all[n-1], <-sessions[n-1].progress)
+		}
+	}
+	for n := 1; n <= 3; n++ {
+		t.Logf("call %d: its queue texts, %d of its %d messages: %q", n, len(queueTexts(all[n-1])), len(all[n-1]), queueTexts(all[n-1]))
+	}
+
+	// Call 3: the place and the gaps.
 	positions := 0
-	lastPos := 0 // the position of the last queue message: it never rises
+	lastPos := 0      // the position of the last queue message: it never rises
+	lastMinutes := -1 // the minutes of the estimated start of the last queue message: they never rise
 	last := start
 	for _, n := range notes {
 		if gap := n.at.Sub(last); gap > 10*time.Second {
@@ -629,6 +733,11 @@ func TestQueueProgress(t *testing.T) {
 				t.Errorf("call 3: %q after position %d, want a position that never rises", n.message, lastPos)
 			}
 			lastPos = pos
+			p, _ := placeOf(n.message)
+			if lastMinutes >= 0 && p.minutes > lastMinutes {
+				t.Errorf("call 3: %q after a start in %d min, want an estimated start that never moves away: no job came before call 3", n.message, lastMinutes)
+			}
+			lastMinutes = p.minutes
 		}
 	}
 	if len(notes) > 0 {
@@ -647,25 +756,114 @@ func TestQueueProgress(t *testing.T) {
 		}
 		t.Fatalf("call 3: %d messages with its place in the queue, want 2 or more, the first one first: %q", positions, texts)
 	}
-	withPosition := 1 // call 3
-	for n := 1; n <= 2; n++ {
-		e := <-results[n-1]
-		if !e.OK {
-			t.Errorf("call %d: %+v", n, e)
-		}
-		texts := []string{firsts[n-1]}
-		for len(sessions[n-1].progress) > 0 {
-			texts = append(texts, (<-sessions[n-1].progress).message)
-		}
-		if slices.ContainsFunc(texts, queueText.MatchString) {
+	withPosition := 0
+	for n := 1; n <= 3; n++ {
+		if len(queueTexts(all[n-1])) > 0 {
 			withPosition++
 		}
 	}
 	if withPosition != 3 {
 		t.Errorf("calls with a position message: %d of 3, want each call: the first message is the place at the insert", withPosition)
 	}
-	t.Logf("call 3: first message %q; %d messages with its place in the queue, %d messages in all, each gap at most 10 s",
-		notes[0].message, positions, len(notes))
+
+	// The estimated start of the first message of a call that comes while
+	// call 1 runs: the start of the run of call 1, plus one run estimate for
+	// each job before the call, minus the time of the insert of the call. The
+	// run of call 1 started from sent[0] to runSeen. The insert of the call was
+	// from the time before the call went out to the time of its first message.
+	firstStart := func(n, before int, out time.Time, first progressNote) {
+		t.Helper()
+		lo := time.Duration(before)*estimate - first.at.Sub(sent[0])
+		hi := time.Duration(before)*estimate - out.Sub(runSeen)
+		want := startRange(lo, hi)
+		p, ok := placeOf(first.message)
+		if !ok || !slices.Contains(want, p.start) {
+			t.Errorf("call %d: first message %q, want the estimated start %q: %d jobs before it, HORUS_RUN_ESTIMATE %d s for each one, and the run of call 1 started from %s to %s before the call",
+				n, first.message, want, before, progressRunEstimate,
+				out.Sub(runSeen).Round(100*time.Millisecond), first.at.Sub(sent[0]).Round(100*time.Millisecond))
+		}
+	}
+
+	// Call 1: an empty queue and a free slot. Each of its queue texts is the
+	// same one.
+	const alone = "waiting in the horus queue, position 1 of 1, start in less than 1 min"
+	if firsts[0].message != alone {
+		t.Errorf("call 1: first message %q, want %q: no job runs and no job waits", firsts[0].message, alone)
+	}
+	for _, text := range queueTexts(all[0]) {
+		if text != alone {
+			t.Errorf("call 1: %q, want only %q: no job is before call 1", text, alone)
+		}
+	}
+
+	// Call 2: call 1 runs, and no job waits before it.
+	if p, ok := placeOf(firsts[1].message); !ok || p.pos != 1 || p.total != 1 {
+		t.Errorf("call 2: first message %q, want position 1 of 1: call 1 runs, and no job waits before call 2", firsts[1].message)
+	}
+	firstStart(2, 1, sent[1], firsts[1])
+	// Then call 3 comes behind it: position 1 of 2, while call 1 runs.
+	behind := 0
+	lastMinutes = -1
+	for i, n := range all[1] {
+		p, ok := placeOf(n.message)
+		if !ok {
+			continue
+		}
+		if p.pos != 1 || p.total < 1 || p.total > 2 {
+			t.Errorf("call 2: %q, want position 1 of 1 or 1 of 2: only call 1 is before call 2", n.message)
+		}
+		if i > 0 && p.pos == 1 && p.total == 2 {
+			behind++
+		}
+		if lastMinutes >= 0 && p.minutes > lastMinutes {
+			t.Errorf("call 2: %q after a start in %d min, want an estimated start that never moves away", n.message, lastMinutes)
+		}
+		lastMinutes = p.minutes
+	}
+	if behind == 0 {
+		t.Errorf("call 2: no message with position 1 of 2 after its first one, want one: call 3 waits behind call 2 while call 1 runs: %q", queueTexts(all[1]))
+	}
+
+	// Call 3: two jobs before it at its insert.
+	firstStart(3, 2, start, notes[0])
+	// Then call 1 ends and call 2 runs: call 3 is 1 of 1. That text can not
+	// come before the end of the run of call 1 on the fake ComfyUI. Its
+	// estimated start is at most one run away, and horus now uses the run time
+	// of call 1 from the job store.
+	end1 := f.endOf(81)
+	rows := query(t, "select extract(epoch from finished_at - started_at) from horus.jobs where payload->>'seed' = '81' and state = 'succeeded'")
+	if len(rows) != 1 {
+		t.Fatalf("the job store has %d succeeded jobs of call 1, want 1", len(rows))
+	}
+	seconds, err := strconv.ParseFloat(rows[0][0], 64)
+	if err != nil || seconds <= 0 {
+		t.Fatalf("the job store gives the run time %q of call 1, want a time above 0 s", rows[0][0])
+	}
+	run1 := time.Duration(seconds * float64(time.Second))
+	next := 0 // the messages of call 3 with position 1 of 1
+	for _, n := range notes {
+		p, ok := placeOf(n.message)
+		if !ok || p.pos != 1 {
+			continue
+		}
+		if p.total != 1 {
+			t.Errorf("call 3: %q, want position 1 of 1: no job waits behind call 3", n.message)
+			continue
+		}
+		next++
+		if end1.IsZero() || n.at.Before(end1) {
+			t.Errorf("call 3: %q came %s before the end of the run of call 1, want it after: call 2 waits before call 3 until then",
+				n.message, end1.Sub(n.at).Round(10*time.Millisecond))
+		}
+		if want := startRange(0, run1); !slices.Contains(want, p.start) {
+			t.Errorf("call 3: %q, want the estimated start %q: call 2 runs, and the run of call 1 took %s", n.message, want, run1.Round(100*time.Millisecond))
+		}
+	}
+	if next == 0 {
+		t.Errorf("call 3: no message with position 1 of 1, want one after call 1 ends: its place falls from 2 to 1: %q", queueTexts(notes))
+	}
+	t.Logf("call 3: first message %q; %d messages with its place in the queue, %d of them with position 1 of 1, %d messages in all, each gap at most 10 s",
+		notes[0].message, positions, next, len(notes))
 	t.Logf("calls with a position message: %d of 3", withPosition)
 }
 

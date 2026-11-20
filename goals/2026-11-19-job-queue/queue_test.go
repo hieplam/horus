@@ -271,6 +271,20 @@ func (f *jobFake) submits(seed int64) int {
 	return n
 }
 
+// endOf gives the time when the run of the job with the seed ended on the
+// fake, or the zero time while it did not end.
+func (f *jobFake) endOf(seed int64) time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.advance(time.Now())
+	for _, j := range f.jobs {
+		if j.seed == seed && j.state == "done" {
+			return j.end
+		}
+	}
+	return time.Time{}
+}
+
 // idle tells if the fake holds no job.
 func (f *jobFake) idle() bool {
 	f.mu.Lock()

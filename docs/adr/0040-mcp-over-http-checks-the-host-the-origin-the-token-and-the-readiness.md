@@ -37,8 +37,12 @@ bearer token, and no token in a log, a URL or a command line.
   against the test stack (the pull request of task #204 has the output):
   Claude Code 2.1.329 puts the value of `HORUS_API_TOKEN` in place of
   `${HORUS_API_TOKEN}` in a header, in a `--mcp-config` file and in the user
-  config that `claude mcp add --header` writes. Codex 0.166.0 reads the
-  variable that `bearer_token_env_var` names.
+  config that `claude mcp add --header` writes: `claude -p` called
+  `list_workflows` over HTTP, and a wrong token gave 401. Codex 0.166.0 reads
+  the variable that `bearer_token_env_var` names: its MCP client initialized
+  a session with the server `horus`, and a wrong token gave 401. A tool call
+  that the model of Codex makes is not verified: the Codex account of the PC
+  had no usage left.
 
 ## Decision
 

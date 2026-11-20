@@ -71,10 +71,13 @@ func TestTheProgramFileRemovesItself(t *testing.T) {
 	}
 	cmd := exec.Command(copyPath)
 	cmd.Env = append(os.Environ(), helperEnv+"=removeself")
+	var errOut strings.Builder
+	cmd.Stderr = &errOut
 	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("the copy failed: %v %s", err, out)
+		t.Fatalf("the copy failed: %v %s %s", err, out, errOut.String())
 	}
+	t.Log(strings.TrimSpace(errOut.String()))
 	if got := strings.TrimSpace(string(out)); !strings.EqualFold(got, copyPath) {
 		t.Fatalf("RemoveSelf named %q, want the copy %q", got, copyPath)
 	}

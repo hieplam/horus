@@ -106,6 +106,9 @@ var commands = map[string]command{
 	"api": {"serve the Horus UI, /readyz and /livez of horus in the stack (needs HORUS_DATABASE_URL)", func(args []string) int {
 		return withStop(func(ctx context.Context) int { return cli.API(ctx, args, os.Stdout, os.Stderr, runAPI) })
 	}},
+	"stack-mounts": {"write compose.override.yaml: the shared folders of the stack (HORUS_SHARED_DIRS)", func(args []string) int {
+		return cli.StackMounts(args, os.Stdout, os.Stderr)
+	}},
 	"ready": {"the 4 checks of horus in the stack, one line each; exit 0 when all pass", func(args []string) int {
 		return withSignal(func(ctx context.Context) int {
 			stack, done := stackOf(ctx, localAPI())

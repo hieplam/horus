@@ -1,6 +1,9 @@
 # Secrets
 .env
 
+# The shared folders of the stack: horus stack-mounts writes it for this PC.
+compose.override.yaml
+
 # Model files are gigabytes. They never belong in git.
 *.safetensors
 *.ckpt

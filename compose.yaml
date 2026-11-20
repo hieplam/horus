@@ -1,10 +1,14 @@
 # The stack of horus: 3 containers next to the ComfyUI of the host (ADR 0029,
 # docs/setup.md#run-horus-as-a-stack).
 #
+#   horus stack-mounts              write compose.override.yaml: the shared folders
 #   docker compose up -d --wait     start horus-db, then horus-worker, then horus-api
 #   docker exec horus-api horus ready
 #
 # The settings come from the .env of the repo root (see .env.example).
+# docker compose also reads compose.override.yaml next to this file:
+# horus stack-mounts writes it from HORUS_SHARED_DIRS, with one mount of each
+# shared folder into horus-api and horus-worker (ADR 0039).
 # HORUS_STACK names the stack, its containers, its volume and its image, so a
 # test stack (HORUS_STACK=horus_test, docker compose -p horus_test) never
 # touches the stack horus.
@@ -34,6 +38,10 @@ x-horus: &horus
     # The port of horus api in the container and on 127.0.0.1 of the host is
     # the same, so that the Horus UI accepts the Host header of the browser.
     HORUS_API_PORT: ${HORUS_API_PORT:-8190}
+    # The queue of the API process: QUEUE_FULL and the estimated start.
+    HORUS_QUEUE_MAX: ${HORUS_QUEUE_MAX:-20}
+    HORUS_QUEUE_TIMEOUT: ${HORUS_QUEUE_TIMEOUT:-7200}
+    HORUS_RUN_ESTIMATE: ${HORUS_RUN_ESTIMATE:-240}
 
 services:
   horus-db:

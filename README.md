@@ -206,14 +206,15 @@ horus uninstall -yes
 
 What `-yes` removes:
 
-- **The model files of the workflows.** This includes a model file that a person downloaded by hand, when its size matches `models.json`. A file with another size stays.
+- **The model files of the workflows.** This includes a model file that a person downloaded by hand, when its size matches `models.json`. A file with another size stays. The model files of a speech workflow are in the speech folder.
 - **The ComfyUI folder and the venv of comfy-cli and the comfy MCP server.** Only a folder that horus installed. horus writes a file `horus-install.json` into each folder that it makes, and it deletes a folder only when that file is there. A ComfyUI that you installed yourself, or that an older horus installed, stays. A ComfyUI that answers and that horus did not start stays too.
+- **The speech venv and the file of the speech worker** (`worker.py`), in the speech folder. Only a speech venv that horus made: it has the file `horus-install.json`. Then each empty folder of the speech folder goes. Close each agent program that uses horus first: a speech worker that runs holds files of the speech venv.
 - **The registration** of the server `horus` in Claude Code and in Codex.
 - **The copy of the built-in workflows** and the state files of horus in the user folder.
 - **The PATH entry of the install script, and the program itself.** The program is the last item.
 
 What it keeps: `.env` (your token) and `outputs/` (your images), because they are your
-data. The plan names both paths. A system package (7-Zip, Python) stays: horus never
+data. The plan names both paths. A system package (7-Zip, Python, FFmpeg) stays: horus never
 removes a system package. A PATH entry that you added by hand stays: remove it yourself.
 
 `horus uninstall -models` limits the command to the model files. `horus uninstall -mcp`

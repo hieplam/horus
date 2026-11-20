@@ -759,7 +759,8 @@ async def speech_setup_checks(server_cmd: list[str], base_env: dict[str, str], s
     speech worker where the real one puts Python 3.12, ffmpeg and ffprobe. As Python 3.12, the fake worker makes a
     stand-in venv ("-m venv") and installs nothing ("-m pip"). The model file has an http address, which the
     downloader refuses at once: the download step runs, and no byte leaves the machine. Then the test puts the
-    stand-in model file where the download puts it, as a finished download does."""
+    stand-in model file where the download puts it, as a finished download does. At the end, uninstall_workflow
+    deletes that model file."""
     bare = tmp / "speech-bare"
     flows, home, local, speech = bare / "workflows", bare / "home", bare / "local", bare / "speech"
     flow = flows / SPEECH
@@ -850,6 +851,36 @@ async def speech_setup_checks(server_cmd: list[str], base_env: dict[str, str], s
                         and [ln for ln in speech_record_of(worker) if ln.startswith("start -m ")] == python,
                         json.dumps(again)[:300] + f" ran={ran}", key="speech-setup:again")
 
+                # The uninstall of the speech workflow: uninstall_workflow deletes the model file in the speech folder. The
+                # speech venv stays (horus uninstall removes it). The server ends its speech worker before it deletes.
+                def starts() -> list[str]:
+                    return [ln for ln in speech_record_of(worker) if ln.startswith("start -I ")]
+
+                plan = env_of(await s.call_tool("uninstall_workflow", {"workflow": SPEECH}))
+                e = plan.get("error") or {}
+                rows = [(f.get("file"), f.get("path"), f.get("state")) for f in (e.get("details") or {}).get("files") or []]
+                c.check("uninstall_workflow of a speech workflow without confirm -> CONFIRMATION_REQUIRED naming the model file in the "
+                        "speech folder; nothing deleted",
+                        e.get("code") == "CONFIRMATION_REQUIRED" and rows == [("voice.bin", str(model), "would_delete")] and model.is_file(),
+                        json.dumps(plan)[:400], key="speech-uninstall:plan")
+
+                first = starts()
+                gone = env_of(await s.call_tool("uninstall_workflow", {"workflow": SPEECH, "confirm": True}))
+                r = gone.get("result") or {}
+                missing = env_of(await s.call_tool("generate_speech", {"workflow": SPEECH, "text": SPEECH_TEXT})).get("error") or {}
+                model.write_bytes(data)  # the file again, as a new install puts it
+                back = env_of(await s.call_tool("generate_speech", {"workflow": SPEECH, "text": SPEECH_TEXT}))
+                c.check("uninstall_workflow of a speech workflow with confirm deletes the model file and ends the speech worker: "
+                        "generate_speech then answers WORKFLOW_NOT_INSTALLED naming the file, the speech venv stays, and with the "
+                        "file back a new speech worker starts",
+                        gone.get("ok") is True and [(f.get("file"), f.get("state")) for f in r.get("files", [])] == [("voice.bin", "deleted")]
+                        and r.get("freed_bytes") == len(data) and missing.get("code") == "WORKFLOW_NOT_INSTALLED"
+                        and "voice.bin" in ((missing.get("details") or {}).get("missing") or []) and (venv / "horus-install.json").is_file()
+                        and back.get("ok") is True and (back.get("result") or {}).get("started_worker") is True
+                        and len(first) == 1 and len(starts()) == 2,
+                        json.dumps(gone)[:300] + " " + json.dumps(missing)[:200] + " " + json.dumps(back)[:200] + f" starts={starts()}",
+                        key="speech-uninstall:deleted")
+
 
 def speech_record_of(path: Path) -> list[str]:
     """The lines of a record file of the fake speech worker."""
@@ -881,9 +912,9 @@ def main() -> int:
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
     passed = sum(1 for ok, _, _ in c.rows if ok)
     shipped = sum(1 for d in (ROOT / "workflows").iterdir() if (d / "manifest.json").is_file())
-    # 39 server checks of the image tools, the kind and the code table, 14 speech checks, 5 checks of the speech setup, plus 2
-    # style-neutral checks for each shipped workflow
-    total = 39 + 14 + 5 + 2 * shipped
+    # 39 server checks of the image tools, the kind and the code table, 14 speech checks, 5 checks of the speech setup,
+    # 2 checks of the speech uninstall, plus 2 style-neutral checks for each shipped workflow
+    total = 39 + 14 + 5 + 2 + 2 * shipped
     if a.report:
         a.report.write_text(json.dumps(c.report(total), indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"contract: {passed} of {total} passed")

@@ -2,8 +2,9 @@
 // for each item, with REMOVE or KEEP, the path, and the reason of a KEEP.
 // Without -yes it changes nothing. With -yes it removes each REMOVE item, in
 // this order: it stops the ComfyUI that horus started, then removes the model
-// files, ComfyUI, the venv, the MCP registration of Claude Code and Codex,
-// the files of horus in the user folder, the PATH entry of the install
+// files (also of a speech workflow), ComfyUI, the venv, the speech venv and
+// the file of the speech worker, the MCP registration of Claude Code and
+// Codex, the files of horus in the user folder, the PATH entry of the install
 // script, and the program file. -models limits it to the model files, -mcp
 // to the MCP registration. The work is in the service internal/provision.
 //
@@ -47,9 +48,10 @@ func RunUninstall(ctx context.Context, args []string, out, errOut io.Writer, at 
 	fs.Usage = func() {
 		w := fs.Output()
 		fmt.Fprintln(w, "Usage: horus uninstall [-yes] [-models] [-mcp] [flags]")
-		fmt.Fprintln(w, "Print what horus installed on this machine. With -yes, remove it: the model files, ComfyUI and the venv")
-		fmt.Fprintln(w, "(only a folder with the install record horus-install.json), the MCP registration, the files of horus")
-		fmt.Fprintln(w, "in the user folder, the PATH entry of the install script, and this program. .env and outputs/ stay.")
+		fmt.Fprintln(w, "Print what horus installed on this machine. With -yes, remove it: the model files, ComfyUI, the venv")
+		fmt.Fprintln(w, "and the speech venv (only a folder with the install record horus-install.json), the file of the speech")
+		fmt.Fprintln(w, "worker, the MCP registration, the files of horus in the user folder, the PATH entry of the install script,")
+		fmt.Fprintln(w, "and this program. .env and outputs/ stay. A system package (7-Zip, Python, FFmpeg) stays.")
 		fs.PrintDefaults()
 	}
 	if code, done := parse(fs, args); done {

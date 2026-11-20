@@ -470,12 +470,13 @@ horus uninstall -yes
 
 | Part | What `-yes` removes | What it keeps |
 |---|---|---|
-| Model files | The model files of each workflow, by the rules of `horus workflow remove` (with `-force`). This includes a file that a person downloaded by hand. | A file whose size differs from `models.json`. |
+| Model files | The model files of each workflow, by the rules of `horus workflow remove` (with `-force`). This includes a file that a person downloaded by hand. The files of a speech workflow are in the speech folder. | A file whose size differs from `models.json`. |
 | ComfyUI | The install folder, with everything in it, when it has the install record `horus-install.json`. horus first stops a ComfyUI that horus started. | A folder without the record (a ComfyUI that you or an older horus installed). A ComfyUI that answers and that horus did not start. |
 | comfy-cli and comfy MCP venv | The venv `~/.venvs/comfy-mcp` (of `horus setup` on macOS, or of `horus install-comfy-mcp`), when it has the install record. | A venv without the record. The plan says how to delete it by hand. |
+| Speech setup | In the speech folder: the speech venv, when it has the install record of the kind `speech-venv`, and `worker.py`. Then each empty folder of the speech folder, and the speech folder itself when it is empty. Close each agent program that uses horus first: a speech worker that runs holds files of the speech venv. | A speech venv without the record (a venv that you made). |
 | MCP registration | The server `horus` of Claude Code and of Codex, when the client is found and knows the server. | |
 | User folder | `builtin-workflows/` and the state files of horus. | `.env` (your token) and `outputs/` (your images): they are your data. The plan names both paths. |
-| Program | The PATH entry of the install script, and the program file (the last item). | A system package (7-Zip, Python): horus never removes one. A PATH entry that you added by hand. |
+| Program | The PATH entry of the install script, and the program file (the last item). | A system package (7-Zip, Python, FFmpeg): horus never removes one. A PATH entry that you added by hand. |
 
 `horus uninstall -models` limits the command to the model files. `horus uninstall -mcp`
 limits it to the registration of Claude Code and Codex.

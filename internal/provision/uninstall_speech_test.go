@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -204,12 +203,14 @@ func TestUninstallNeverEntersALinkInTheSpeechFolder(t *testing.T) {
 	mkfile(t, keep, []byte("data of a person"))
 	link := filepath.Join(sp.place.Models, "outside")
 	if os.Symlink(outside, link) != nil {
+		// Windows without the right of a symbolic link: an NTFS junction.
 		shell := os.Getenv("ComSpec") // the PATH of the sandbox holds only fakes
 		if shell == "" {
 			t.Skip("no symbolic link and no cmd here")
 		}
-		if out, err := exec.Command(shell, "/c", "mklink", "/J", link, outside).CombinedOutput(); err != nil {
-			t.Skipf("no link: %v %s", err, out)
+		code, err := platform.Programs{}.Run(context.Background(), platform.Command{Path: shell, Args: []string{"/c", "mklink", "/J", link, outside}})
+		if err != nil || code != 0 {
+			t.Skipf("no link: exit %d, %v", code, err)
 		}
 	}
 	u, err := s.run(t, UninstallRequest{})

@@ -242,7 +242,7 @@ func (e *env) state(t *testing.T, id string) jobdata.State { return e.get(t, id)
 
 func (e *env) summaryWorker(t *testing.T) *jobdata.Worker {
 	t.Helper()
-	sum, err := e.jobs.Summary(context.Background())
+	sum, err := e.jobs.Summary(context.Background(), time.Time{})
 	if err != nil {
 		t.Fatalf("Summary: %v", err)
 	}

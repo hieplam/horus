@@ -227,14 +227,22 @@ func (keepOld) DeleteOld(context.Context, time.Duration) (int, error) { return 0
 // workflow_today, also a cancelled one.
 type allWorkflowsToday struct{ *Store }
 
-func (s allWorkflowsToday) Summary(ctx context.Context) (jobdata.Summary, error) {
-	sum, err := s.Store.Summary(ctx)
+func (s allWorkflowsToday) Summary(ctx context.Context, today time.Time) (jobdata.Summary, error) {
+	sum, err := s.Store.Summary(ctx, today)
 	for _, j := range sum.Recent {
 		if j.State == jobdata.Cancelled {
 			sum.WorkflowToday[j.Workflow]++
 		}
 	}
 	return sum, err
+}
+
+// clockToday is a job store whose Summary starts "today" at 00:00 of the day
+// of its clock, for each caller.
+type clockToday struct{ *Store }
+
+func (s clockToday) Summary(ctx context.Context, _ time.Time) (jobdata.Summary, error) {
+	return s.Store.Summary(ctx, time.Time{})
 }
 
 // TestStoreChecksFailOnBadStores is the stub check of the store contract:
@@ -251,6 +259,7 @@ func TestStoreChecksFailOnBadStores(t *testing.T) {
 		{"worker_lock_lost", func(s *Store) jobs.Store { return lockNeverLost{s} }, "Check after the session of the lock ended: <nil>, want jobdata.ErrLockLost"},
 		{"worker_lock_lost", func(s *Store) jobs.Store { return releaseAny{s} }, "Check of the new lock after the release of the lost lock: jobdata: this worker no longer holds the worker lock, want nil"},
 		{"summary", func(s *Store) jobs.Store { return allWorkflowsToday{s} }, "Summary workflow_today: map[it-illustration:11 other-cancelled:1 other-today:1]"},
+		{"summary", func(s *Store) jobs.Store { return clockToday{s} }, "Summary with today from 22:30: succeeded, failed, same key [11 1 2]"},
 		{"heartbeat", func(s *Store) jobs.Store { return noHeartbeat{s} }, "after the first heartbeat: Summary worker <nil>"},
 		{"delete_old", func(s *Store) jobs.Store { return keepOld{s} }, "DeleteOld: 0 deleted, <nil>; want 3"},
 	} {

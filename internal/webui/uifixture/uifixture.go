@@ -48,8 +48,11 @@ type Fixture struct {
 // StaleBeat is the age of the heartbeat of a worker that is down.
 const StaleBeat = time.Minute
 
-// The values of the reference that a test reads.
+// The values of the reference that a test reads. A job row of the stack
+// holds the container path of its PNG: SharedDir is the container folder of
+// the shared folder of the fixtures.
 const (
+	SharedDir   = "/shared/outputs"
 	ResourceKey = "9f2c41d8e7b3a05c6f1e2d9a8b7c4e3f0a1b2c3d4e5f60718293a4b5c6d7e8f9"
 	Workflow    = "it-illustration"
 )
@@ -108,7 +111,7 @@ func (b *builder) ago(d time.Duration) time.Time {
 func (b *builder) job(workflow, subject, caller string, created time.Time, w, h int64) jobdata.Job {
 	id := b.id(created)
 	payload, _ := json.Marshal(generate.Plan{Workflow: workflow, Subject: subject, Seed: uint64(b.n), Width: w, Height: h,
-		Path: fmt.Sprintf(`C:\horus\outputs\%s\%s-%d.png`, workflow, created.UTC().Format("20060102T150405Z"), b.n)})
+		Path: fmt.Sprintf(SharedDir+"/%s/%s-%d.png", workflow, created.UTC().Format("20060102T150405Z"), b.n)})
 	tool := "generate_image"
 	backend := "comfyui"
 	if workflow == "vi-speech" {
@@ -151,7 +154,7 @@ func (b *builder) ended(workflow string, s jobdata.State, finished time.Time, wa
 	case jobdata.Succeeded:
 		var p generate.Plan
 		_ = json.Unmarshal(j.Payload, &p)
-		p.Path = fmt.Sprintf(`C:\horus\outputs\%s\%s-%d.png`, workflow, finished.UTC().Format("20060102T150405Z"), b.n)
+		p.Path = fmt.Sprintf(SharedDir+"/%s/%s-%d.png", workflow, finished.UTC().Format("20060102T150405Z"), b.n)
 		j.Result, _ = json.Marshal(map[string]any{"workflow": workflow, "path": p.Path, "width": w, "height": h, "seed": p.Seed})
 	case jobdata.Abandoned:
 		j.WaiterSeenAt = finished.Add(-jobdata.AbandonAfter - time.Second)

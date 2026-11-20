@@ -382,7 +382,7 @@ func stackParts(ctx context.Context, apiURL string) (mcpserver.Options, mcpserve
 		done()
 		return mcpserver.Options{}, mcpserver.Stack{}, nil, fmt.Errorf("the job queue has no database: %s", stack.Ready(ctx).Text())
 	}
-	q := &mcpserver.Queue{Jobs: svc, Paths: mcpserver.PathsOf(dirs, settings.HostOS()), QueueTimeout: cfg.QueueTimeout}
+	q := &mcpserver.Queue{Jobs: svc, Paths: jobs.PathsOf(dirs, settings.HostOS()), QueueTimeout: cfg.QueueTimeout}
 	return mcpserver.Options{Ready: stack.Ready, Queue: q, Models: stackModels()}, stack, done, nil
 }
 
@@ -396,7 +396,7 @@ func (q downQueue) Checks(context.Context) []jobdata.CheckResult {
 
 // Summary, Depth and Listen are the reads of the Horus UI. They fail with the
 // cause.
-func (q downQueue) Summary(context.Context) (jobdata.Summary, error) {
+func (q downQueue) Summary(context.Context, time.Time) (jobdata.Summary, error) {
 	return jobdata.Summary{}, errors.New(string(q))
 }
 
@@ -463,7 +463,10 @@ func runAPI(ctx context.Context, listen string, out io.Writer) error {
 		ComfyVersion: comfy.New("").Version,
 		Ports:        ports,
 		Settings: webui.Settings{DatabaseURL: settings.DatabaseURL(), ComfyURL: settings.ComfyURL(), Slots: slots,
-			RunLimit: time.Duration(limit) * time.Second, Broker: "Postgres"},
+			RunLimit: time.Duration(limit) * time.Second, Broker: "Postgres",
+			// The one mapping of a container path to a host path: the page
+			// shows the path that the result of generate_image gives.
+			Paths: opts.Queue.Paths},
 	}))
 	// Each request ends when ctx ends, so that a stream of events does not
 	// hold the stop, and a call of /mcp cancels its job. The server has no

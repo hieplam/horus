@@ -73,7 +73,11 @@ type Store interface {
 	// the time now: expired after its deadline, abandoned after
 	// jobdata.AbandonAfter with no waiter.
 	Sweep(ctx context.Context) (expired, abandoned int, err error)
-	Summary(ctx context.Context) (jobdata.Summary, error)
+	// Summary gives the counts and the lists of the job store. The counts of
+	// "today" start at the time today: the caller gives 00:00 of the day of
+	// the person who reads the counts. The zero time means 00:00 of the day
+	// of the clock of the store, for a caller that reads no count of today.
+	Summary(ctx context.Context, today time.Time) (jobdata.Summary, error)
 	// WorkerLock takes the one-worker lock. It gives jobdata.ErrWorkerLocked
 	// when another worker holds it. Lock.Check tells if the lock is still
 	// held: the lock goes when its session ends, for example at a restart of

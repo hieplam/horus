@@ -243,7 +243,7 @@ func Run(ctx context.Context, cfg Config, j *jobs.Service, g *generate.Service) 
 // with the worker row of the newest heartbeat. The row of this worker is not
 // the other worker: then First is nil.
 func (l *loop) locked(ctx context.Context) error {
-	sum, err := l.jobs.Summary(ctx)
+	sum, err := l.jobs.Summary(ctx, time.Time{})
 	if err != nil {
 		return errors.Join(&LockedError{}, err)
 	}

@@ -613,7 +613,9 @@ machine: set it up with the steps above, and start it with
    `HORUS_API_PORT`). The read-only page shows the readiness, the queue, the
    running jobs, the recent results, the worker and the workflows
    ([the Horus UI](mcp.md#the-horus-ui)). Use the host name `127.0.0.1` or
-   `localhost`: the page refuses another host name.
+   `localhost`: the page refuses another host name. The page shows the clock
+   times of the time zone of your browser, and the path of each PNG on this
+   machine. The stack needs no time zone setting.
 
 `docker compose stop` stops the stack, and `docker compose up -d --wait` starts
 it again. The jobs stay in the volume `horus-db-data`. When a dependency is

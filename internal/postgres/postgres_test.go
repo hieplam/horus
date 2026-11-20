@@ -180,7 +180,7 @@ func TestSummaryWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sum, err := s.Summary(context.Background())
+	sum, err := s.Summary(context.Background(), time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}

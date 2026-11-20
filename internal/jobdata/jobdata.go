@@ -264,7 +264,8 @@ type Worker struct {
 }
 
 // Summary is what the job store tells about the jobs now: the counts and the
-// lists of the Horus UI. "Today" is since 00:00 in the time zone of the store.
+// lists of the Horus UI. "Today" starts at the time that the caller of Summary
+// gives: 00:00 of the day of the person who looks at the page.
 type Summary struct {
 	Queued         int `json:"queued"`
 	Running        int `json:"running"`

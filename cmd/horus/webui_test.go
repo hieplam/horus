@@ -36,11 +36,15 @@ var uiParts = []string{"ready-strip", "tile-waiting", "tile-running", "tile-succ
 
 // TestHorusUI: for each fixture, horus api serves the Horus UI. The page has
 // the 11 parts of the reference, and each count of the page and of the JSON
-// summary equals the count that SQL reads from the test database. The page
-// refuses a wrong Host, takes no write, and never shows the password of
-// HORUS_DATABASE_URL. Each fixture prints one line:
+// summary equals the count that SQL reads from the test database. As in the
+// stack, the job rows hold container paths, and the browser is in another
+// time zone than horus api: the page shows the host path of a PNG, and with
+// the time zone of the browser it shows the clock times of that zone and
+// counts "today" from its 00:00. The page refuses a wrong Host, takes no
+// write, and never shows the password of HORUS_DATABASE_URL. Each fixture
+// prints one line:
 //
-//	ui-matches-mockup: fixture reference: 11 of 11 parts, 16 of 16 counts equal
+//	ui-matches-mockup: fixture reference: 11 of 11 parts, 22 of 22 counts equal
 //
 // With HORUS_UI_SHOTS set to a folder, the test also takes a screenshot at
 // 1920 x 1080 of the page of each fixture and of the reference, with a
@@ -99,6 +103,11 @@ func horusUI(t *testing.T, f uifixture.Fixture) {
 	port := strings.Split(addr, ":")[1]
 	t.Setenv("HORUS_DATABASE_URL", dbURL)
 	t.Setenv("HORUS_API_PORT", port)
+	// The shared folder of the fixtures on a Windows PC, as horus
+	// stack-mounts gives it to horus-api.
+	const hostDir = `C:\horus\outputs`
+	t.Setenv("HORUS_SHARED_DIRS", hostDir+"="+uifixture.SharedDir)
+	t.Setenv("HORUS_HOST_OS", "windows")
 	settings.Reset()
 	actx, stopAPI := context.WithCancel(ctx)
 	var alog lockedBuffer
@@ -203,6 +212,59 @@ WHERE state IN ('succeeded', 'failed') AND finished_at >= $1 GROUP BY workflow`,
 	}
 	worker := text(part(html, "panel-worker"))
 	strip := text(part(html, "ready-strip"))
+
+	// The newest PNG: its job row holds a container path, and the oracle
+	// makes the host path from the pair of HORUS_SHARED_DIRS.
+	png := sql.rows(`SELECT id::text, result->>'path' FROM horus.jobs WHERE state = 'succeeded' ORDER BY finished_at DESC, id DESC LIMIT 1`)[0]
+	if !strings.HasPrefix(png[1], uifixture.SharedDir+"/") {
+		t.Fatalf("the job row of the newest PNG holds %q, want a container path in %s", png[1], uifixture.SharedDir)
+	}
+	hostPath := hostDir + strings.ReplaceAll(strings.TrimPrefix(png[1], uifixture.SharedDir), "/", `\`)
+	hover := regexp.MustCompile(`<tr data-job="` + png[0] + `">.*?<span class="mono" title="([^"]*)">`).FindStringSubmatch(html)
+	if hover == nil {
+		hover = []string{"", "no row of the PNG"}
+	}
+	summaryPath := "no row of the PNG"
+	for _, r := range v.Recent {
+		if r.ID == png[0] {
+			summaryPath = r.Path
+		}
+	}
+
+	// The browser of the owner is in another time zone than horus api: a
+	// zone whose clock differs from the clock of this process by a part of
+	// an hour, so that each clock time differs.
+	zone := "Asia/Kathmandu"
+	if _, off := now.Zone(); off == 5*3600+45*60 {
+		zone = "Asia/Kolkata"
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	there := time.Now().In(loc)
+	dayThere := time.Date(there.Year(), there.Month(), there.Day(), 0, 0, 0, 0, loc)
+	zoneHTML := fetch(t, "GET", base+"/?tz="+url.QueryEscape(zone), "", 200)
+	var zv webui.View
+	if err := json.Unmarshal([]byte(fetch(t, "GET", base+"/api/summary?tz="+url.QueryEscape(zone), "", 200)), &zv); err != nil {
+		t.Fatalf("/api/summary?tz=%s: %v", zone, err)
+	}
+	newest := sql.rows(`SELECT id::text FROM horus.jobs
+WHERE state IN ('succeeded', 'failed', 'cancelled', 'expired', 'abandoned') ORDER BY finished_at DESC, id DESC LIMIT 1`)[0][0]
+	ended := sql.time(`SELECT finished_at FROM horus.jobs WHERE id = $1`, newest).In(loc)
+	endedText := ended.Format("Jan 2 15:04")
+	if y, m, d := ended.Date(); y == there.Year() && m == there.Month() && d == there.Day() {
+		endedText = ended.Format("15:04")
+	}
+	endedCell := regexp.MustCompile(`<tr data-job="` + newest + `"><td class="num">([^<]*)</td>`).FindStringSubmatch(zoneHTML)
+	if endedCell == nil {
+		endedCell = []string{"", "no row of the newest job"}
+	}
+	zoneTile := regexp.MustCompile(`data-part="tile-succeeded"[^>]*><span class="n">([^<]*)</span>`).FindStringSubmatch(zoneHTML)
+	if zoneTile == nil {
+		zoneTile = []string{"", "no tile"}
+	}
+	succeededThere := sql.ints(`SELECT count(*) FROM horus.jobs WHERE state = 'succeeded' AND finished_at >= $1`, dayThere)
 	checks := []struct {
 		name      string
 		got, want string
@@ -225,6 +287,11 @@ WHERE state IN ('succeeded', 'failed', 'cancelled', 'expired', 'abandoned') ORDE
 		{"the messages in panel-worker", regexp.MustCompile(`· (\d+) messages?`).FindString(worker), fmt.Sprintf("· %d message%s", messages, plural(messages))},
 		{"the same key in panel-worker", regexp.MustCompile(`Same key today (\d+) jobs?`).FindString(worker), fmt.Sprintf("Same key today %d job%s", same, plural(same))},
 		{"the jobs of today in panel-workflows", ids(viewToday), ids(sqlToday)},
+		{"the host path of the newest PNG in panel-recent (the hover text)", hover[1], hostPath},
+		{"the host path of the newest PNG in the summary", summaryPath, hostPath},
+		{"the end time of the newest job in the zone " + zone + " of the browser", endedCell[1], endedText},
+		{"the start of today in the summary of the zone " + zone, zv.TodayFrom.UTC().Format(time.RFC3339), dayThere.UTC().Format(time.RFC3339)},
+		{"tile-succeeded on the page of the zone " + zone, zoneTile[1], strconv.Itoa(succeededThere)},
 	}
 	equal := 0
 	for _, c := range checks {
@@ -336,6 +403,15 @@ func (s sqlReader) ints(q string, args ...any) int {
 		s.t.Fatalf("%s: %v", q, err)
 	}
 	return n
+}
+
+func (s sqlReader) time(q string, args ...any) time.Time {
+	s.t.Helper()
+	var at time.Time
+	if err := s.conn.QueryRow(context.Background(), q, args...).Scan(&at); err != nil {
+		s.t.Fatalf("%s: %v", q, err)
+	}
+	return at
 }
 
 func (s sqlReader) strings(q string, args ...any) []string {

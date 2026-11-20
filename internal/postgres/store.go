@@ -309,11 +309,13 @@ SELECT state, count(*) FROM swept GROUP BY state`, now, now.Add(-jobdata.Abandon
 const endedStates = "('succeeded', 'failed', 'cancelled', 'expired', 'abandoned')"
 
 // Summary gives the counts and the lists of the Horus UI, from one snapshot of
-// the database. "Today" is since 00:00 of the day of the clock, in its time
-// zone.
-func (s *Store) Summary(ctx context.Context) (jobdata.Summary, error) {
-	now := s.now()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+// the database. "Today" starts at today, or at 00:00 of the day of the clock,
+// in its time zone, when today is the zero time.
+func (s *Store) Summary(ctx context.Context, today time.Time) (jobdata.Summary, error) {
+	if today.IsZero() {
+		now := s.now()
+		today = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	}
 	sum := jobdata.Summary{}
 	err := pgx.BeginTxFunc(ctx, s.db.pool, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `SELECT

@@ -425,7 +425,9 @@ func checkSweep(t testing.TB, s jobs.Store, events func(string) []string, _ *clo
 }
 
 // checkSummary: the counts and the lists of the Horus UI. "Today" starts at
-// 00:00 of the day of the clock.
+// the time that the caller gives: 00:00 of the day of the person who looks
+// at the page, in a time zone that is not the zone of the store. With the
+// zero time, "today" starts at 00:00 of the day of the clock.
 func checkSummary(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock, _ func()) {
 	ended := func(i int, state jobdata.State, started, finished time.Time, key string) jobdata.Job {
 		j := queuedJob(i, started.Add(-time.Minute))
@@ -479,7 +481,7 @@ func checkSummary(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock,
 	for _, j := range all {
 		insert(t, s, j)
 	}
-	sum, err := s.Summary(context.Background())
+	sum, err := s.Summary(context.Background(), time.Time{})
 	if err != nil {
 		t.Fatalf("Summary: %v", err)
 	}
@@ -519,6 +521,32 @@ func checkSummary(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock,
 	}
 	if len(sum.RunningJobs) > 0 {
 		sameJob(t, "Summary running_jobs[0]", sum.RunningJobs[0], all[3])
+	}
+	// The day of a person at UTC+13:30 started at 22:30 of yesterday: the
+	// failed job of 23:00 is a job of today. The day of a person at
+	// UTC-11:29 started at 11:29: only the failed job of 11:30 is a job of
+	// today, and the job with the same key of 10:04 is not.
+	for _, c := range []struct {
+		today                   time.Time
+		succeeded, failed, same int
+		workflows               map[string]int
+	}{
+		{t0.Add(-13*time.Hour - 30*time.Minute), 11, 2, 2, map[string]int{"it-illustration": 11, "other-today": 1, "other-yesterday": 1}},
+		{t0.Add(-31 * time.Minute), 0, 1, 0, map[string]int{"other-today": 1}},
+	} {
+		sum, err := s.Summary(context.Background(), c.today)
+		if err != nil {
+			t.Fatalf("Summary: %v", err)
+		}
+		got := []int{sum.SucceededToday, sum.FailedToday, sum.SameKeyToday}
+		if want := []int{c.succeeded, c.failed, c.same}; !slices.Equal(got, want) || !reflect.DeepEqual(sum.WorkflowToday, c.workflows) {
+			t.Errorf("Summary with today from %s: succeeded, failed, same key %v and workflow_today %v, want %v and %v",
+				c.today.Format("15:04"), got, sum.WorkflowToday, want, c.workflows)
+		}
+		if sum.Queued != 2 || sum.Running != 2 || len(sum.Recent) != 10 {
+			t.Errorf("Summary with today from %s: %d queued, %d running, %d recent; the start of today changes only the counts of today",
+				c.today.Format("15:04"), sum.Queued, sum.Running, len(sum.Recent))
+		}
 	}
 }
 
@@ -612,7 +640,7 @@ func sameWorker(t testing.TB, what string, got *jobdata.Worker, want jobdata.Wor
 // summaryWorker gives the worker row of the summary.
 func summaryWorker(t testing.TB, s jobs.Store) *jobdata.Worker {
 	t.Helper()
-	sum, err := s.Summary(context.Background())
+	sum, err := s.Summary(context.Background(), time.Time{})
 	if err != nil {
 		t.Fatalf("Summary: %v", err)
 	}

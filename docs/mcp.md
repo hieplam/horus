@@ -812,7 +812,8 @@ go test -tags goal -count=1 -run TestStackStartsTogether -v ./goals/2026-11-19-j
 
 The Horus UI is a read-only page of `horus api`
 ([ADR 0028](adr/0028-the-horus-ui-is-a-read-only-page-of-horus-api.md),
-[ADR 0038](adr/0038-the-horus-ui-renders-on-the-server-and-checks-the-published-port.md)). It
+[ADR 0038](adr/0038-the-horus-ui-renders-on-the-server-and-checks-the-published-port.md),
+[ADR 0043](adr/0043-the-horus-ui-shows-the-times-of-the-browser-and-host-paths.md)). It
 shows the readiness, the queue, the running jobs, the recent results, the
 worker and the workflows. Open `http://127.0.0.1:8190/` while the stack runs
 (the port is `HORUS_API_PORT`). The reference of the page is
@@ -824,24 +825,43 @@ has its 11 parts, with the same `data-part` names:
 | `ready-strip` | `Ready: N of 4`, then `horus-db`, `horus-worker`, `horus-api` and `ComfyUI`, each `up` or `down`. The hover text gives the result of the check. | The readiness report of `horus ready` |
 | `tile-waiting` | The jobs in the state `queued` | The job store |
 | `tile-running` | The jobs in the state `running`, and the slots | The job store, and the slots of the newest worker row (else `HORUS_WORKER_CONCURRENCY`) |
-| `tile-succeeded` | The jobs that ended as `succeeded` since 00:00 | The job store |
-| `tile-failed` | The jobs that ended as `failed` since 00:00 | The job store |
+| `tile-succeeded` | The jobs that ended as `succeeded` since [00:00 of today](#the-times-of-the-horus-ui) | The job store |
+| `tile-failed` | The jobs that ended as `failed` since 00:00 of today | The job store |
 | `tile-workflows` | The workflows that `list_workflows` shows, and how many are installed | The workflows and their install state, as `list_workflows` gives them |
 | `panel-running` | Each running job: the workflow, the first 8 characters of the job id, the caller, the subject, the step that ComfyUI reports, the run time, the time in the queue, and the time that is left to `HORUS_GENERATE_TIMEOUT` | The job store |
 | `panel-queue` | Each queued job, oldest first: the place, the workflow, the caller, the subject, the time in the queue, and the estimated start, rounded to 10 s | The job store. The estimate uses the mean run time of the last 10 succeeded jobs, as the progress text of a waiting call does. |
-| `panel-recent` | The last 10 ended jobs, newest first: the end time, the workflow, the result (`PNG` with the path, the error code, `cancelled`, `expired` or `abandoned`), the time in the queue and the run time | The job store |
-| `panel-worker` | The state of the worker, the slots, the models in memory, the broker with its count of messages that wait for a delivery, the job store (host and database), ComfyUI (address and version), and the count of jobs of today with the same idempotency key | The worker row, the broker (`Depth`), `HORUS_DATABASE_URL` without its password, `GET /system_stats` of ComfyUI, the job store |
-| `panel-workflows` | Each workflow: its name, its backend (ComfyUI or the speech worker), if it is installed, and the count of its jobs that ended as `succeeded` or `failed` since 00:00 | The workflows, and the job store |
+| `panel-recent` | The last 10 ended jobs, newest first: the end time, the workflow, the result (`PNG` with the path, the error code, `cancelled`, `expired` or `abandoned`), the time in the queue and the run time. The path of a PNG is its path on this machine, the path that the result of `generate_image` gives: the last 3 parts in the cell, and the whole path in the hover text. | The job store. In the stack, the job row holds the container path, and the page changes it to the host path with the pairs of `HORUS_SHARED_DIRS`. A path in no shared folder stays as it is. |
+| `panel-worker` | The state of the worker, the slots, the models in memory, the broker with its count of messages that wait for a delivery, the job store (host and database), ComfyUI (address and version), and the count of jobs of today with the same idempotency key. The state gives the start time of the worker. | The worker row, the broker (`Depth`), `HORUS_DATABASE_URL` without its password, `GET /system_stats` of ComfyUI, the job store |
+| `panel-workflows` | Each workflow: its name, its backend (ComfyUI or the speech worker), if it is installed, and the count of its jobs that ended as `succeeded` or `failed` since 00:00 of today | The workflows, and the job store |
 
 The routes of the page:
 
 | Route | Answer |
 |---|---|
-| `GET /` | The page. `horus api` renders it from the data at each request. |
-| `GET /api/summary` | The same data as JSON: the counts, the lists with the job ids, the readiness report and the errors of the reads. |
+| `GET /` | The page. `horus api` renders it from the data at each request. The query parameter `tz` gives the time zone of the browser. |
+| `GET /api/summary` | The same data as JSON: the counts, the lists with the job ids and the host path of each PNG, the readiness report and the errors of the reads. It takes the parameter `tz` too, and it gives `zone`, `zone_from` (`browser` or `horus api`) and `today_from`: the time zone of the counts, where it comes from, and the start of today. |
 | `GET /api/events` | A stream of Server-Sent Events: one event `job` for each event of the broker (`Listen`), with the JSON of the event. When the broker cannot listen, the stream sends one event `down`, and the browser connects again after 5 s. |
 
 - The page reads the page again at each event of the stream, and every 5 s.
+
+### The times of the Horus UI
+
+The page shows each clock time (the column "Ended", "running since") on the
+clock of the person who looks at it, and "today" starts at 00:00 of that
+clock. The containers of the stack run at UTC, so the page does not use the
+clock of `horus api`:
+
+- A script in the page reads the time zone of the browser, for example
+  `Asia/Ho_Chi_Minh`, and loads the page with `?tz=<time zone>`.
+- `horus api` formats each clock time in that zone. The tiles "succeeded
+  today" and "failed today", the column "Today" and the row "Same key today"
+  count from 00:00 of that zone.
+- Without the parameter (a client that runs no script, for example `curl`),
+  or with a name that horus does not know, `horus api` uses the time zone of
+  its process. Then it puts the name of that zone after each clock time, for
+  example `19:37 UTC`, and the hover text of each count of today names it.
+- The stack needs no time zone setting.
+
 - The page is read-only: no route changes a job. A `POST` gets 405.
 - The page, the summary and the events refuse a request with 403 when its
   `Host` header is not `127.0.0.1:<port>` or `localhost:<port>`. So a web page

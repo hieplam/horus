@@ -47,7 +47,7 @@ func (s *Service) SubmitStatus(ctx context.Context, j jobdata.Job) (jobdata.Job,
 	if err != nil {
 		return jobdata.Job{}, Status{}, err
 	}
-	sum, err := s.store.Summary(ctx)
+	sum, err := s.store.Summary(ctx, time.Time{})
 	if err != nil {
 		return jobdata.Job{}, Status{}, err
 	}
@@ -117,7 +117,7 @@ func (s *Service) status(ctx context.Context, j jobdata.Job, now time.Time) (Sta
 			st.Message = "starting"
 			return st, nil
 		}
-		sum, err := s.store.Summary(ctx)
+		sum, err := s.store.Summary(ctx, time.Time{})
 		if err != nil {
 			return Status{}, err
 		}

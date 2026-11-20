@@ -90,10 +90,10 @@ func TestWorkerOnPostgres(t *testing.T) {
 	eventually(t, "the worker applies the schema", 10*time.Second, func() bool { return db.CheckSchema(context.Background()) == nil })
 	queue := jobs.New(postgres.NewStore(db), publishTwice{postgres.NewBroker(db, postgres.BrokerOptions{})}, jobs.Config{})
 	eventually(t, "the row of the worker", 10*time.Second, func() bool {
-		sum, err := queue.Summary(context.Background())
+		sum, err := queue.Summary(context.Background(), time.Time{})
 		return err == nil && sum.Worker != nil
 	})
-	sum, _ := queue.Summary(context.Background())
+	sum, _ := queue.Summary(context.Background(), time.Time{})
 	if w := sum.Worker; w.Slots != 2 || w.PID != os.Getpid() || w.ID == "" {
 		t.Errorf("the row of the worker: %+v", *w)
 	}
@@ -208,14 +208,14 @@ func TestWorkerTakesTheLockAgain(t *testing.T) {
 			t.Logf("%s: the session %d holds the worker lock again after %s", what, holder, took.Round(time.Millisecond))
 		}
 		eventually(t, what+": a heartbeat after the new lock", 10*time.Second, func() bool {
-			sum, err := queue.Summary(context.Background())
+			sum, err := queue.Summary(context.Background(), time.Time{})
 			return err == nil && sum.Worker != nil && sum.Worker.HeartbeatAt.After(ended)
 		})
 	}
 	again("the session of the worker lock ends", func() int { return pgtest.EndWorkerLock(t, url) })
 	again("each session of the worker ends", func() int { return pgtest.EndSessions(t, url) })
 
-	sum, err := queue.Summary(context.Background())
+	sum, err := queue.Summary(context.Background(), time.Time{})
 	if err != nil || sum.Worker == nil {
 		t.Fatalf("the summary: %+v, %v", sum.Worker, err)
 	}

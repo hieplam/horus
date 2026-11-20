@@ -1300,7 +1300,7 @@ var uiLine = regexp.MustCompile(`ui-matches-mockup: fixture (\w+): (\d+) of (\d+
 
 // uiCounts is the least count of checks of one fixture: a test that checks
 // fewer counts fails the row.
-const uiCounts = 17
+const uiCounts = 22
 
 // TestUiMatchesMockup runs the Go test TestHorusUI of cmd/horus: horus api
 // on a new test database with each of the two fixtures of
@@ -1308,7 +1308,11 @@ const uiCounts = 17
 // docs/specs/2026-11-19-job-queue-ui.html, and other numbers). For both
 // fixtures, the page has the 11 parts of the reference, and each count of the
 // page and of the JSON summary equals the count that SQL reads. A page with
-// the numbers of one fixture fails the other. The screenshots at 1920 x 1080
+// the numbers of one fixture fails the other. As in the stack, the job rows
+// hold container paths and the browser is in another time zone than horus
+// api: the page shows the host path of the newest PNG, and with the time
+// zone of the browser it shows the end time of that zone and counts "today"
+// from its 00:00 (5 of the checks of each fixture). The screenshots at 1920 x 1080
 // next to the reference are in docs/specs/2026-11-19-job-queue-ui/, and the
 // judgment of each part is in the pull request of task #205.
 func TestUiMatchesMockup(t *testing.T) {

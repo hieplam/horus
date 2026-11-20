@@ -4,14 +4,14 @@
 // the worker run in Linux containers, and Docker mounts each shared folder of
 // HORUS_SHARED_DIRS into both. Paths changes a host path in a shared folder
 // to its container path, and back.
-package mcpserver
+
+package jobs
 
 import (
 	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/hieplam/horus/internal/jobs"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -20,7 +20,7 @@ type Paths struct {
 	Dirs []settings.SharedDir
 	// Style is the system of the host paths: it gives the separator, and if
 	// two paths that differ only in case are the same path.
-	Style jobs.PathStyle
+	Style PathStyle
 }
 
 // PathsOf gives the paths of the stack for the shared folders dirs and the
@@ -31,16 +31,16 @@ func PathsOf(dirs []settings.SharedDir, hostOS string) Paths {
 	p := Paths{Dirs: dirs}
 	switch hostOS {
 	case "windows":
-		p.Style = jobs.PathWindows
+		p.Style = PathWindows
 	case "darwin", "macos":
-		p.Style = jobs.PathMacOS
+		p.Style = PathMacOS
 	case "linux":
-		p.Style = jobs.PathLinux
+		p.Style = PathLinux
 	default:
-		p.Style = jobs.PathLinux
+		p.Style = PathLinux
 		for _, d := range dirs {
 			if isWindowsPath(d.Host) {
-				p.Style = jobs.PathWindows
+				p.Style = PathWindows
 			}
 		}
 	}
@@ -53,8 +53,6 @@ func isWindowsPath(p string) bool {
 	return len(p) >= 2 && p[1] == ':' && isLetter(p[0]) || strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, "//")
 }
 
-func isLetter(c byte) bool { return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' }
-
 // hostPath is a host path after the clean: the volume (a drive "C:" or a UNC
 // share "//server/share" on Windows, else "") and the rest, with "/" as the
 // separator, from the root. The case stays as written.
@@ -63,7 +61,7 @@ type hostPath struct{ vol, rest string }
 // parseHost cleans the host path p by the rules of the style. ok is false
 // when p is not an absolute path of that system.
 func (s Paths) parseHost(p string) (hostPath, bool) {
-	if s.Style != jobs.PathWindows {
+	if s.Style != PathWindows {
 		if !strings.HasPrefix(p, "/") {
 			return hostPath{}, false
 		}
@@ -95,11 +93,11 @@ func (s Paths) parseHost(p string) (hostPath, bool) {
 
 // fold tells if two paths that differ only in case are the same path: on
 // Windows and macOS, whose file systems do not tell the case apart.
-func (s Paths) fold() bool { return s.Style == jobs.PathWindows || s.Style == jobs.PathMacOS }
+func (s Paths) fold() bool { return s.Style == PathWindows || s.Style == PathMacOS }
 
 // format gives the host path in the form of the host: with "\" on Windows.
 func (s Paths) format(h hostPath) string {
-	if s.Style != jobs.PathWindows {
+	if s.Style != PathWindows {
 		return h.rest
 	}
 	return strings.ReplaceAll(h.vol+h.rest, "/", `\`)

@@ -46,8 +46,22 @@ var password = func() string {
 	return "t" + hex.EncodeToString(b[:])
 }()
 
-// at is the time of the fixtures of the tests: 10:44:00 on a day.
-var at = time.Date(2026, 11, 19, 10, 44, 0, 0, time.Local)
+// zone is the time zone of the browser of the tests, and viewer is its
+// query: the page shows the times of that zone with no zone name.
+const (
+	zone   = "Asia/Ho_Chi_Minh"
+	viewer = "?tz=" + zone
+)
+
+// at is the time of the fixtures of the tests: 10:44:00 on a day of the
+// zone.
+var at = func() time.Time {
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		panic(err)
+	}
+	return time.Date(2026, 11, 19, 10, 44, 0, 0, loc)
+}()
 
 func send(t *testing.T, h http.Handler, method, host, path string) (*http.Response, string) {
 	t.Helper()
@@ -77,7 +91,9 @@ func loaded(t *testing.T, f uifixture.Fixture) (*jobs.Service, *brokertest.Broke
 
 func settingsOf() Settings {
 	return Settings{DatabaseURL: "postgres://horus:" + password + "@horus-db:5432/horus?sslmode=disable",
-		ComfyURL: "http://host.docker.internal:8188", Slots: 1, RunLimit: 1800 * time.Second, Broker: "Postgres"}
+		ComfyURL: "http://host.docker.internal:8188", Slots: 1, RunLimit: 1800 * time.Second, Broker: "Postgres",
+		// The shared folder of the fixtures, on a Windows PC.
+		Paths: jobs.PathsOf([]settings.SharedDir{{Host: `C:\horus\outputs`, Container: uifixture.SharedDir}}, "windows")}
 }
 
 // installed is a setup service in which the named workflows are installed.
@@ -180,7 +196,7 @@ func text(html string) string {
 // reference.
 func TestPageOfTheReference(t *testing.T) {
 	h := handlerFor(t, uifixture.Reference(at), report())
-	resp, html := send(t, h, "GET", "127.0.0.1:8190", "/")
+	resp, html := send(t, h, "GET", "127.0.0.1:8190", "/"+viewer)
 	if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
 		t.Fatalf("GET /: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
@@ -243,7 +259,7 @@ func TestSummaryOfBothFixtures(t *testing.T) {
 		{uifixture.Other(at), 5, 2, 2, 3, 2, 3, 5, 5, 9, 4, 1},
 	} {
 		h := handlerFor(t, c.f, report())
-		resp, body := send(t, h, "GET", "localhost:8190", "/api/summary")
+		resp, body := send(t, h, "GET", "localhost:8190", "/api/summary"+viewer)
 		if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "application/json" {
 			t.Fatalf("%s: GET /api/summary: %d %s", c.f.Name, resp.StatusCode, resp.Header.Get("Content-Type"))
 		}
@@ -270,7 +286,7 @@ func TestPageOfTheOtherFixture(t *testing.T) {
 	ready := report(jobdata.DependencyWorker)
 	ready.Checks[2].Detail = "the last heartbeat of the worker is 1m0s old, the database postgres://horus:" + password + "@horus-db"
 	h := handlerFor(t, uifixture.Other(at), ready)
-	_, html := send(t, h, "GET", "127.0.0.1:8190", "/")
+	_, html := send(t, h, "GET", "127.0.0.1:8190", "/"+viewer)
 	for p, w := range map[string]string{
 		"ready-strip":     "Ready: 3 of 4 horus-db up horus-worker down horus-api up ComfyUI up",
 		"tile-waiting":    "5 waiting in the queue",
@@ -407,7 +423,11 @@ func TestFormats(t *testing.T) {
 		{shortPath("/shared/out/x.png"), "/shared/out/x.png"},
 		{storeName("postgres://horus:" + password + "@horus-db:5432/horus?sslmode=disable"), "horus-db / horus"},
 		{storeName("postgres://u:" + password + "@127.0.0.1:55433/horus_x_test"), "127.0.0.1:55433 / horus_x_test"},
-		{when(at.Add(-time.Hour), at), "09:44"}, {when(at.Add(-24*time.Hour), at), "Nov 18 10:44"},
+		{when(at.Add(-time.Hour), at, ""), "09:44"}, {when(at.Add(-24*time.Hour), at, ""), "Nov 18 10:44"},
+		{when(at.Add(-time.Hour), at, "UTC+7"), "09:44 UTC+7"}, {when(at.Add(-24*time.Hour), at, "UTC"), "Nov 18 10:44 UTC"},
+		{processZone(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)).Name, "UTC"},
+		{processZone(time.Date(2026, 1, 2, 3, 4, 5, 0, time.FixedZone("", 7*3600))).Name, "UTC+7"},
+		{processZone(time.Date(2026, 1, 2, 3, 4, 5, 0, time.FixedZone("", -(3*3600+1800)))).Name, "UTC-3:30"},
 		{slotText(0, 1), "0 of 1 slots"}, {slotText(1, 3), "slot 1 of 3"}, {slotText(3, 3), "slots 1 to 3 of 3"},
 	} {
 		if c.got != c.want {

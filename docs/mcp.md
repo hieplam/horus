@@ -511,11 +511,11 @@ Terms:
 | Part | What the worker does |
 |---|---|
 | Slots | It runs `HORUS_WORKER_CONCURRENCY` jobs at the same time. This count is also the prefetch: the broker gives at most that many deliveries without an ack. |
-| Gate | No delivery starts while ComfyUI does not answer at `HORUS_COMFYUI_URL`. The queued jobs keep their place. The worker asks ComfyUI again every 2 s. It never starts ComfyUI. |
+| Gate | No delivery starts while ComfyUI does not answer at `HORUS_COMFYUI_URL`, or while the worker does not hold the worker lock. The queued jobs keep their place. The worker asks ComfyUI again every 2 s. It never starts ComfyUI. |
 | Idempotent consumer | A delivery runs only when the job store moves its job from `queued` to `running`. Else the worker sends the ack and does nothing. A second delivery of a job that runs on a worker that is gone ends the job with the error `WORKER_LOST`. |
 | Run | The worker saves `backend_job_id` (the id of the job in ComfyUI) before it waits. It writes the PNG as `<file>.part`, then renames it. `HORUS_GENERATE_TIMEOUT` counts from the start of the run. |
-| Heartbeat | The row of the worker in `horus.workers` gets a new `heartbeat_at` every 5 s. |
-| Worker lock | Only one worker runs. A second `horus worker` prints the first one and exits with 1. |
+| Heartbeat | Every 5 s, the worker checks its worker lock. Then the row of the worker in `horus.workers` gets a new `heartbeat_at`. A worker without the lock writes no heartbeat. |
+| Worker lock | Only one worker runs. A second `horus worker` prints the first one and exits with 1. The lock is a session lock in Postgres, so a restart of `horus-db` releases it. The worker finds this at its next heartbeat. Then it starts no new delivery, and it takes the lock again on a new session every 2 s. When another worker took the lock first, the worker stops its jobs and exits with 1. |
 | Sweep | Every 30 s, and at each delivery: a queued job after its deadline becomes `expired`, and a queued job with no waiter for 60 s becomes `abandoned`. |
 | Retention | At its start and one time each day, the worker deletes the jobs that ended more than `HORUS_JOB_RETENTION_DAYS` days ago, with their events. |
 
@@ -624,7 +624,8 @@ Postgres. These tests read its URL from `HORUS_TEST_DATABASE_URL`:
 
 - the tests of `internal/postgres`;
 - `TestPostgresBroker` and `TestPostgresStore` of `internal/brokertest`;
-- `TestWorkerOnPostgres` of `cmd/horus`: `horus worker` on a new database, with the fake ComfyUI over HTTP.
+- `TestWorkerOnPostgres` of `cmd/horus`: `horus worker` on a new database, with the fake ComfyUI over HTTP;
+- `TestWorkerTakesTheLockAgain` of `cmd/horus`: the test ends the session of the worker lock, then each session of the worker, with `pg_terminate_backend`. A session must hold the worker lock again in 10 s or less.
 
 Without the variable, they skip, and the goal row `broker-contract` fails.
 Start a test Postgres in Docker one time, with a password that you choose and
@@ -654,5 +655,8 @@ On macOS and Linux, use `export HORUS_TEST_DATABASE_URL=...`.
   the time every 20 s while the delivery runs. In `TestPostgresBroker` the
   visibility time is 1 s, so that the check `long_delivery` (3 s) proves the
   extension.
+- A test that ends a session (`pgtest.EndWorkerLock`, `pgtest.EndSessions`)
+  ends only the sessions of its own database. Other tests use the same
+  server at the same time.
 - The CI job `postgres` runs the same tests on Linux, with a service container
   `postgres:18.6`.

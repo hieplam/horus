@@ -30,10 +30,12 @@ import json
 import os
 import shutil
 import struct
+import socket
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -75,6 +77,11 @@ class Fake:
 
 
 class Handler(BaseHTTPRequestHandler):
+    # HTTP/1.1 keeps each connection open for the next request. With HTTP/1.0, each request that a container sends
+    # through host.docker.internal opens a new connection, and some of them hang until their time limit
+    # (tests/peak_load.py measured this). Each answer has a Content-Length, so a connection can stay open.
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, *a):  # quiet
         pass
 
@@ -135,6 +142,39 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/free":
             return self._send({})
         return self._send({"error": "not found"}, 404)
+
+
+class Server(ThreadingHTTPServer):
+    """The server of the fake ComfyUI. HTTP/1.1 keeps a connection open, and the handler thread of an open connection
+    answers after shutdown(), so stop() also closes each open connection: a client then gets "connection refused"."""
+    request_queue_size = 128  # the default of 5 refuses some connections that arrive together
+
+    def __init__(self, *a, **kw) -> None:
+        self.open_connections: set = set()
+        self.connections_lock = threading.Lock()
+        super().__init__(*a, **kw)
+
+    def get_request(self):
+        sock, addr = super().get_request()
+        with self.connections_lock:
+            self.open_connections.add(sock)
+        return sock, addr
+
+    def shutdown_request(self, request) -> None:
+        with self.connections_lock:
+            self.open_connections.discard(request)
+        super().shutdown_request(request)
+
+    def stop(self) -> None:
+        self.shutdown()
+        self.server_close()
+        with self.connections_lock:
+            socks = list(self.open_connections)
+        for sock in socks:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
 
 
 def make_sandbox(tmp: Path, with_speech: bool = False) -> dict[str, str]:
@@ -262,14 +302,19 @@ async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Pa
     await speech_setup_checks(server_cmd, env, sandbox, tmp, c)
 
     neutral_checks(c)
+    code_table_checks([server_cmd[0], "errors", "-json"], c)
 
+
+def code_table_checks(errors_cmd: list[str], c: Checks) -> None:
+    """The checks of the table of error codes: errors_cmd is the command that prints the table as JSON (the server
+    program on the host, `docker exec <stack>-api horus` in the stack)."""
     table: dict = {}
     try:  # the doc table must list every code; the server program prints the code table
-        out = subprocess.run([server_cmd[0], "errors", "-json"], capture_output=True, timeout=60).stdout
+        out = subprocess.run(errors_cmd, capture_output=True, timeout=60).stdout
         table = json.loads(out)
         ERRORS = list(table) or ["<no code in errors -json>"]
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        ERRORS = [f"<{server_cmd[0]} errors -json failed: {exc}>"]
+        ERRORS = [f"<{' '.join(errors_cmd)} failed: {exc}>"]
     doc = (ROOT / "docs" / "mcp.md").read_text(encoding="utf-8") if (ROOT / "docs" / "mcp.md").is_file() else ""
     missing = [code for code in ERRORS if f"`{code}`" not in doc]
     c.check("docs/mcp.md lists every error code", not missing, f"missing: {missing}")
@@ -286,6 +331,30 @@ async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Pa
     wl = table.get("WORKER_LOST") or {}
     c.check("the code table has WORKER_LOST: retryable, action_by=retry",
             wl.get("retryable") is True and wl.get("action_by") == "retry", json.dumps(wl))
+
+
+def wait_ready(stack: str, within: float) -> None:
+    """Wait until `docker exec <stack>-api horus ready` exits 0: the 4 dependencies are up, and the stack reaches the fake
+    ComfyUI of this process."""
+    until, last = time.monotonic() + within, ""
+    while True:
+        r = subprocess.run(["docker", "exec", f"{stack}-api", "horus", "ready"], capture_output=True, text=True)
+        if r.returncode == 0:
+            return
+        last = (r.stdout + r.stderr).strip()
+        if time.monotonic() > until:
+            raise SystemExit(f"the stack {stack} is not ready after {within:g} s: {last}")
+        time.sleep(1)
+
+
+async def run_stack(stack: str, shared: Path, tmp: Path, c: Checks) -> None:
+    """The contract checks over stdio into the stack: the server is `horus mcp` in the container <stack>-api. The fake
+    ComfyUI of this process is the ComfyUI of the stack. The checks that need the sandbox of the host (STACK_SKIPPED)
+    are left out."""
+    params = StdioServerParameters(command="docker", args=["exec", "-i", f"{stack}-api", "horus", "mcp"])
+    with open(tmp / "server.stderr.log", "w", encoding="utf-8") as errlog:
+        await session_checks(params, errlog, {}, tmp, c, stack=stack, shared=shared)
+    code_table_checks(["docker", "exec", f"{stack}-api", "horus", "errors", "-json"], c)
 
 
 STYLE_WORDS = ("palette", "pastel", "navy", "flat vector", "house style", "house-style", "dotted grid")
@@ -309,7 +378,9 @@ def neutral_checks(c: Checks) -> None:
         c.check(f"{d.name}: the graph holds no style words", not words, str(words))
 
 
-async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: Checks) -> None:
+async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: Checks, stack: str = "", shared: Path | None = None) -> None:
+    """The checks of one MCP session. With stack (the compose project name), the server is `horus mcp` in the container
+    <stack>-api and the checks that need the sandbox of the host are left out (see STACK_SKIPPED)."""
     async with stdio_client(params, errlog=errlog) as (read, write):
         async with ClientSession(read, write) as s:
             init = await s.initialize()
@@ -334,37 +405,46 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             c.check("uninstall_workflow is marked destructive, list_workflows read-only",
                     bool(ann and ann.destructive_hint) and bool(tools["list_workflows"].annotations.read_only_hint), "")
 
-            res = env_of(await s.call_tool("list_workflows", {}))
-            states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
-            # absent-style shares the text encoder and the VAE with it-illustration, so 2 of its 3 files are present.
-            # The speech setup of the sandbox has each part of stand-in-speech, so it is installed.
-            c.check("list_workflows shows installed and partially_installed styles",
-                    res["ok"] and states == {"it-illustration": "installed", "absent-style": "partially_installed",
-                                             "stand-in-speech": "installed"}, json.dumps(res)[:400])
-            kinds = {w["name"]: w.get("kind") for w in (res.get("result") or {}).get("workflows", [])}
-            c.check("list_workflows shows the kind of each workflow: a manifest without kind is image",
-                    kinds == {"it-illustration": "image", "absent-style": "image", "stand-in-speech": "speech"}, str(kinds))
-            res = env_of(await s.call_tool("describe_workflow", {"workflow": "stand-in-speech"}))
-            r = res.get("result") or {}
-            c.check("describe_workflow of a speech workflow shows the voices, tags and formats, and no graph",
-                    res["ok"] and r.get("kind") == "speech" and r.get("voices") == ["alpha", "beta"] and r.get("default_voice") == "alpha"
-                    and r.get("tags") and r.get("formats") == ["wav", "mp3"] and r.get("text", {}).get("max_chars")
-                    and r.get("output") is None and r.get("subject") is None and "graph" not in json.dumps(res), json.dumps(res)[:400])
-            jobs = len(Fake.prompts)
-            res = env_of(await s.call_tool("generate_image", {"workflow": "stand-in-speech", "subject": SUBJECT}))
-            e = res.get("error") or {}
-            c.check("generate_image with a speech workflow -> INVALID_ARGUMENT, action_by=caller, next_step names generate_speech",
-                    e.get("code") == "INVALID_ARGUMENT" and e.get("action_by") == "caller" and "generate_speech" in e.get("next_step", "")
-                    and e["details"].get("field") == "workflow" and len(Fake.prompts) == jobs, json.dumps(res)[:400])
-            await speech_checks(s, sandbox, tmp, c)
+            if stack:
+                res = env_of(await s.call_tool("list_workflows", {}))
+                listed = (res.get("result") or {}).get("workflows", [])
+                kinds = {w["name"]: w.get("kind") for w in listed}
+                c.check("list_workflows shows it-illustration as an image workflow, and each workflow has an install_state",
+                        res["ok"] and kinds.get("it-illustration") == "image" and all("install_state" in w for w in listed),
+                        json.dumps(res)[:400])
+            else:
+                res = env_of(await s.call_tool("list_workflows", {}))
+                states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
+                # absent-style shares the text encoder and the VAE with it-illustration, so 2 of its 3 files are present.
+                # The speech setup of the sandbox has each part of stand-in-speech, so it is installed.
+                c.check("list_workflows shows installed and partially_installed styles",
+                        res["ok"] and states == {"it-illustration": "installed", "absent-style": "partially_installed",
+                                                 "stand-in-speech": "installed"}, json.dumps(res)[:400])
+                kinds = {w["name"]: w.get("kind") for w in (res.get("result") or {}).get("workflows", [])}
+                c.check("list_workflows shows the kind of each workflow: a manifest without kind is image",
+                        kinds == {"it-illustration": "image", "absent-style": "image", "stand-in-speech": "speech"}, str(kinds))
+                res = env_of(await s.call_tool("describe_workflow", {"workflow": "stand-in-speech"}))
+                r = res.get("result") or {}
+                c.check("describe_workflow of a speech workflow shows the voices, tags and formats, and no graph",
+                        res["ok"] and r.get("kind") == "speech" and r.get("voices") == ["alpha", "beta"] and r.get("default_voice") == "alpha"
+                        and r.get("tags") and r.get("formats") == ["wav", "mp3"] and r.get("text", {}).get("max_chars")
+                        and r.get("output") is None and r.get("subject") is None and "graph" not in json.dumps(res), json.dumps(res)[:400])
+                jobs = len(Fake.prompts)
+                res = env_of(await s.call_tool("generate_image", {"workflow": "stand-in-speech", "subject": SUBJECT}))
+                e = res.get("error") or {}
+                c.check("generate_image with a speech workflow -> INVALID_ARGUMENT, action_by=caller, next_step names generate_speech",
+                        e.get("code") == "INVALID_ARGUMENT" and e.get("action_by") == "caller" and "generate_speech" in e.get("next_step", "")
+                        and e["details"].get("field") == "workflow" and len(Fake.prompts) == jobs, json.dumps(res)[:400])
+                await speech_checks(s, sandbox, tmp, c)
 
             raw = await s.call_tool("describe_workflow", {"workflow": "it-illustration"})
             res = env_of(raw)
             text = raw.content[0].text
             r = res.get("result") or {}
-            c.check("describe_workflow gives subject rules, examples and 3 present files",
+            c.check("describe_workflow gives subject rules, examples and the 3 model files",
                     res["ok"] and len(r.get("subject", {}).get("rules", [])) >= 3 and r["subject"]["examples"]
-                    and [f["state"] for f in r.get("files", [])] == ["present"] * 3, json.dumps(res)[:400])
+                    and ([f["state"] for f in r.get("files", [])] == ["present"] * 3 if not stack else len(r.get("files", [])) == 3),
+                    json.dumps(res)[:400])
             listed = (env_of(await s.call_tool("list_workflows", {})).get("result") or {}).get("workflows", [])
             c.check("list_workflows and describe_workflow carry no theme or look",
                     not any(k in r for k in ("theme", "look")) and not any(k in w for w in listed for k in ("theme", "look")),
@@ -383,7 +463,7 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             async def on_progress(p, total, message):
                 progress.append(message or "")
 
-            out = tmp / "images" / "queue.png"
+            out = (shared if stack else tmp / "images") / "queue.png"
             res = env_of(await s.call_tool("generate_image", {"workflow": "it-illustration", "subject": SUBJECT,
                                                              "out_path": str(out), "seed": 7}, progress_callback=on_progress))
             r = res.get("result") or {}
@@ -400,6 +480,16 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             sampler = next((n["inputs"] for n in graph.values() if n["class_type"] == "KSampler"), {})
             c.check("seed 7 reaches the sampler of the graph", sampler.get("seed") == 7, str(sampler)[:200])
             c.check("generate_image sends progress notifications", len(progress) >= 1, str(progress))
+            if stack:
+                # The stack ran the call: the PNG is at the host path of the shared folder, the fake ComfyUI got the job
+                # from the worker (the job row names the worker and the id of the job in the fake), and job_id is a horus
+                # job id, not the id of the job in ComfyUI.
+                row = job_row(stack, r.get("job_id", ""))
+                c.check("the stack ran the call: the PNG is in the shared folder, the job row says that a worker ran it and "
+                        "names the job that the fake ComfyUI got, and job_id is not the id of the job in ComfyUI",
+                        res["ok"] and out.is_file() and row[:1] == ["succeeded"] and bool(row[1]) and row[2] == r.get("backend_job_id")
+                        and r.get("job_id") != r.get("backend_job_id") and r.get("backend_job_id") in Fake.prompts,
+                        f"row {row} {json.dumps(res)[:300]}")
 
             res = env_of(await s.call_tool("generate_image", {"workflow": "it-illustration", "subject": SUBJECT, "out_path": str(out)}))
             c.check("existing out_path -> OUTPUT_EXISTS", (res.get("error") or {}).get("code") == "OUTPUT_EXISTS", json.dumps(res)[:300])
@@ -414,10 +504,11 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             c.check("too short subject -> INVALID_ARGUMENT field=subject with the rules",
                     e.get("code") == "INVALID_ARGUMENT" and e["details"].get("field") == "subject" and e["details"].get("rules"), json.dumps(res)[:300])
 
-            res = env_of(await s.call_tool("generate_image", {"workflow": "absent-style", "subject": SUBJECT}))
-            e = res.get("error") or {}
-            c.check("style without model files -> WORKFLOW_NOT_INSTALLED naming the file",
-                    e.get("code") == "WORKFLOW_NOT_INSTALLED" and "absent-model.safetensors" in e["details"].get("missing", []), json.dumps(res)[:300])
+            if not stack:  # absent-style is a copy of the sandbox
+                res = env_of(await s.call_tool("generate_image", {"workflow": "absent-style", "subject": SUBJECT}))
+                e = res.get("error") or {}
+                c.check("style without model files -> WORKFLOW_NOT_INSTALLED naming the file",
+                        e.get("code") == "WORKFLOW_NOT_INSTALLED" and "absent-model.safetensors" in e["details"].get("missing", []), json.dumps(res)[:300])
 
             Fake.mode = "oom"
             res = env_of(await s.call_tool("generate_image", {"workflow": "it-illustration", "subject": SUBJECT}))
@@ -433,58 +524,79 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
                     e.get("code") == "GENERATION_TIMEOUT" and job in Fake.cancelled, json.dumps(res)[:300] + f" cancelled={Fake.cancelled}")
             Fake.mode = "ok"
 
-            res = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration"}))
-            c.check("install of an installed style -> ok, already_installed",
-                    res["ok"] and res["result"]["already_installed"] is True, json.dumps(res)[:300])
+            if not stack:  # the model files and the install plan are those of the host (the stack has none: see docs/mcp.md)
+                res = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration"}))
+                c.check("install of an installed style -> ok, already_installed",
+                        res["ok"] and res["result"]["already_installed"] is True, json.dumps(res)[:300])
 
-            installed = res
-            res = env_of(await s.call_tool("install_workflow", {"workflow": "absent-style"}))
-            e = res.get("error") or {}
-            c.check("install without accept_license -> LICENSE_CONFIRMATION_REQUIRED, action_by=human, with size",
-                    e.get("code") == "LICENSE_CONFIRMATION_REQUIRED" and e["action_by"] == "human" and e["details"].get("download_bytes", 0) > 0,
-                    json.dumps(res)[:300])
+                installed = res
+                res = env_of(await s.call_tool("install_workflow", {"workflow": "absent-style"}))
+                e = res.get("error") or {}
+                c.check("install without accept_license -> LICENSE_CONFIRMATION_REQUIRED, action_by=human, with size",
+                        e.get("code") == "LICENSE_CONFIRMATION_REQUIRED" and e["action_by"] == "human" and e["details"].get("download_bytes", 0) > 0,
+                        json.dumps(res)[:300])
 
-            # The setup consent changes nothing on a machine where ComfyUI is installed.
-            again = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration", "accept_setup": True}))
-            lic = env_of(await s.call_tool("install_workflow", {"workflow": "absent-style", "accept_setup": True}))
-            c.check("a machine with ComfyUI: accept_setup=true changes no answer of install_workflow",
-                    without_seconds(again) == without_seconds(installed) and again["ok"] and lic == res,
-                    json.dumps(again)[:200] + " " + json.dumps(lic)[:200])
+                # The setup consent changes nothing on a machine where ComfyUI is installed.
+                again = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration", "accept_setup": True}))
+                lic = env_of(await s.call_tool("install_workflow", {"workflow": "absent-style", "accept_setup": True}))
+                c.check("a machine with ComfyUI: accept_setup=true changes no answer of install_workflow",
+                        without_seconds(again) == without_seconds(installed) and again["ok"] and lic == res,
+                        json.dumps(again)[:200] + " " + json.dumps(lic)[:200])
 
-            model_files = list(Path(sandbox["models"]).rglob("*.safetensors"))
-            states_of = lambda files: sorted(f["state"] for f in files)  # noqa: E731
-            res = env_of(await s.call_tool("uninstall_workflow", {"workflow": "it-illustration"}))
-            e = res.get("error") or {}
-            c.check("uninstall without confirm -> CONFIRMATION_REQUIRED, plan: 1 to delete, 2 shared kept; nothing deleted",
-                    e.get("code") == "CONFIRMATION_REQUIRED"
-                    and states_of(e["details"].get("files", [])) == ["kept_shared", "kept_shared", "would_delete"]
-                    and all(p.exists() for p in model_files), json.dumps(res)[:400])
+                model_files = list(Path(sandbox["models"]).rglob("*.safetensors"))
+                states_of = lambda files: sorted(f["state"] for f in files)  # noqa: E731
+                res = env_of(await s.call_tool("uninstall_workflow", {"workflow": "it-illustration"}))
+                e = res.get("error") or {}
+                c.check("uninstall without confirm -> CONFIRMATION_REQUIRED, plan: 1 to delete, 2 shared kept; nothing deleted",
+                        e.get("code") == "CONFIRMATION_REQUIRED"
+                        and states_of(e["details"].get("files", [])) == ["kept_shared", "kept_shared", "would_delete"]
+                        and all(p.exists() for p in model_files), json.dumps(res)[:400])
 
-            res = env_of(await s.call_tool("uninstall_workflow", {"workflow": "it-illustration", "confirm": True}))
-            c.check("uninstall with confirm deletes the 1 unshared file and keeps the 2 shared files",
-                    res["ok"] and states_of(res["result"]["files"]) == ["deleted", "kept_shared", "kept_shared"]
-                    and sum(p.exists() for p in model_files) == 2, json.dumps(res)[:400])
+                res = env_of(await s.call_tool("uninstall_workflow", {"workflow": "it-illustration", "confirm": True}))
+                c.check("uninstall with confirm deletes the 1 unshared file and keeps the 2 shared files",
+                        res["ok"] and states_of(res["result"]["files"]) == ["deleted", "kept_shared", "kept_shared"]
+                        and sum(p.exists() for p in model_files) == 2, json.dumps(res)[:400])
 
-            res = env_of(await s.call_tool("uninstall_workflow", {"workflow": "it-illustration", "confirm": True, "remove_shared": True}))
-            c.check("uninstall with remove_shared deletes the 2 shared files",
-                    res["ok"] and states_of(res["result"]["files"]) == ["absent", "deleted", "deleted"]
-                    and not any(p.exists() for p in model_files), json.dumps(res)[:400])
+                res = env_of(await s.call_tool("uninstall_workflow", {"workflow": "it-illustration", "confirm": True, "remove_shared": True}))
+                c.check("uninstall with remove_shared deletes the 2 shared files",
+                        res["ok"] and states_of(res["result"]["files"]) == ["absent", "deleted", "deleted"]
+                        and not any(p.exists() for p in model_files), json.dumps(res)[:400])
 
-            res = env_of(await s.call_tool("list_workflows", {}))
-            states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
-            c.check("after uninstall, list_workflows shows both styles not_installed",
-                    states == {"it-illustration": "not_installed", "absent-style": "not_installed", "stand-in-speech": "installed"}, json.dumps(states))
+                res = env_of(await s.call_tool("list_workflows", {}))
+                states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
+                c.check("after uninstall, list_workflows shows both styles not_installed",
+                        states == {"it-illustration": "not_installed", "absent-style": "not_installed", "stand-in-speech": "installed"}, json.dumps(states))
 
             res = env_of(await s.call_tool("generate_image", {"workflow": "nope-style", "subject": SUBJECT}))
             c.check("errors are the same envelope in structuredContent and in text",
                     res.get("ok") is False and res.get("result") is None and set(res.get("error", {})) == ERROR_KEYS, json.dumps(res)[:300])
 
-            HTTPD.shutdown()
-            HTTPD.server_close()
+            HTTPD.stop()
             res = env_of(await s.call_tool("generate_image", {"workflow": "it-illustration", "subject": SUBJECT}))
-            e = res.get("error") or {}
-            c.check("backend down and autostart off -> BACKEND_UNAVAILABLE, action_by=human",
-                    e.get("code") == "BACKEND_UNAVAILABLE" and e["action_by"] == "human", json.dumps(res)[:300])
+            if stack:
+                e = res.get("error") or {}
+                down = (e.get("details") or {}).get("down") or []
+                c.check("ComfyUI down -> NOT_READY, action_by=human, details.down names comfyui (the stack never starts ComfyUI)",
+                        e.get("code") == "NOT_READY" and e.get("action_by") == "human" and "comfyui" in down, json.dumps(res)[:300])
+            else:
+                e = res.get("error") or {}
+                c.check("backend down and autostart off -> BACKEND_UNAVAILABLE, action_by=human",
+                        e.get("code") == "BACKEND_UNAVAILABLE" and e["action_by"] == "human", json.dumps(res)[:300])
+
+
+def job_row(stack: str, job_id: str) -> list[str]:
+    """The state, the worker id and the backend job id of a row of horus.jobs, read in <stack>-db. An empty list when
+    there is no row, or when docker or psql fails."""
+    if not job_id or not all(ch.isalnum() or ch == "-" for ch in job_id):
+        return []
+    sql = f"select state, coalesce(worker_id, ''), coalesce(backend_job_id, '') from horus.jobs where id = '{job_id}'"
+    try:
+        out = subprocess.run(["docker", "exec", f"{stack}-db", "psql", "-U", "horus", "-d", "horus", "-At", "-F", "|", "-c", sql],
+                             capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    line = out.stdout.strip()
+    return line.split("|") if out.returncode == 0 and line else []
 
 
 async def speech_states(s: ClientSession) -> tuple:
@@ -897,7 +1009,28 @@ def speech_record_of(path: Path) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
 
 
-HTTPD: ThreadingHTTPServer
+HTTPD: Server
+# The count of checks of the run on the stack (the checks of the host run, less STACK_SKIPPED, and the stack check).
+STACK_TOTAL = 26
+
+
+# The checks that the run on the stack leaves out, and why (the pull request of task #203 lists them too).
+STACK_SKIPPED = {
+    "list_workflows shows installed and partially_installed styles; the kind of each workflow":
+        "they read the sandbox of the host: its model files and its two extra workflows. The stack run checks the kind and the install_state of it-illustration.",
+    "the checks of the speech workflow (describe, generate_image refusal, generate_speech, the speech worker)":
+        "the stand-in speech workflow and the fake speech worker are files of the host sandbox. The container has no speech setup (the speech worker is outside the job queue).",
+    "style without model files -> WORKFLOW_NOT_INSTALLED":
+        "absent-style is a copy in the sandbox of the host. The stack has no such workflow.",
+    "install_workflow and uninstall_workflow (9 checks)":
+        "they change the model files of the sandbox. In the stack, the models are on the host and ComfyUI runs on the host.",
+    "the setup checks and the speech setup checks":
+        "they run install_workflow with a fake package manager on the PATH of a host server process.",
+    "the 2 style-neutral checks of each shipped workflow":
+        "they read the workflow files of the repo, not an answer of the server. The host run has them.",
+    "backend down and autostart off -> BACKEND_UNAVAILABLE":
+        "the stack has no autostart. The same step on the stack checks NOT_READY with details.down naming comfyui.",
+}
 
 
 def main() -> int:
@@ -905,16 +1038,29 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--server-cmd", nargs="+", default=["horus", "mcp"])
     ap.add_argument("--report", type=Path, help="write each check and the answers of the speech checks to this JSON file")
+    ap.add_argument("--stack", default="", help="run over stdio into the stack with this compose project name (docker exec -i <name>-api horus mcp)")
+    ap.add_argument("--shared-dir", type=Path, help="stack: the host folder of a shared folder of the stack (HORUS_SHARED_DIRS)")
+    ap.add_argument("--port", type=int, default=0, help="the port of the fake ComfyUI (stack: the port in HORUS_COMFYUI_URL of the stack)")
+    ap.add_argument("--listen", default="127.0.0.1",
+                    help="the address of the fake ComfyUI. Docker Desktop reaches 127.0.0.1 of the host at host.docker.internal. "
+                         "Docker on Linux needs 0.0.0.0")
+    ap.add_argument("--ready-timeout", type=float, default=180, help="stack: the most seconds to wait until horus ready exits 0")
     a = ap.parse_args()
+    if a.stack and not a.shared_dir:
+        ap.error("--stack needs --shared-dir")
     sys.path.insert(0, str(ROOT))
     c = Checks()
-    HTTPD = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    HTTPD = Server((a.listen, a.port), Handler)
     threading.Thread(target=HTTPD.serve_forever, daemon=True).start()
     with tempfile.TemporaryDirectory(prefix="horus-contract-") as td:
         tmp = Path(td)
-        sandbox = make_sandbox(tmp, with_speech=True)
         try:
-            asyncio.run(run(a.server_cmd, sandbox, HTTPD.server_address[1], tmp, c))
+            if a.stack:
+                wait_ready(a.stack, a.ready_timeout)
+                asyncio.run(run_stack(a.stack, a.shared_dir.resolve(), tmp, c))
+            else:
+                sandbox = make_sandbox(tmp, with_speech=True)
+                asyncio.run(run(a.server_cmd, sandbox, HTTPD.server_address[1], tmp, c))
         except Exception as exc:  # the server did not start or the session broke
             c.check("the server starts and answers over stdio", False, f"{type(exc).__name__}: {exc}")
             log = tmp / "server.stderr.log"
@@ -925,6 +1071,8 @@ def main() -> int:
     # 41 server checks of the image tools, the kind and the code table, 14 speech checks, 5 checks of the speech setup,
     # 2 checks of the speech uninstall, plus 2 style-neutral checks for each shipped workflow
     total = 41 + 14 + 5 + 2 + 2 * shipped
+    if a.stack:
+        total = STACK_TOTAL
     if a.report:
         a.report.write_text(json.dumps(c.report(total), indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"contract: {passed} of {total} passed")

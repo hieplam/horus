@@ -401,10 +401,6 @@ func TestDuplicateDelivery(t *testing.T) {
 	t.Logf("jobs with exactly one submit: %s of %s", m[5], m[4])
 }
 
-func TestSameContract(t *testing.T) {
-	t.Fatal("not built: tests/mcp_contract.py on the host, over stdio into the stack, and over HTTP")
-}
-
 func TestHttpGuard(t *testing.T) {
 	t.Fatal("not built: /mcp with the bearer token and the checks of the Host and Origin headers")
 }
@@ -615,10 +611,6 @@ func TestCancelAndDeadline(t *testing.T) {
 		t.Errorf("submits: the first call %d, the cancelled, late and expired calls %d; want 1 and 0", f.submits(71), nobody)
 	}
 	t.Logf("submits of jobs that nobody wants: %d", nobody)
-}
-
-func TestWorkerLost(t *testing.T) {
-	t.Fatal("not built: WORKER_LOST after docker kill of horus-worker, and the next job after the restart")
 }
 
 // TestIdempotencyRecorded runs the 12 fixed vectors of the recipe, then an

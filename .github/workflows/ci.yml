@@ -107,6 +107,60 @@ jobs:
           python tests/mcp_contract.py --server-cmd "$GITHUB_WORKSPACE/bin/horus${{ runner.os == 'Windows' && '.exe' || '' }}" mcp | tee contract.log
           grep -q "contract: 66 of 66 passed" contract.log
 
+  stack-contract:
+    # tests/mcp_contract.py over stdio into the stack horus_test (docker exec -i horus_test-api horus mcp), with the
+    # fake ComfyUI of the test on the runner. The job builds the image, starts the 3 containers, runs the test and
+    # stops the stack. docs/mcp.md ("Test the server") tells how the job reaches the fake.
+    name: stack-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HORUS_STACK: horus_test
+      HORUS_API_PORT: "18190"
+      # The fake ComfyUI listens on 0.0.0.0:18188 of the runner. A container reaches it at host.docker.internal
+      # (extra_hosts: host-gateway in compose.yaml). A fake on 127.0.0.1 only is not reachable from a container on Linux.
+      HORUS_COMFYUI_URL: http://host.docker.internal:18188
+      # The checks of the time limit need a short limit.
+      HORUS_GENERATE_TIMEOUT: "12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r tests/requirements.txt
+      - run: go build -o bin/ ./cmd/horus
+      - name: Build the image and start the 3 containers
+        shell: bash
+        run: |
+          shared="$RUNNER_TEMP/shared"
+          mkdir -p "$shared"
+          # The container user (uid 10001) writes the PNG files into this folder of the runner user.
+          chmod 777 "$shared"
+          # A new password for each run: it goes only into the environment of the job.
+          pw="$(openssl rand -hex 16)"
+          echo "::add-mask::$pw"
+          echo "HORUS_DB_PASSWORD=$pw" >> "$GITHUB_ENV"
+          export HORUS_DB_PASSWORD="$pw"
+          HORUS_SHARED_DIRS="$shared=/shared/ci" bin/horus stack-mounts -o "$RUNNER_TEMP/override.yaml"
+          docker compose -p horus_test -f compose.yaml -f "$RUNNER_TEMP/override.yaml" up -d --build
+      - name: Contract test over stdio into the stack
+        shell: bash
+        run: |
+          # The test starts its fake ComfyUI, and waits until horus ready exits 0 (the 4 dependencies are up).
+          python tests/mcp_contract.py --stack horus_test --port 18188 --listen 0.0.0.0 --shared-dir "$RUNNER_TEMP/shared" | tee stack-contract.log
+          grep -q "contract: 26 of 26 passed" stack-contract.log
+      - name: The logs of the stack
+        if: failure()
+        shell: bash
+        run: docker compose -p horus_test -f compose.yaml -f "$RUNNER_TEMP/override.yaml" logs --no-color --tail 80
+      - name: Stop the stack
+        if: always()
+        shell: bash
+        run: docker compose -p horus_test -f compose.yaml -f "$RUNNER_TEMP/override.yaml" down -v --remove-orphans
+
   workflow-parity:
     # tests/workflow_parity.py: horus workflow against the golden files recorded from the old script.
     name: workflow-parity ${{ matrix.os }}

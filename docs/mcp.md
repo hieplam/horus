@@ -818,6 +818,64 @@ has no graph, no subject and no output. `--report <file>` also writes each
 check, and the answers of the server to the speech checks, as JSON. The goal
 suite `goals/2026-11-20-text-to-speech` reads that file.
 
+### The contract test on the stack
+
+`--stack <name>` runs the contract test over stdio into the stack. The server
+is `docker exec -i <name>-api horus mcp`, so the test talks to the program in
+the container. The fake ComfyUI of the test is the ComfyUI of the stack. Start
+the stack first. The setting `HORUS_COMFYUI_URL` of the stack must name the
+port of the fake, `--port`. The setting `HORUS_GENERATE_TIMEOUT` of the stack
+must be 12, because the check of the time limit needs a short limit.
+
+```
+.scratch\test-venv\Scripts\python tests\mcp_contract.py --stack horus_test --port 18188 --shared-dir <shared folder>
+```
+
+- `--shared-dir` is the host folder of one shared folder of the stack
+  (`HORUS_SHARED_DIRS`). The test writes its PNG files there.
+- `--port` is the port of the fake, and `--listen` is its address. The default
+  is `127.0.0.1`: Docker Desktop gives a container the loopback of the host at
+  `host.docker.internal`. Docker on Linux does not. There, a fake that listens
+  only on `127.0.0.1` is not reachable from a container, so use `--listen 0.0.0.0`.
+- The test waits up to `--ready-timeout` seconds (180) until `horus ready`
+  exits 0 in `<name>-api`. It can start before the stack is up.
+
+The fake answers with HTTP/1.1, and keeps a connection open for the next
+request. With HTTP/1.0, some requests that a container sends through
+`host.docker.internal` hang until their time limit.
+
+The run on the stack has 26 checks. One check is new: **the stack ran the call**.
+The PNG of `generate_image` is at the host path in the shared folder. The job
+row in `horus-db` is `succeeded`, it has the id of a worker, and its
+`backend_job_id` is the id of the job that the fake ComfyUI got. `job_id` is
+the horus job id, not the id of the job in ComfyUI. A server that runs on the
+host, and not in the stack, has no job row and fails this check.
+
+The run on the stack leaves out the checks that need the sandbox of the host:
+
+| Left out | Reason |
+|---|---|
+| The install states of the sandbox workflows, and the kind of each one | The sandbox holds model files and two extra workflows. The stack run checks the kind and the `install_state` of `it-illustration`. |
+| The speech checks and the speech worker checks | The stand-in speech workflow and the fake speech worker are files of the sandbox. The container has no speech setup. |
+| `WORKFLOW_NOT_INSTALLED` for `absent-style` | `absent-style` is a copy in the sandbox. |
+| `install_workflow` and `uninstall_workflow` (9 checks) | They change the model files of the sandbox. In the stack, the model files are on the host, with ComfyUI. |
+| The setup checks and the speech setup checks | They run `install_workflow` with a fake package manager on the PATH of a server on the host. |
+| The 2 style-neutral checks of each shipped workflow | They read the workflow files of the repo, not an answer of the server. The host run has them. |
+| `BACKEND_UNAVAILABLE` when ComfyUI is down | The stack has no autostart. The same step checks `NOT_READY` with `details.down` that names `comfyui`. |
+
+The CI job `stack-contract` builds the image, starts the stack `horus_test`,
+runs this test and stops the stack. It runs with `--listen 0.0.0.0`, and it
+makes the shared folder writable for the container user (uid 10001). The goal
+rows `same-contract` and `worker-lost` of
+`go test -tags goal -v ./goals/2026-11-19-job-queue` start the stack themselves.
+`worker-lost` sends SIGKILL to the worker process while a job runs: a container
+with `--pid=host` runs `kill -9` on the host process id of the worker. Docker
+sees a crash, so it restarts the worker. The waiting call gets `WORKER_LOST`
+in 90 s or less, and the next call ends with a PNG. The command `docker kill`
+is a stop that a person asks for: Docker 29.8 does not restart the container
+after it, also with `restart: always`. After a `docker kill` of `horus-worker`,
+run `docker compose start horus-worker`.
+
 ### The peak tool
 
 `tests/peak_load.py` measures what happens when many agents call

@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,6 +42,10 @@ type stackEnv struct {
 	cs        *mcp.ClientSession
 	server    *mcp.Server
 	progress  chan string
+	// opts are the parts of the stack that the server has. Its gate reads
+	// down: the name of a dependency that is down, or "".
+	opts Options
+	down atomic.Value
 }
 
 func newStackEnv(t *testing.T, cfg jobs.Config, wrap ...func(jobs.Store) jobs.Store) *stackEnv {
@@ -62,11 +67,16 @@ func newStackEnv(t *testing.T, cfg jobs.Config, wrap ...func(jobs.Store) jobs.St
 	e.svc = jobs.New(store, brokertest.NewBroker(), cfg)
 	q := &Queue{Jobs: e.svc, QueueTimeout: cfg.QueueTimeout,
 		Paths: PathsOf([]settings.SharedDir{{Host: hostShared, Container: e.container}}, "windows")}
+	e.down.Store("")
 	ready := func(context.Context, ...string) jobdata.Readiness {
-		return jobdata.ReadinessOf([]jobdata.CheckResult{{Dependency: jobdata.DependencyDB, Up: true}, {Dependency: jobdata.DependencyComfyUI, Up: true},
-			{Dependency: jobdata.DependencyWorker, Up: true}, {Dependency: jobdata.DependencyAPI, Up: true}})
+		var rs []jobdata.CheckResult
+		for _, d := range jobdata.Dependencies {
+			rs = append(rs, jobdata.CheckResult{Dependency: d, Up: d != e.down.Load().(string), Detail: "the check of the test"})
+		}
+		return jobdata.ReadinessOf(rs)
 	}
-	e.server = NewWith(e.images, noFilesSetup{}, nil, Options{Ready: ready, Queue: q})
+	e.opts = Options{Ready: ready, Queue: q}
+	e.server = NewWith(e.images, noFilesSetup{}, nil, e.opts)
 	e.cs = connect(t, e.server, &mcp.ClientOptions{
 		ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
 			select { // a waiter reports at each poll: a full channel drops the message, so the client never blocks

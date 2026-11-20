@@ -324,21 +324,31 @@ func queueConfig() (jobs.Config, error) {
 // the job queue of generate_image with the shared folders of
 // HORUS_SHARED_DIRS. done closes the database pool.
 func stackMCP(ctx context.Context) (mcpserver.Options, func(), error) {
+	opts, _, done, err := stackParts(ctx, localAPI())
+	return opts, done, err
+}
+
+// stackParts gives the parts of an API process of the stack: the readiness
+// gate and the job queue of the MCP tools (opts), and the readiness of the 4
+// dependencies with its job queue service (stack). apiURL is the address of
+// horus api to check, or "" in the process of horus api. done closes the
+// database pool.
+func stackParts(ctx context.Context, apiURL string) (mcpserver.Options, mcpserver.Stack, func(), error) {
 	cfg, err := queueConfig()
 	if err != nil {
-		return mcpserver.Options{}, nil, err
+		return mcpserver.Options{}, mcpserver.Stack{}, nil, err
 	}
 	dirs, err := settings.SharedDirs()
 	if err != nil {
-		return mcpserver.Options{}, nil, err
+		return mcpserver.Options{}, mcpserver.Stack{}, nil, err
 	}
-	stack, svc, done := stackWith(ctx, localAPI(), cfg)
+	stack, svc, done := stackWith(ctx, apiURL, cfg)
 	if svc == nil {
 		done()
-		return mcpserver.Options{}, nil, fmt.Errorf("the job queue has no database: %s", stack.Ready(ctx).Text())
+		return mcpserver.Options{}, mcpserver.Stack{}, nil, fmt.Errorf("the job queue has no database: %s", stack.Ready(ctx).Text())
 	}
 	q := &mcpserver.Queue{Jobs: svc, Paths: mcpserver.PathsOf(dirs, settings.HostOS()), QueueTimeout: cfg.QueueTimeout}
-	return mcpserver.Options{Ready: stack.Ready, Queue: q}, done, nil
+	return mcpserver.Options{Ready: stack.Ready, Queue: q}, stack, done, nil
 }
 
 // downQueue is the job queue when the database cannot be used: the checks of
@@ -375,9 +385,11 @@ func localAPI() string {
 // the readiness.
 const readyEvery = 5 * time.Second
 
-// runAPI is horus api: the HTTP server of horus-api on listen (internal/webui:
-// the Horus UI, /readyz and /livez), until ctx ends. It writes one log line
-// when it starts, when the readiness changes, and when it stops.
+// runAPI is horus api: the HTTP server of horus-api on listen until ctx ends:
+// /mcp (internal/mcpserver: the MCP tools over Streamable HTTP, with the
+// bearer token of HORUS_API_TOKEN), and the routes of internal/webui (the
+// Horus UI, /readyz and /livez). It writes one log line when it starts, when
+// the readiness changes, and when it stops. The log never has the token.
 func runAPI(ctx context.Context, listen string, out io.Writer) error {
 	if settings.DatabaseURL() == "" {
 		return errors.New("HORUS_DATABASE_URL is not set: horus api serves horus in the stack (docs/setup.md#run-horus-as-a-stack)")
@@ -394,27 +406,41 @@ func runAPI(ctx context.Context, listen string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	stack, done := stackOf(ctx, "")
+	opts, stack, done, err := stackParts(ctx, "")
+	if err != nil {
+		return err
+	}
 	defer done()
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return err
 	}
+	ports := webui.Ports(port, ln.Addr().String())
+	token := settings.APIToken()
+	setup := newSetup(cli.SetupPlace{}, seams{})
 	queue, _ := stack.Queue.(webui.Queue)
 	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcpserver.NewHTTP(stackImages(), setup, opts, mcpserver.HTTPConfig{Token: token, Ports: ports}))
 	mux.Handle("/", webui.Handler(webui.Config{
 		Ready:        func(ctx context.Context) jobdata.Readiness { return stack.Ready(ctx) },
 		Queue:        queue,
-		Setup:        newSetup(cli.SetupPlace{}, seams{}),
+		Setup:        setup,
 		ComfyVersion: comfy.New("").Version,
-		Ports:        webui.Ports(port, ln.Addr().String()),
+		Ports:        ports,
 		Settings: webui.Settings{DatabaseURL: settings.DatabaseURL(), ComfyURL: settings.ComfyURL(), Slots: slots,
 			RunLimit: time.Duration(limit) * time.Second, Broker: "Postgres"},
 	}))
 	// Each request ends when ctx ends, so that a stream of events does not
-	// hold the stop.
+	// hold the stop, and a call of /mcp cancels its job. The server has no
+	// write time limit: a call of generate_image holds its POST open for
+	// minutes.
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
-	fmt.Fprintf(out, "horus api: serves the Horus UI, /readyz and /livez on http://%s\n", ln.Addr())
+	fmt.Fprintf(out, "horus api: serves /mcp, the Horus UI, /readyz and /livez on http://%s\n", ln.Addr())
+	if token == "" {
+		fmt.Fprintf(out, "horus api: %s is not set, so /mcp refuses each request with 401. Set it in the .env of the stack, then run docker compose up -d\n", settings.APITokenVar)
+	} else {
+		fmt.Fprintf(out, "horus api: /mcp needs the bearer token of %s\n", settings.APITokenVar)
+	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	tick := time.NewTicker(readyEvery)

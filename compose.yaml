@@ -83,6 +83,11 @@ services:
     <<: *horus
     container_name: ${HORUS_STACK:-horus}-api
     command: ["horus", "api", "-listen", "0.0.0.0:${HORUS_API_PORT:-8190}"]
+    environment:
+      <<: *env
+      # The bearer token of /mcp. Only horus-api gets it. Without it, /mcp
+      # refuses each request.
+      HORUS_API_TOKEN: ${HORUS_API_TOKEN}
     # Only on 127.0.0.1 of the host.
     ports:
       - "127.0.0.1:${HORUS_API_PORT:-8190}:${HORUS_API_PORT:-8190}"

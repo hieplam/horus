@@ -251,8 +251,8 @@ func JobRetentionDays() (int, error) { return positive("HORUS_JOB_RETENTION_DAYS
 
 // APIPort is HORUS_API_PORT: the port of horus api (/mcp, the Horus UI and
 // /readyz), on 127.0.0.1. Default 8190. In the stack, horus api listens on
-// 8190 in its container, and compose.yaml publishes HORUS_API_PORT of the
-// host on 127.0.0.1.
+// HORUS_API_PORT in its container, and compose.yaml publishes the same port
+// on 127.0.0.1 of the host.
 func APIPort() (int, error) {
 	n, err := positive("HORUS_API_PORT", "8190")
 	if err == nil && n > 65535 {
@@ -260,6 +260,17 @@ func APIPort() (int, error) {
 	}
 	return n, err
 }
+
+// APITokenVar is the name of the setting that holds the bearer token of /mcp.
+// horus register -http writes this name into the config of a client, never
+// the value.
+const APITokenVar = "HORUS_API_TOKEN"
+
+// APIToken is HORUS_API_TOKEN: the bearer token of /mcp of horus api. In the
+// stack, compose.yaml gives the line of the .env to the container horus-api.
+// Empty: /mcp refuses each request. horus never writes it to a log, a URL or
+// a command line.
+func APIToken() string { return strings.TrimSpace(Get(APITokenVar, "")) }
 
 // Stack is HORUS_STACK: the name of the Docker stack. The names of its
 // containers are <stack>-api, <stack>-worker and <stack>-db. Default horus.

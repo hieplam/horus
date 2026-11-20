@@ -8,12 +8,15 @@ package goal
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,12 +52,30 @@ func passed(out, name string) bool {
 	return regexp.MustCompile(`(?m)^\s*--- PASS: ` + regexp.QuoteMeta(name) + ` `).MatchString(out)
 }
 
+// TestPeakTimeouts runs the peak tool against the test stack: 12 agents call
+// generate_image at the same time, and the agents of the calls 3 and 6 leave
+// after 60 / 10 s. Each of the 10 agents that stay gets its PNG at its host
+// path in the shared folder, no call ends with GENERATION_TIMEOUT, and the
+// fake ComfyUI runs no job of an agent that left.
 func TestPeakTimeouts(t *testing.T) {
-	t.Fatal("not built: tests/peak_load.py against the stack: 12 calls, 2 agents leave, 10 PNG, 0 GENERATION_TIMEOUT, 0 GPU seconds for nobody")
+	res, log := twelveCalls(t)
+	t.Logf("the peak run:\n%s", log)
+	if res.PNG != 10 || res.GenerationTimeout != 0 || res.GPUForNobody != 0 {
+		t.Fatalf("png %d of 10, GENERATION_TIMEOUT %d, GPU seconds for nobody %.1f; want 10, 0 and 0",
+			res.PNG, res.GenerationTimeout, res.GPUForNobody)
+	}
+	t.Logf("png: 10 of 10; GENERATION_TIMEOUT: %d; GPU seconds for nobody: %.1f", res.GenerationTimeout, res.GPUForNobody)
 }
 
+// TestBoundedBackendQueue reads the same run: the fake ComfyUI of the peak
+// tool records the most jobs that it held at one time, running and waiting.
+// With one slot, ComfyUI never holds more than one horus job.
 func TestBoundedBackendQueue(t *testing.T) {
-	t.Fatal("not built: the fake ComfyUI of the peak tool records the most horus jobs that it held at one time")
+	res, log := twelveCalls(t)
+	if res.MaxJobs != 1 {
+		t.Fatalf("the most jobs in ComfyUI at one time: %d, want 1 with 1 slot:\n%s", res.MaxJobs, log)
+	}
+	t.Logf("the most jobs in ComfyUI at one time: %d, with 1 slot (%d PNG)", res.MaxJobs, res.PNG)
 }
 
 // TestStackStartsTogether: with a fake ComfyUI on the host, one command,
@@ -260,12 +281,69 @@ func TestReadyWhenFourUp(t *testing.T) {
 	t.Fatal("not built: /mcp: the HTTP session of each step (task #204, MCP over HTTP)")
 }
 
+// TestOutPathMapping runs two calls on the test stack. A call with a host
+// path in the shared folder gets its PNG at that host path, and the result
+// gives the host path, not the container path. A call with a path outside
+// the shared folders gets INVALID_ARGUMENT that lists them, and makes no job
+// in ComfyUI.
 func TestOutPathMapping(t *testing.T) {
-	t.Fatal("not built: HORUS_SHARED_DIRS, the host path of a PNG, and INVALID_ARGUMENT for a path outside the shared folders")
+	f, st := e2eStack(t, 2*time.Second)
+	s, err := openSession(t, 60*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.close()
+	pass := 0
+	host := filepath.Join(st.shared, "covers", "one.png")
+	e, err := s.call("generate_image", map[string]any{"workflow": "it-illustration", "subject": goalSubject, "seed": 51, "out_path": host}, 120*time.Second)
+	switch {
+	case err != nil:
+		t.Errorf("a host path in the shared folder: %v", err)
+	case !e.OK || e.Result["path"] != host:
+		t.Errorf("a host path in the shared folder: %+v, want ok with the path %s", e, host)
+	case !isPNG(host):
+		t.Errorf("a host path in the shared folder: no PNG at %s", host)
+	default:
+		pass++
+		t.Logf("the PNG is at the host path %s, and the result gives it", host)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.png")
+	e, err = s.call("generate_image", map[string]any{"workflow": "it-illustration", "subject": goalSubject, "seed": 52, "out_path": outside}, 60*time.Second)
+	var dirs []any
+	if e.Error != nil {
+		dirs, _ = e.Error.Details["shared_dirs"].([]any)
+	}
+	switch {
+	case err != nil:
+		t.Errorf("a path outside the shared folders: %v", err)
+	case e.OK || e.Error.Code != "INVALID_ARGUMENT" || len(dirs) != 1 || dirs[0] != st.shared:
+		t.Errorf("a path outside the shared folders: %+v, want INVALID_ARGUMENT with details.shared_dirs [%s]", e, st.shared)
+	case f.submits(52) != 0:
+		t.Errorf("a path outside the shared folders: %d jobs reached ComfyUI", f.submits(52))
+	default:
+		pass++
+		t.Logf("a path outside the shared folders: INVALID_ARGUMENT, details.shared_dirs %v", dirs)
+	}
+	t.Logf("cases that pass: %d of 2", pass)
 }
 
+// TestConcurrencySetting runs the peak tool against the test stack with
+// HORUS_WORKER_CONCURRENCY = 1, 2 and 3, and a fake ComfyUI that runs 3 jobs
+// at the same time. The fake records the most jobs that run at the same
+// time: it is N, for each N.
 func TestConcurrencySetting(t *testing.T) {
-	t.Fatal("not built: horus worker with HORUS_WORKER_CONCURRENCY = 1, 2 and 3 in the peak tool")
+	pass := 0
+	for n := 1; n <= 3; n++ {
+		res, log := peakRun(t, n, "--calls", "6", "--parallel", "3")
+		if res.MaxRunning != n || res.PNG != 6 {
+			t.Errorf("HORUS_WORKER_CONCURRENCY=%d: the most jobs at one time %d, png %d of 6; want %d and 6:\n%s", n, res.MaxRunning, res.PNG, n, log)
+			continue
+		}
+		pass++
+		t.Logf("HORUS_WORKER_CONCURRENCY=%d: the most jobs at one time %d, png 6 of 6", n, res.MaxRunning)
+	}
+	t.Logf("values of N that pass: %d of 3", pass)
 }
 
 // brokerChecks are the checks of the contract suite internal/brokertest:
@@ -331,25 +409,263 @@ func TestHttpGuard(t *testing.T) {
 	t.Fatal("not built: /mcp with the bearer token and the checks of the Host and Origin headers")
 }
 
+// queueText is the progress text of a queued job.
+var queueText = regexp.MustCompile(`^waiting in the horus queue, position (\d+) of (\d+), start in (about \d+ min|less than 1 min)$`)
+
+// TestQueueProgress makes 3 calls on the test stack, one after the other,
+// while the first one runs. The third call gets its place in the queue
+// ("position 2 of 2" or less) and its estimated start as progress, at least
+// every 10 s, and then its PNG.
 func TestQueueProgress(t *testing.T) {
-	t.Fatal("not built: the progress message with the place in the queue and the estimated start")
+	f, st := e2eStack(t, 15*time.Second)
+	var sessions []*session
+	for i := 0; i < 3; i++ {
+		s, err := openSession(t, 60*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.close()
+		sessions = append(sessions, s)
+	}
+	args := func(n int) map[string]any {
+		return map[string]any{"workflow": "it-illustration", "subject": goalSubject, "seed": 80 + n,
+			"out_path": filepath.Join(st.shared, fmt.Sprintf("progress-%d.png", n))}
+	}
+	results := make([]chan envelope, 3)
+	firsts := make([]string, 2) // the first progress message of the calls 1 and 2
+	for n := 1; n <= 2; n++ {
+		results[n-1] = make(chan envelope, 1)
+		go func(n int) {
+			e, err := sessions[n-1].callToken("generate_image", args(n), fmt.Sprintf("p%d", n), 180*time.Second)
+			if err != nil {
+				e = envelope{}
+			}
+			results[n-1] <- e
+		}(n)
+		// The next call starts when this one is in the queue of horus.
+		select {
+		case note := <-sessions[n-1].progress:
+			firsts[n-1] = note.message
+		case <-time.After(60 * time.Second):
+			t.Fatalf("call %d: no progress in 60 s", n)
+		}
+		if n == 1 {
+			if why := waitFor(30*time.Second, func() string {
+				if f.submits(81) == 0 {
+					return "call 1 did not reach ComfyUI"
+				}
+				return ""
+			}); why != "" {
+				t.Fatal(why)
+			}
+		}
+	}
+	start := time.Now()
+	e3, err := sessions[2].callToken("generate_image", args(3), "p3", 180*time.Second)
+	if err != nil || !e3.OK {
+		t.Fatalf("call 3: %+v %v", e3, err)
+	}
+	var notes []progressNote
+	for len(sessions[2].progress) > 0 {
+		notes = append(notes, <-sessions[2].progress)
+	}
+	positions := 0
+	last := start
+	for _, n := range notes {
+		if gap := n.at.Sub(last); gap > 10*time.Second {
+			t.Errorf("call 3: %s without a progress message before %q, want at most 10 s", gap.Round(10*time.Millisecond), n.message)
+		}
+		last = n.at
+		if m := queueText.FindStringSubmatch(n.message); m != nil {
+			positions++
+			if pos, _ := strconv.Atoi(m[1]); pos < 1 || pos > 2 {
+				t.Errorf("call 3: %q, want position 2 of 2 or less", n.message)
+			}
+		}
+	}
+	if positions < 2 || len(notes) == 0 || !queueText.MatchString(notes[0].message) {
+		var texts []string
+		for _, n := range notes {
+			texts = append(texts, n.message)
+		}
+		t.Fatalf("call 3: %d messages with its place in the queue, want 2 or more, the first one first: %q", positions, texts)
+	}
+	withPosition := 1 // call 3
+	for n := 1; n <= 2; n++ {
+		e := <-results[n-1]
+		if !e.OK {
+			t.Errorf("call %d: %+v", n, e)
+		}
+		texts := []string{firsts[n-1]}
+		for len(sessions[n-1].progress) > 0 {
+			texts = append(texts, (<-sessions[n-1].progress).message)
+		}
+		if slices.ContainsFunc(texts, queueText.MatchString) {
+			withPosition++
+		}
+	}
+	t.Logf("call 3: first message %q; %d messages with its place in the queue, %d messages in all, each gap at most 10 s",
+		notes[0].message, positions, len(notes))
+	t.Logf("calls with a position message: %d of 3 (call 1 can start before its first message)", withPosition)
 }
 
+// TestCancelAndDeadline makes calls on the test stack while one job runs on
+// the fake ComfyUI. A cancel of a queued call moves its job to cancelled. A
+// call whose estimated start is after its HORUS_QUEUE_TIMEOUT gets
+// QUEUE_FULL in less than 2 s. A queued job past its deadline never starts,
+// and its call gets GENERATION_TIMEOUT with details.phase queued. ComfyUI
+// gets no submit for those 3 calls.
 func TestCancelAndDeadline(t *testing.T) {
-	t.Fatal("not built: cancel of a queued job, QUEUE_FULL for a late start, and the deadline of a queued job")
+	f, st := e2eStack(t, 20*time.Second)
+	args := func(seed int) map[string]any {
+		return map[string]any{"workflow": "it-illustration", "subject": goalSubject, "seed": seed,
+			"out_path": filepath.Join(st.shared, fmt.Sprintf("cancel-%d.png", seed))}
+	}
+	a, err := openSession(t, 60*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.close()
+	aDone := make(chan envelope, 1)
+	go func() {
+		e, _ := a.call("generate_image", args(71), 180*time.Second)
+		aDone <- e
+	}()
+	if why := waitFor(30*time.Second, func() string {
+		if f.submits(71) == 0 {
+			return "the first call did not reach ComfyUI"
+		}
+		return ""
+	}); why != "" {
+		t.Fatal(why)
+	}
+
+	// A cancel removes a queued job.
+	b, err := openSession(t, 60*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.close()
+	go func() { _, _ = b.callToken("generate_image", args(72), "b", 60*time.Second) }()
+	select {
+	case n := <-b.progress:
+		if !queueText.MatchString(n.message) {
+			t.Fatalf("the call to cancel is not queued: %q", n.message)
+		}
+	case <-time.After(60 * time.Second):
+		t.Fatal("the call to cancel: no progress in 60 s")
+	}
+	if err := b.cancel(b.lastID()); err != nil {
+		t.Fatal(err)
+	}
+	if why := waitFor(5*time.Second, func() string {
+		if s := stateOfSeed(t, 72); s != "cancelled" {
+			return "the job of the cancelled call is " + s
+		}
+		return ""
+	}); why != "" {
+		t.Error(why)
+	}
+
+	// A late start gets QUEUE_FULL at once.
+	c, err := openSession(t, 60*time.Second, "HORUS_QUEUE_TIMEOUT=5", "HORUS_RUN_ESTIMATE=60")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.close()
+	began := time.Now()
+	e, err := c.call("generate_image", args(73), 30*time.Second)
+	took := time.Since(began)
+	if err != nil || e.OK || e.Error.Code != "QUEUE_FULL" || took >= 2*time.Second {
+		t.Errorf("a call whose start is after its deadline: %+v %v after %s, want QUEUE_FULL in less than 2 s", e, err, took)
+	} else {
+		t.Logf("QUEUE_FULL after %s: %s", took.Round(time.Millisecond), e.Error.Message)
+	}
+
+	// A job past its deadline never starts.
+	d, err := openSession(t, 60*time.Second, "HORUS_QUEUE_TIMEOUT=3", "HORUS_RUN_ESTIMATE=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	e, err = d.call("generate_image", args(74), 90*time.Second)
+	if err != nil || e.OK || e.Error.Code != "GENERATION_TIMEOUT" || e.Error.Details["phase"] != "queued" {
+		t.Errorf("a job past its deadline: %+v %v, want GENERATION_TIMEOUT with details.phase queued", e, err)
+	}
+	if s := stateOfSeed(t, 74); s != "expired" {
+		t.Errorf("the job past its deadline is %s, want expired", s)
+	}
+
+	if e := <-aDone; !e.OK {
+		t.Errorf("the first call: %+v", e)
+	}
+	if why := waitFor(60*time.Second, func() string {
+		if !f.idle() {
+			return "the fake ComfyUI still holds a job"
+		}
+		return ""
+	}); why != "" {
+		t.Error(why)
+	}
+	nobody := f.submits(72) + f.submits(73) + f.submits(74)
+	if nobody != 0 || f.submits(71) != 1 {
+		t.Errorf("submits: the first call %d, the cancelled, late and expired calls %d; want 1 and 0", f.submits(71), nobody)
+	}
+	t.Logf("submits of jobs that nobody wants: %d", nobody)
 }
 
 func TestWorkerLost(t *testing.T) {
 	t.Fatal("not built: WORKER_LOST after docker kill of horus-worker, and the next job after the restart")
 }
 
+// TestIdempotencyRecorded runs the 12 fixed vectors of the recipe, then an
+// end-to-end run on the test stack: two equal calls make 2 job rows, each
+// with the request fingerprint that the oracle computes by recipe version 1
+// and the key f1:<fingerprint> (the dedupe is off). A call with
+// idempotency_key gets the key k1:<SHA-256 of the tool and the key>.
 func TestIdempotencyRecorded(t *testing.T) {
 	code, out := run(t, root, "go", "test", "-count=1", "-run", "^TestRecipeVectors$", "-v", "./internal/jobs")
 	n := len(regexp.MustCompile(`(?m)^\s+--- PASS: TestRecipeVectors/`).FindAllString(out, -1))
 	if code != 0 || n != 12 {
 		t.Fatalf("the vectors of recipe version 1: %d of 12 pass, exit code %d:\n%s", n, code, out)
 	}
-	t.Fatal("not built: request_hash and idempotency_key in each job row of Postgres, and the end-to-end run: two equal calls make 2 rows with the same key")
+	t.Logf("vectors that pass: %d of 12", n)
+
+	_, st := e2eStack(t, time.Second)
+	s, err := openSession(t, 60*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.close()
+	same := filepath.Join(st.shared, "same.png")
+	equal := map[string]any{"workflow": "it-illustration", "subject": goalSubject, "seed": 61, "out_path": same, "overwrite": true}
+	for i := 1; i <= 2; i++ {
+		if e, err := s.call("generate_image", equal, 120*time.Second); err != nil || !e.OK {
+			t.Fatalf("equal call %d: %+v %v", i, e, err)
+		}
+	}
+	keyed := map[string]any{"workflow": "it-illustration", "subject": goalSubject, "out_path": filepath.Join(st.shared, "keyed.png"),
+		"idempotency_key": "goal-key-1"}
+	if e, err := s.call("generate_image", keyed, 120*time.Second); err != nil || !e.OK {
+		t.Fatalf("the call with idempotency_key: %+v %v", e, err)
+	}
+	rows := query(t, "select coalesce(request_hash, ''), coalesce(idempotency_key, '') from horus.jobs order by created_at")
+	if len(rows) != 3 {
+		t.Fatalf("horus.jobs has %d rows, want 3: %v", len(rows), rows)
+	}
+	want := fingerprintOf(t, goalSubject, 61, same, true)
+	for i := 0; i < 2; i++ {
+		if rows[i][0] != want || rows[i][1] != "f1:"+want {
+			t.Errorf("the row of equal call %d: request_hash %s, idempotency_key %s; want %s and f1:%s", i+1, rows[i][0], rows[i][1], want, want)
+		}
+	}
+	sum := sha256.Sum256([]byte("generate_image\ngoal-key-1"))
+	if k := "k1:" + hex.EncodeToString(sum[:]); rows[2][1] != k || len(rows[2][0]) != 64 {
+		t.Errorf("the row of the call with idempotency_key: request_hash %q, idempotency_key %q; want a hash and %s", rows[2][0], rows[2][1], k)
+	}
+	if rows[0][1] == rows[1][1] {
+		t.Logf("2 rows with the same key %s; the dedupe is off", rows[0][1])
+	}
 }
 
 // uiLine is the line of the Go test TestHorusUI of cmd/horus for one

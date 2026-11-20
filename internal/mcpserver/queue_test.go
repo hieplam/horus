@@ -62,7 +62,12 @@ func newStackEnv(t *testing.T, cfg jobs.Config) *stackEnv {
 			{Dependency: jobdata.DependencyWorker, Up: true}, {Dependency: jobdata.DependencyAPI, Up: true}})
 	}
 	e.cs = connect(t, NewWith(e.images, noFilesSetup{}, nil, Options{Ready: ready, Queue: q}), &mcp.ClientOptions{
-		ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) { e.progress <- r.Params.Message },
+		ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
+			select { // a waiter reports at each poll: a full channel drops the message, so the client never blocks
+			case e.progress <- r.Params.Message:
+			default:
+			}
+		},
 	})
 	return e
 }

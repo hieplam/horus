@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -103,14 +104,26 @@ func (f *fakeComfy) start(t *testing.T) {
 // stackEnv is the environment of docker compose for the test stack. The
 // password of the database is new for each run, and it goes only into the
 // environment, never onto a command line.
-func stackEnv(t *testing.T, f *fakeComfy) []string {
+func stackEnv(t *testing.T, f *fakeComfy) []string { return stackEnvFiles(t, f.port) }
+
+// stackEnvFiles is stackEnv for a fake ComfyUI on port, with the compose
+// files compose.yaml and then each of files. COMPOSE_FILE names the files, so
+// docker compose never reads a compose.override.yaml of the owner in the
+// repo root.
+func stackEnvFiles(t *testing.T, port int, files ...string) []string {
 	t.Helper()
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		t.Fatal(err)
 	}
+	compose, err := filepath.Abs(filepath.Join(root, "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sep := string(os.PathListSeparator)
 	return append(os.Environ(), "HORUS_STACK="+testStack, "HORUS_API_PORT="+testAPIPort,
-		"HORUS_COMFYUI_URL=http://host.docker.internal:"+strconv.Itoa(f.port), "HORUS_DB_PASSWORD="+hex.EncodeToString(b))
+		"HORUS_COMFYUI_URL=http://host.docker.internal:"+strconv.Itoa(port), "HORUS_DB_PASSWORD="+hex.EncodeToString(b),
+		"COMPOSE_FILE="+strings.Join(append([]string{compose}, files...), sep), "COMPOSE_PATH_SEPARATOR="+sep)
 }
 
 // runEnv is run with the environment env.
@@ -142,10 +155,15 @@ func compose(t *testing.T, env []string, args ...string) (int, string) {
 // network. The image build is not a part of the timed start.
 func newStack(t *testing.T, f *fakeComfy) []string {
 	t.Helper()
+	return prepareStack(t, stackEnv(t, f))
+}
+
+// prepareStack is newStack for the environment env of docker compose.
+func prepareStack(t *testing.T, env []string) []string {
+	t.Helper()
 	if code, out := run(t, root, "docker", "version", "--format", "{{.Server.Version}}"); code != 0 {
 		t.Fatalf("Docker does not answer: start Docker Desktop. docker version: exit code %d\n%s", code, out)
 	}
-	env := stackEnv(t, f)
 	compose(t, env, "down", "-v", "--remove-orphans")
 	t.Cleanup(func() {
 		if code, out := compose(t, env, "down", "-v", "--remove-orphans"); code != 0 {
@@ -206,7 +224,17 @@ type session struct {
 	stderr *lockedBuffer
 	exited chan struct{}
 	exit   int
+	mu     sync.Mutex // one write at a time, and the id
 	id     int
+	// progress gets each progress notification of the session, with the
+	// time when it came. A full channel drops the message.
+	progress chan progressNote
+}
+
+// progressNote is one progress notification and the time when it came.
+type progressNote struct {
+	at      time.Time
+	message string
 }
 
 type lockedBuffer struct {
@@ -238,11 +266,17 @@ func (e *errNoSession) Error() string {
 }
 
 // openSession starts docker exec -i horus_test-api horus mcp and sends
-// initialize. It gives *errNoSession when the process ends first.
-func openSession(t *testing.T, within time.Duration) (*session, error) {
+// initialize. It gives *errNoSession when the process ends first. Each of
+// env (NAME=value) is a setting of that horus mcp process (docker exec -e).
+func openSession(t *testing.T, within time.Duration, env ...string) (*session, error) {
 	t.Helper()
-	s := &session{lines: make(chan string, 64), stderr: &lockedBuffer{}, exited: make(chan struct{})}
-	s.cmd = exec.Command("docker", "exec", "-i", apiName, "horus", "mcp")
+	s := &session{lines: make(chan string, 64), stderr: &lockedBuffer{}, exited: make(chan struct{}),
+		progress: make(chan progressNote, 1024)}
+	args := []string{"exec", "-i"}
+	for _, e := range env {
+		args = append(args, "-e", e)
+	}
+	s.cmd = exec.Command("docker", append(args, apiName, "horus", "mcp")...)
 	s.cmd.Stderr = s.stderr
 	in, err := s.cmd.StdinPipe()
 	if err != nil {
@@ -291,14 +325,19 @@ func (s *session) send(msg any) error {
 	if err != nil {
 		return err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	_, err = s.in.Write(append(b, '\n'))
 	return err
 }
 
-// request sends one request and waits for its answer.
+// request sends one request and waits for its answer. Only one request of a
+// session waits at a time.
 func (s *session) request(method string, params any, within time.Duration) (json.RawMessage, error) {
+	s.mu.Lock()
 	s.id++
 	id := s.id
+	s.mu.Unlock()
 	if err := s.send(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
 		<-s.exited
 		return nil, &errNoSession{exit: s.exit, stderr: s.stderr.String()}
@@ -313,11 +352,27 @@ func (s *session) request(method string, params any, within time.Duration) (json
 			}
 			var m struct {
 				ID     *int            `json:"id"`
+				Method string          `json:"method"`
+				Params json.RawMessage `json:"params"`
 				Result json.RawMessage `json:"result"`
 				Error  json.RawMessage `json:"error"`
 			}
-			if json.Unmarshal([]byte(line), &m) != nil || m.ID == nil || *m.ID != id {
-				continue // a notification, or a line that is not ours
+			if json.Unmarshal([]byte(line), &m) != nil {
+				continue
+			}
+			if m.Method == "notifications/progress" {
+				var p struct {
+					Message string `json:"message"`
+				}
+				_ = json.Unmarshal(m.Params, &p)
+				select {
+				case s.progress <- progressNote{at: time.Now(), message: p.Message}:
+				default:
+				}
+				continue
+			}
+			if m.ID == nil || *m.ID != id {
+				continue // another notification, or a line that is not ours
 			}
 			if len(m.Error) > 0 {
 				return nil, fmt.Errorf("%s: JSON-RPC error %s", method, m.Error)
@@ -331,8 +386,9 @@ func (s *session) request(method string, params any, within time.Duration) (json
 
 // envelope is the envelope of a tool result.
 type envelope struct {
-	OK    bool `json:"ok"`
-	Error *struct {
+	OK     bool           `json:"ok"`
+	Result map[string]any `json:"result"`
+	Error  *struct {
 		Code     string         `json:"code"`
 		ActionBy string         `json:"action_by"`
 		Message  string         `json:"message"`
@@ -342,7 +398,17 @@ type envelope struct {
 
 // call calls a tool and gives its envelope.
 func (s *session) call(tool string, args map[string]any, within time.Duration) (envelope, error) {
-	raw, err := s.request("tools/call", map[string]any{"name": tool, "arguments": args}, within)
+	return s.callToken(tool, args, "", within)
+}
+
+// callToken calls a tool with the progress token token ("" sends none), and
+// gives its envelope.
+func (s *session) callToken(tool string, args map[string]any, token string, within time.Duration) (envelope, error) {
+	params := map[string]any{"name": tool, "arguments": args}
+	if token != "" {
+		params["_meta"] = map[string]any{"progressToken": token}
+	}
+	raw, err := s.request("tools/call", params, within)
 	if err != nil {
 		return envelope{}, err
 	}
@@ -353,6 +419,19 @@ func (s *session) call(tool string, args map[string]any, within time.Duration) (
 		return envelope{}, fmt.Errorf("%s: the result is not a tool result: %s", tool, raw)
 	}
 	return res.StructuredContent, nil
+}
+
+// lastID is the id of the last request of the session.
+func (s *session) lastID() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.id
+}
+
+// cancel sends the MCP cancel of the request id: the client cancels the call.
+func (s *session) cancel(id int) error {
+	return s.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/cancelled",
+		"params": map[string]any{"requestId": id, "reason": "the goal suite cancels the call"}})
 }
 
 func (s *session) close() {

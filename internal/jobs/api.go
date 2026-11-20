@@ -130,11 +130,12 @@ func (s *Service) Touch(ctx context.Context, id string) error { return s.store.T
 
 // Wait waits until the job ends and gives the job. It wakes on each event of
 // the job and reads the job store every Config.Poll, so a lost event delays
-// it by at most Config.Poll. Every Config.Touch it writes waiter_seen_at and
-// reports the status: a timer wakes it at that time, so a report never waits
-// for the next poll. The progress value of a report is the seconds since the
-// job was made, so that it only rises. When ctx ends, Wait gives ctx.Err()
-// and leaves the job as it is: the caller cancels it.
+// it by at most Config.Poll. It reports the status at its start and at each
+// Config.Poll, by the poll ticker: an agent gets a message at least every
+// 10 s, also when the pipe to the agent adds some milliseconds. Every
+// Config.Touch it writes waiter_seen_at. The progress value of a report is the
+// seconds since the job was made, so that it only rises. When ctx ends, Wait
+// gives ctx.Err() and leaves the job as it is: the caller cancels it.
 func (s *Service) Wait(ctx context.Context, id string, report Report) (jobdata.Job, error) {
 	if report == nil {
 		report = func(context.Context, float64, float64, string) {}
@@ -147,9 +148,8 @@ func (s *Service) Wait(ctx context.Context, id string, report Report) (jobdata.J
 	}
 	poll := time.NewTicker(s.cfg.Poll)
 	defer poll.Stop()
-	due := time.NewTimer(s.cfg.Touch) // the time of the next report
-	defer due.Stop()
 	var touched time.Time
+	due := true // the first report comes at once
 	for {
 		j, err := s.store.Get(ctx, id)
 		if err != nil {
@@ -158,43 +158,43 @@ func (s *Service) Wait(ctx context.Context, id string, report Report) (jobdata.J
 		if j.State.Ended() {
 			return j, nil
 		}
-		if now := s.cfg.Now(); touched.IsZero() || now.Sub(touched) >= s.cfg.Touch {
+		now := s.cfg.Now()
+		if touched.IsZero() || now.Sub(touched) >= s.cfg.Touch {
 			if err := s.store.Touch(ctx, id); err != nil {
 				return jobdata.Job{}, err
 			}
+			touched, due = now, true
+		}
+		if due {
 			st, err := s.status(ctx, j, now)
 			if err != nil {
 				return jobdata.Job{}, err
 			}
 			report(ctx, math.Round(now.Sub(j.CreatedAt).Seconds()), 0, st.Message)
-			touched = now
-			due.Reset(s.cfg.Touch)
 		}
-		if err := waitWake(ctx, id, events, poll.C, due.C); err != nil {
+		if due, err = waitWake(ctx, id, events, poll.C); err != nil {
 			return jobdata.Job{}, err
 		}
 	}
 }
 
-// waitWake returns at the next event of the job id, the next tick or the
-// time due, or with ctx.Err() when ctx ends. After the event channel closes,
-// only the tick and due wake it. A nil due never wakes it.
-func waitWake(ctx context.Context, id string, events <-chan jobdata.Event, tick, due <-chan time.Time) error {
+// waitWake returns at the next event of the job id or the next tick, or with
+// ctx.Err() when ctx ends. tick is true when the tick woke it. After the
+// event channel closes, only the ticks wake it.
+func waitWake(ctx context.Context, id string, events <-chan jobdata.Event, tick <-chan time.Time) (bool, error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return false, ctx.Err()
 		case <-tick:
-			return nil
-		case <-due:
-			return nil
+			return true, nil
 		case e, ok := <-events:
 			if !ok {
 				events = nil
 				continue
 			}
 			if e.JobID == id {
-				return nil
+				return false, nil
 			}
 		}
 	}

@@ -541,7 +541,14 @@ func TestWaitTouches(t *testing.T) {
 	}()
 	<-r.ch
 	e.clock.Add(50 * time.Second)
-	<-r.ch // the next touch, after Config.Touch
+	// The next touch, after Config.Touch: waiter_seen_at moves to the clock.
+	deadline := time.Now().Add(5 * time.Second)
+	for !get(t, e, j.ID).WaiterSeenAt.Equal(e.clock.Now()) {
+		if time.Now().After(deadline) {
+			t.Fatal("the waiter did not touch the job 5 s after the clock moved past Config.Touch")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	e.clock.Add(50 * time.Second)
 	if _, abandoned, _ := e.store.Sweep(context.Background()); abandoned != 0 {
 		t.Error("the sweep abandoned a job that has a waiter")
@@ -677,12 +684,12 @@ func TestCancelRunningEndsTheRun(t *testing.T) {
 	}
 }
 
-// TestWaitReportsEveryTouch: the waiter reports at each Config.Touch, also
-// when no event and no poll wakes it (the row queue-progress: a message at
-// least every 10 s). The poll is one hour and the clock is the real one.
-func TestWaitReportsEveryTouch(t *testing.T) {
+// TestWaitReportsEveryPoll: the waiter reports at each Config.Poll, by the
+// poll ticker, also when no event wakes it and the touch is not due (the row
+// queue-progress: a message at least every 10 s). The clock is the real one.
+func TestWaitReportsEveryPoll(t *testing.T) {
 	st := brokertest.NewStore()
-	svc := jobs.New(st, brokertest.NewBroker(), jobs.Config{Poll: time.Hour, Touch: 200 * time.Millisecond})
+	svc := jobs.New(st, brokertest.NewBroker(), jobs.Config{Poll: 200 * time.Millisecond, Touch: time.Hour})
 	j, err := svc.Submit(context.Background(), request())
 	if err != nil {
 		t.Fatal(err)

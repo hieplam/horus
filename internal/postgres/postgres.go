@@ -86,16 +86,31 @@ type DB struct {
 // (postgres://user:password@host:port/name), and checks one connection. An
 // error never holds the password.
 func Connect(ctx context.Context, url string) (*DB, error) {
+	db, err := Open(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.pool.Ping(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("postgres: connect: %w", err)
+	}
+	return db, nil
+}
+
+// Open makes a pool of connections to the database of the URL, and opens no
+// connection yet. Each query opens a connection when it needs one, so a
+// process that starts while the database is down works when the database is
+// up again: horus api and horus mcp in the stack use it, and their readiness
+// check of horus-db reports the error. A password can also come from the
+// variable PGPASSWORD, so the URL needs no password. An error never holds the
+// password.
+func Open(ctx context.Context, url string) (*DB, error) {
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: the database URL does not parse: %w", err)
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("postgres: connect: %w", err)
-	}
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
 		return nil, fmt.Errorf("postgres: connect: %w", err)
 	}
 	return &DB{pool: pool}, nil

@@ -9,11 +9,14 @@ package goal
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
 )
 
 // The task that builds the outcome of a row gives the row its oracle.
@@ -53,12 +56,207 @@ func TestBoundedBackendQueue(t *testing.T) {
 	t.Fatal("not built: the fake ComfyUI of the peak tool records the most horus jobs that it held at one time")
 }
 
+// TestStackStartsTogether: with a fake ComfyUI on the host, one command,
+// docker compose up -d --wait, starts the 3 containers of the test stack in
+// their order (horus-db, horus-worker, horus-api), each one healthy, and
+// horus ready in horus-api exits 0 with 4 ok lines, in 120 s or less from the
+// start of the command. The build of the image comes before, and is not
+// timed.
 func TestStackStartsTogether(t *testing.T) {
-	t.Fatal("not built: compose.yaml with the profile test, 3 healthy containers and horus ready exit 0 in 120 s")
+	fake := startFake(t)
+	env := newStack(t, fake)
+	start := time.Now()
+	took := upWait(t, env)
+
+	rows := ps(t, env)
+	healthy := 0
+	names := []string{}
+	for _, r := range rows {
+		names = append(names, r.Name)
+		if r.State == "running" && r.Health == "healthy" {
+			healthy++
+		}
+	}
+	if len(rows) != 3 || healthy != 3 || !hasAll(names, dbName, workerName, apiName) {
+		t.Fatalf("docker compose ps: %+v, want the 3 containers %s, %s and %s, each running and healthy", rows, dbName, workerName, apiName)
+	}
+
+	code, out := run(t, root, "docker", "inspect", "-f", "{{.State.StartedAt}}", dbName, workerName, apiName)
+	if code != 0 {
+		t.Fatalf("docker inspect: exit code %d\n%s", code, out)
+	}
+	var started []time.Time
+	for _, line := range strings.Fields(out) {
+		at, err := time.Parse(time.RFC3339Nano, line)
+		if err != nil {
+			t.Fatalf("docker inspect: a start time that does not parse: %q", line)
+		}
+		started = append(started, at)
+	}
+	if len(started) != 3 || !started[0].Before(started[1]) || !started[1].Before(started[2]) {
+		t.Errorf("the start order: %s, %s, %s started at %v; want horus-db, then horus-worker, then horus-api",
+			dbName, workerName, apiName, started)
+	}
+
+	code, out = run(t, root, "docker", "exec", apiName, "horus", "ready")
+	ready := time.Since(start)
+	oks := strings.Count(out, "\nok   ")
+	if code != 0 || oks != 4 {
+		t.Fatalf("docker exec %s horus ready: exit code %d, %d ok lines, want 0 and 4:\n%s", apiName, code, oks, out)
+	}
+	if ready > 120*time.Second {
+		t.Fatalf("3 healthy and horus ready exit 0 after %s, more than 120 s", ready.Round(time.Second))
+	}
+	t.Logf("containers healthy after one command: %d of 3; up -d --wait took %s; horus ready exit 0 after %s",
+		healthy, took.Round(100*time.Millisecond), ready.Round(100*time.Millisecond))
 }
 
+// oneStop is one dependency of the row ready-when-four-up: how to stop it and
+// start it again.
+type oneStop struct {
+	dep         string // the name in the readiness report
+	stop, start func(t *testing.T)
+}
+
+// TestReadyWhenFourUp stops each of the 4 dependencies in turn, then the
+// whole stack. Each time, over stdio (docker exec -i horus_test-api horus
+// mcp):
+//
+//   - a call in a session that is open gets NOT_READY that names the
+//     dependency, and a new session does not start and names it, in 10 s or
+//     less. When horus-api stops, docker exec fails and names its container;
+//   - no request reaches ComfyUI while horus is not ready;
+//   - after the dependency starts again, a new session starts and a call gets
+//     no NOT_READY, in 30 s or less, with no action on horus.
+//
+// The HTTP session of each step (/mcp) comes with task #204.
 func TestReadyWhenFourUp(t *testing.T) {
-	t.Fatal("not built: horus ready, NOT_READY, and the stop of each of the 4 dependencies over stdio and over HTTP")
+	fake := startFake(t)
+	env := newStack(t, fake)
+	upWait(t, env)
+	apiID := containerID(t, apiName)
+	docker := func(args ...string) func(t *testing.T) {
+		return func(t *testing.T) {
+			t.Helper()
+			if code, out := run(t, root, "docker", args...); code != 0 {
+				t.Fatalf("docker %s: exit code %d\n%s", strings.Join(args, " "), code, out)
+			}
+		}
+	}
+	steps := []oneStop{
+		{"horus-db", docker("stop", dbName), docker("start", dbName)},
+		{"horus-worker", docker("stop", workerName), docker("start", workerName)},
+		{"comfyui", func(*testing.T) { fake.stop() }, fake.start},
+		{"horus-api", docker("stop", apiName), docker("start", apiName)},
+	}
+	call := map[string]any{"workflow": "it-illustration", "subject": "A falcon over a server rack. The picture contains no text."}
+	named := 0
+	for _, step := range steps {
+		open, err := openSession(t, 60*time.Second)
+		if err != nil {
+			t.Fatalf("%s: before the stop, a session does not start: %v", step.dep, err)
+		}
+		if e, err := open.call("list_workflows", map[string]any{}, 30*time.Second); err != nil || !e.OK {
+			t.Fatalf("%s: before the stop, list_workflows: %+v %v", step.dep, e, err)
+		}
+		jobsBefore := fake.jobs.Load()
+		step.stop(t)
+		took, why := eventually(10*time.Second, func() string {
+			if step.dep != "horus-api" {
+				e, err := open.call("generate_image", call, 15*time.Second)
+				if err != nil {
+					return "the call in the open session: " + err.Error()
+				}
+				if down := downNames(e); !hasAll(down, step.dep) {
+					return fmt.Sprintf("the call in the open session: %+v, want NOT_READY with %s in details.down", e, step.dep)
+				}
+			}
+			s, err := openSession(t, 15*time.Second)
+			if err == nil {
+				s.close()
+				return "a new session started"
+			}
+			var no *errNoSession
+			if !errors.As(err, &no) {
+				return "a new session: " + err.Error()
+			}
+			want := "FAIL " + step.dep
+			if step.dep == "horus-api" {
+				want = "container " + apiID + " is not running"
+			}
+			if no.exit == 0 || !strings.Contains(no.stderr, want) {
+				return fmt.Sprintf("a new session ended with exit code %d and does not say %q: %s", no.exit, want, no.stderr)
+			}
+			return ""
+		})
+		open.close()
+		if why != "" {
+			t.Fatalf("%s is stopped: not named in 10 s: %s", step.dep, why)
+		}
+		if n := fake.jobs.Load() - jobsBefore; n != 0 {
+			t.Errorf("%s is stopped: %d requests reached ComfyUI while horus was not ready", step.dep, n)
+		}
+		named++
+		t.Logf("%s stopped: named in %s", step.dep, took.Round(100*time.Millisecond))
+
+		step.start(t)
+		took, why = eventually(30*time.Second, func() string {
+			s, err := openSession(t, 15*time.Second)
+			if err != nil {
+				return "a new session: " + err.Error()
+			}
+			defer s.close()
+			e, err := s.call("list_workflows", map[string]any{}, 15*time.Second)
+			if err != nil || !e.OK {
+				return fmt.Sprintf("list_workflows: %+v %v", e, err)
+			}
+			return ""
+		})
+		if why != "" {
+			t.Fatalf("%s started again: horus does not serve again in 30 s: %s", step.dep, why)
+		}
+		t.Logf("%s started again: horus serves again in %s", step.dep, took.Round(100*time.Millisecond))
+	}
+
+	if code, out := compose(t, env, "stop"); code != 0 {
+		t.Fatalf("docker compose -p %s stop: exit code %d\n%s", testStack, code, out)
+	}
+	took, why := eventually(10*time.Second, func() string {
+		s, err := openSession(t, 15*time.Second)
+		if err == nil {
+			s.close()
+			return "a new session started"
+		}
+		var no *errNoSession
+		if !errors.As(err, &no) || no.exit == 0 || !strings.Contains(no.stderr, "is not running") {
+			return "a new session: " + err.Error()
+		}
+		return ""
+	})
+	if why != "" {
+		t.Fatalf("the whole stack is stopped: %s", why)
+	}
+	t.Logf("the whole stack stopped: no session in %s", took.Round(100*time.Millisecond))
+	start := time.Now()
+	upWait(t, env)
+	_, why = eventually(30*time.Second, func() string {
+		s, err := openSession(t, 15*time.Second)
+		if err != nil {
+			return "a new session: " + err.Error()
+		}
+		defer s.close()
+		if e, err := s.call("list_workflows", map[string]any{}, 15*time.Second); err != nil || !e.OK {
+			return fmt.Sprintf("list_workflows: %+v %v", e, err)
+		}
+		return ""
+	})
+	if back := time.Since(start); why != "" || back > 30*time.Second {
+		t.Fatalf("the whole stack started again: horus does not serve again in 30 s (%s): %s", back.Round(time.Second), why)
+	}
+	t.Logf("the whole stack started again: horus serves again in %s", time.Since(start).Round(100*time.Millisecond))
+	t.Logf("dependencies whose stop horus finds over stdio: %d of 4", named)
+
+	t.Fatal("not built: /mcp: the HTTP session of each step (task #204, MCP over HTTP)")
 }
 
 func TestOutPathMapping(t *testing.T) {

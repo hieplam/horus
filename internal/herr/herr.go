@@ -66,6 +66,8 @@ var Codes = []Spec{
 	{"GENERATION_FAILED", true, "retry", "Call generate_image again with the same arguments. If it fails twice, report details.backend_message to the user."},
 	{"GENERATION_TIMEOUT", true, "retry", "The job took longer than the time limit and horus cancelled it. Call again when the machine is less busy."},
 	{"CANCELLED", true, "retry", "The job was cancelled on the backend. Call again if you still need the image."},
+	{"NOT_READY", true, "human",
+		"A dependency of horus is down (details.down). Tell the user. The user starts it, then the caller calls again."},
 	{"INTERNAL", false, "human", "This is a bug in horus. Report details to the user."},
 }
 

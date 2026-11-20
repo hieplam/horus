@@ -20,6 +20,7 @@ import (
 	"github.com/hieplam/horus/internal/download"
 	"github.com/hieplam/horus/internal/mcpserver"
 	"github.com/hieplam/horus/internal/platform"
+	"github.com/hieplam/horus/internal/settings"
 )
 
 // command is one subcommand. run gets the arguments after the command name
@@ -79,7 +80,7 @@ var commands = map[string]command{
 			return cli.ComfyMCP(ctx, args, os.Stdin, os.Stdout, os.Stderr, platform.Programs{})
 		})
 	}},
-	"register": {"register horus mcp with Claude Code", func(args []string) int {
+	"register": {"register horus mcp with Claude Code or Codex (-docker: horus mcp in the stack)", func(args []string) int {
 		return withSignal(func(ctx context.Context) int {
 			return cli.Register(ctx, args, os.Stdout, os.Stderr, platform.Programs{})
 		})
@@ -102,12 +103,31 @@ var commands = map[string]command{
 	"worker": {"run the jobs of the job queue on ComfyUI (needs HORUS_DATABASE_URL)", func(args []string) int {
 		return withStop(func(ctx context.Context) int { return cli.Worker(ctx, args, os.Stdout, os.Stderr, runWorker) })
 	}},
+	"api": {"serve /readyz and /livez of horus in the stack (needs HORUS_DATABASE_URL)", func(args []string) int {
+		return withStop(func(ctx context.Context) int { return cli.API(ctx, args, os.Stdout, os.Stderr, runAPI) })
+	}},
+	"ready": {"the 4 checks of horus in the stack, one line each; exit 0 when all pass", func(args []string) int {
+		return withSignal(func(ctx context.Context) int {
+			stack, done := stackOf(ctx, localAPI())
+			defer done()
+			return cli.Ready(ctx, args, os.Stdout, os.Stderr, stack.Ready)
+		})
+	}},
 	"mcp": {"serve the 6 horus tools over stdio (MCP)", func(args []string) int {
 		return withSignal(func(ctx context.Context) int {
-			return cli.MCP(ctx, args, os.Stderr, func(ctx context.Context) error {
+			// In the stack (HORUS_DATABASE_URL is set), the session starts
+			// only when horus is ready, and each call checks the readiness.
+			var ready cli.Readiness
+			var gate mcpserver.ReadyFunc
+			if settings.DatabaseURL() != "" {
+				stack, done := stackOf(ctx, localAPI())
+				defer done()
+				ready, gate = stack.Ready, stack.Ready
+			}
+			return cli.MCP(ctx, args, os.Stderr, ready, func(ctx context.Context) error {
 				speech := newSpeech(ctx)
 				defer speech.Close() // the speech worker ends with horus mcp
-				return mcpserver.Run(ctx, newImages(""), newSetup(cli.SetupPlace{}, seams{}), speech)
+				return mcpserver.Run(ctx, newImages(""), newSetup(cli.SetupPlace{}, seams{}), speech, gate)
 			})
 		})
 	}},

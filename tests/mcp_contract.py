@@ -263,14 +263,21 @@ async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Pa
 
     neutral_checks(c)
 
+    table: dict = {}
     try:  # the doc table must list every code; the server program prints the code table
         out = subprocess.run([server_cmd[0], "errors", "-json"], capture_output=True, timeout=60).stdout
-        ERRORS = list(json.loads(out)) or ["<no code in errors -json>"]
+        table = json.loads(out)
+        ERRORS = list(table) or ["<no code in errors -json>"]
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         ERRORS = [f"<{server_cmd[0]} errors -json failed: {exc}>"]
     doc = (ROOT / "docs" / "mcp.md").read_text(encoding="utf-8") if (ROOT / "docs" / "mcp.md").is_file() else ""
     missing = [code for code in ERRORS if f"`{code}`" not in doc]
     c.check("docs/mcp.md lists every error code", not missing, f"missing: {missing}")
+    # The code of a call while a dependency of the stack is down (spec 2026-11-19-job-queue.md, "MCP contract").
+    nr = table.get("NOT_READY") or {}
+    c.check("the code table has NOT_READY: retryable, action_by=human, next_step names details.down",
+            nr.get("retryable") is True and nr.get("action_by") == "human" and "details.down" in nr.get("next_step", ""),
+            json.dumps(nr))
 
 
 STYLE_WORDS = ("palette", "pastel", "navy", "flat vector", "house style", "house-style", "dotted grid")
@@ -874,9 +881,9 @@ def main() -> int:
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
     passed = sum(1 for ok, _, _ in c.rows if ok)
     shipped = sum(1 for d in (ROOT / "workflows").iterdir() if (d / "manifest.json").is_file())
-    # 38 server checks of the image tools and the kind, 14 speech checks, 5 checks of the speech setup, plus 2
+    # 39 server checks of the image tools, the kind and the code table, 14 speech checks, 5 checks of the speech setup, plus 2
     # style-neutral checks for each shipped workflow
-    total = 38 + 14 + 5 + 2 * shipped
+    total = 39 + 14 + 5 + 2 * shipped
     if a.report:
         a.report.write_text(json.dumps(c.report(total), indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"contract: {passed} of {total} passed")

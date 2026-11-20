@@ -1,9 +1,8 @@
-package mcpserver
+package jobs
 
 import (
 	"testing"
 
-	"github.com/hieplam/horus/internal/jobs"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -14,7 +13,7 @@ import (
 func TestPathsWindows(t *testing.T) {
 	p := PathsOf([]settings.SharedDir{{Host: `C:\Users\you\Pictures\horus\`, Container: "/shared/pictures"},
 		{Host: `\\nas\share\out`, Container: "/shared/nas"}}, "")
-	if p.Style != jobs.PathWindows {
+	if p.Style != PathWindows {
 		t.Fatalf("style %s, want windows from the drive letter", p.Style)
 	}
 	for _, c := range []struct{ in, container, host string }{
@@ -52,7 +51,7 @@ func TestPathsMacOSAndLinux(t *testing.T) {
 		t.Errorf("macOS: %q %q %v", c, h, ok)
 	}
 	linux := PathsOf(dirs, "")
-	if linux.Style != jobs.PathLinux {
+	if linux.Style != PathLinux {
 		t.Fatalf("style %s, want linux", linux.Style)
 	}
 	if c, _, ok := linux.ToContainer("/users/YOU/out/a.png"); ok {

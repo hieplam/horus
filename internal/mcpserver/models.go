@@ -12,6 +12,7 @@ import (
 
 	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/herr"
+	"github.com/hieplam/horus/internal/jobs"
 	"github.com/hieplam/horus/internal/provision"
 	"github.com/hieplam/horus/internal/settings"
 )
@@ -21,7 +22,7 @@ type Models struct {
 	// Dir is HORUS_MODELS_DIR in horus-api: the container folder of the
 	// model files. "": the stack has no models folder.
 	Dir   string
-	paths Paths // the pair of the host folder and Dir
+	paths jobs.Paths // the pair of the host folder and Dir
 }
 
 // ModelsOf gives the models folder of the stack: dir is HORUS_MODELS_DIR in
@@ -31,7 +32,7 @@ type Models struct {
 func ModelsOf(dir, host, hostOS string) *Models {
 	m := &Models{Dir: dir}
 	if dir != "" && host != "" {
-		m.paths = PathsOf([]settings.SharedDir{{Host: host, Container: dir}}, hostOS)
+		m.paths = jobs.PathsOf([]settings.SharedDir{{Host: host, Container: dir}}, hostOS)
 	}
 	return m
 }

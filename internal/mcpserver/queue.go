@@ -37,7 +37,7 @@ import (
 // Queue is the job queue of the stack, for the tool generate_image.
 type Queue struct {
 	Jobs  *jobs.Service
-	Paths Paths
+	Paths jobs.Paths
 	// QueueTimeout is HORUS_QUEUE_TIMEOUT, for the details of an expired job.
 	QueueTimeout time.Duration
 }

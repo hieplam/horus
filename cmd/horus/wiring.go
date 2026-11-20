@@ -382,7 +382,7 @@ func stackParts(ctx context.Context, apiURL string) (mcpserver.Options, mcpserve
 		done()
 		return mcpserver.Options{}, mcpserver.Stack{}, nil, fmt.Errorf("the job queue has no database: %s", stack.Ready(ctx).Text())
 	}
-	q := &mcpserver.Queue{Jobs: svc, Paths: mcpserver.PathsOf(dirs, settings.HostOS()), QueueTimeout: cfg.QueueTimeout}
+	q := &mcpserver.Queue{Jobs: svc, Paths: jobs.PathsOf(dirs, settings.HostOS()), QueueTimeout: cfg.QueueTimeout}
 	return mcpserver.Options{Ready: stack.Ready, Queue: q, Models: stackModels()}, stack, done, nil
 }
 

@@ -66,7 +66,7 @@ func newStackEnv(t *testing.T, cfg jobs.Config, wrap ...func(jobs.Store) jobs.St
 	}
 	e.svc = jobs.New(store, brokertest.NewBroker(), cfg)
 	q := &Queue{Jobs: e.svc, QueueTimeout: cfg.QueueTimeout,
-		Paths: PathsOf([]settings.SharedDir{{Host: hostShared, Container: e.container}}, "windows")}
+		Paths: jobs.PathsOf([]settings.SharedDir{{Host: hostShared, Container: e.container}}, "windows")}
 	e.down.Store("")
 	ready := func(context.Context, ...string) jobdata.Readiness {
 		var rs []jobdata.CheckResult

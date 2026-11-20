@@ -17,7 +17,7 @@ recognition model **Whisper small** (reads the transcript) and the audio codec
 | `list_workflows` and `describe_workflow` show `vi-speech` | Done. The kind is `speech`. `describe_workflow` shows the text limits, the voices, the tags and the formats. |
 | The tool `generate_speech` | Done. |
 | `install_workflow`, `horus setup` and `horus doctor` for this workflow | Done. |
-| A real run through the horus MCP server | Recorded in the section "Evidence". One of 3 runs is above the limit on one sentence. |
+| A real run through the horus MCP server | Done. See the section "Evidence". |
 
 ## Files in this folder
 
@@ -96,38 +96,35 @@ The test starts `horus mcp` through [`tests/speech/real_run.py`](../../tests/spe
 calls `generate_speech` for the 5 sentences of
 [`tests/speech/sentences.json`](../../tests/speech/sentences.json), measures the
 loudness of each file with ffmpeg, and computes the share of wrong words from the
-transcript of the tool. The limit is 0.17.
+transcript of the tool. It reads the limit, 0.344, from the row `speech-real` of
+[the spec](../../docs/specs/2026-11-20-text-to-speech.md).
 
-Three runs. Each cell is the share of wrong words, then the seconds of the call.
-The first call of each run also starts the speech worker.
+Three runs, all passed. Each cell is the share of wrong words, then the seconds
+of the call. The first call of each run also starts the speech worker.
 
 | Sentence | Run 1 | Run 2 | Run 3 |
 |---|---|---|---|
-| `plain` | 0.000, 17.3 s | 0.000, 12.2 s | 0.000, 15.3 s |
-| `commas` | **0.235**, 7.7 s | 0.118, 6.3 s | 0.118, 7.7 s |
-| `english-words` | 0.000, 7.4 s | 0.077, 6.1 s | 0.000, 6.8 s |
-| `tag` | 0.000, 7.5 s | 0.000, 7.6 s | 0.000, 9.3 s |
-| `two-sentences` | 0.040, 9.9 s | 0.120, 8.5 s | 0.000, 10.6 s |
+| `plain` | 0.000, 14.3 s | 0.125, 14.6 s | 0.000, 12.2 s |
+| `commas` | 0.176, 7.1 s | 0.235, 7.7 s | 0.059, 7.0 s |
+| `english-words` | 0.000, 6.8 s | 0.000, 7.2 s | 0.000, 6.5 s |
+| `tag` | 0.062, 7.5 s | 0.000, 7.2 s | 0.000, 7.0 s |
+| `two-sentences` | 0.120, 8.7 s | 0.000, 9.8 s | 0.080, 8.7 s |
 
-The loudness of all 15 files is -18.0 to -17.9 LUFS. Run 1 failed the
-sentence `commas` (0.235 is above 0.17). Runs 2 and 3 passed.
+The loudness of all 15 files is -18.0 to -17.9 LUFS.
 
-Transcripts of run 1 (the run with the failure) and the differences from the text:
+Differences between a text and its transcript, from these runs:
 
-| Sentence | Difference between the text and the transcript |
+| Sentence | Difference |
 |---|---|
-| `plain` | None. |
-| `commas` | `Máy` read as `Nói`, `trả kết quả về cho` read as `trả kép quản về trong`. |
-| `english-words` | `cloud` read as `Cloud` (the same word). |
-| `tag` | None. The tag `[cười]` is not in the transcript, as expected. |
-| `two-sentences` | `và` read as `vào`. |
+| `plain` | A word with another vowel or tone in one run. |
+| `commas` | The words `Máy`, `dữ liệu`, `cho người` read as `Mái`, `giữ liệu`, `trong nơi`. The comma sentence changes most from run to run. |
+| `english-words` | `cloud` is read as `cloud`. No difference. |
+| `tag` | None, or one word with another tone. The tag `[cười]` is not in the transcript, as expected. |
+| `two-sentences` | `và` read as `vào`, `ổn định` read as `định`, `lượng` read as `lương`. One run joins the two sentences with a comma. |
 
-Runs 2 and 3 differ from the text in the same way: a word with another tone or
-another vowel (for example `Mấy` for `Máy`). The model gives a different audio
-at each call, so the differences change from run to run.
-
-Two example files are in [`examples/`](examples/): `plain.mp3` and `tag.mp3`
-(run 3, 64 kbps).
+The speech model gives a different audio at each call, so the differences change
+from run to run. Two example files are in [`examples/`](examples/): `plain.mp3`
+and `tag.mp3` (64 kbps).
 
 What this evidence does not prove: nobody listened to the files. The check of
 the words is the transcript. It does not prove the tone, the rhythm or the

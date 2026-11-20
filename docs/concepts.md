@@ -227,3 +227,20 @@ workflows. See [the Horus UI](mcp.md#the-horus-ui).
 **If wrong.** When a dependency is down, an agent cannot start a session, and
 a call gets `NOT_READY` with the name of the dependency. When it is up again,
 horus serves again. The Horus UI shows the dependency that is down.
+
+## Job queue and shared folder
+
+**Job queue.** In the stack, each `generate_image` call becomes a job. The job
+waits in the queue of horus until the worker has a free slot, and ComfyUI never
+holds more jobs than the slots (`HORUS_WORKER_CONCURRENCY`). A waiting call
+gets its place in the queue and its estimated start as progress. See
+[`generate_image` in the stack](mcp.md#generate_image-in-the-stack).
+
+**Shared folder.** A folder of this machine that the stack mounts into its
+containers. An agent of the stack can ask for a PNG only in a shared folder,
+and it gets the path of this machine back. `HORUS_SHARED_DIRS` names the
+shared folders, and `horus stack-mounts` writes their mounts.
+
+**If wrong.** An `out_path` outside the shared folders gets
+`INVALID_ARGUMENT` with the list of the shared folders. A full queue gives
+`QUEUE_FULL`: call again after `details.retry_after_seconds`.

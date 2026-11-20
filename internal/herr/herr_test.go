@@ -36,7 +36,8 @@ func readGolden(t *testing.T) []goldenRow {
 // with the code that comes before it in the table. The golden file does not
 // change (spec docs/specs/2026-11-15-release-install.md, "Setup through MCP";
 // spec docs/specs/2026-11-19-job-queue.md, "MCP contract").
-var newCodes = map[string]string{"SETUP_CONFIRMATION_REQUIRED": "LICENSE_CONFIRMATION_REQUIRED", "NOT_READY": "CANCELLED"}
+var newCodes = map[string]string{"SETUP_CONFIRMATION_REQUIRED": "LICENSE_CONFIRMATION_REQUIRED", "NOT_READY": "CANCELLED",
+	"QUEUE_FULL": "NOT_READY", "WORKER_LOST": "QUEUE_FULL"}
 
 // oldCodes is the table without the new codes, in table order.
 func oldCodes() []Spec {
@@ -127,12 +128,19 @@ func TestTableJSON(t *testing.T) {
 	if err := json.Unmarshal(TableJSON(), &table); err != nil {
 		t.Fatal(err)
 	}
-	if len(table) != 23 {
-		t.Fatalf("%d codes, want 23", len(table))
+	if len(table) != 25 {
+		t.Fatalf("%d codes, want 25", len(table))
 	}
 	if s := table["NOT_READY"]; s.Retryable == nil || !*s.Retryable || s.ActionBy != "human" ||
 		!strings.Contains(s.NextStep, "details.down") {
 		t.Errorf("NOT_READY: %+v", s)
+	}
+	if s := table["QUEUE_FULL"]; s.Retryable == nil || !*s.Retryable || s.ActionBy != "retry" ||
+		!strings.Contains(s.NextStep, "details.retry_after_seconds") {
+		t.Errorf("QUEUE_FULL: %+v", s)
+	}
+	if s := table["WORKER_LOST"]; s.Retryable == nil || !*s.Retryable || s.ActionBy != "retry" {
+		t.Errorf("WORKER_LOST: %+v", s)
 	}
 	if s := table["SETUP_CONFIRMATION_REQUIRED"]; s.Retryable == nil || *s.Retryable || s.ActionBy != "human" ||
 		!strings.Contains(s.NextStep, "accept_setup=true") {

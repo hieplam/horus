@@ -278,6 +278,14 @@ async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Pa
     c.check("the code table has NOT_READY: retryable, action_by=human, next_step names details.down",
             nr.get("retryable") is True and nr.get("action_by") == "human" and "details.down" in nr.get("next_step", ""),
             json.dumps(nr))
+    # The codes of a call through the job queue of the stack.
+    qf = table.get("QUEUE_FULL") or {}
+    c.check("the code table has QUEUE_FULL: retryable, action_by=retry, next_step names details.retry_after_seconds",
+            qf.get("retryable") is True and qf.get("action_by") == "retry" and "details.retry_after_seconds" in qf.get("next_step", ""),
+            json.dumps(qf))
+    wl = table.get("WORKER_LOST") or {}
+    c.check("the code table has WORKER_LOST: retryable, action_by=retry",
+            wl.get("retryable") is True and wl.get("action_by") == "retry", json.dumps(wl))
 
 
 STYLE_WORDS = ("palette", "pastel", "navy", "flat vector", "house style", "house-style", "dotted grid")
@@ -379,10 +387,12 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             res = env_of(await s.call_tool("generate_image", {"workflow": "it-illustration", "subject": SUBJECT,
                                                              "out_path": str(out), "seed": 7}, progress_callback=on_progress))
             r = res.get("result") or {}
-            graph = Fake.prompts.get(r.get("job_id", ""), {}).get("graph", {})
+            # backend_job_id is the id of the job in ComfyUI, on the host and in the stack.
+            graph = Fake.prompts.get(r.get("backend_job_id", ""), {}).get("graph", {})
             caption = next((n["inputs"]["text"] for n in graph.values() if n["class_type"] == "CLIPTextEncode"), "")
-            c.check("generate_image writes a PNG at out_path and returns its path and seed",
-                    res["ok"] and Path(r.get("path", "")) == out and out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n" and r.get("seed") == 7,
+            c.check("generate_image writes a PNG at out_path and returns its path, seed and backend_job_id",
+                    res["ok"] and Path(r.get("path", "")) == out and out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n" and r.get("seed") == 7
+                    and r.get("backend_job_id") in Fake.prompts and "queue_seconds" in r,
                     json.dumps(res)[:400])
             # horus is style-neutral: the caller owns the look, the palette and the design system.
             c.check(f"horus sends the subject to the model as written ({len(caption) - len(SUBJECT)} characters added)",
@@ -418,7 +428,7 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             Fake.mode = "slow"
             res = env_of(await s.call_tool("generate_image", {"workflow": "it-illustration", "subject": SUBJECT}))
             e = res.get("error") or {}
-            job = e.get("details", {}).get("job_id")
+            job = e.get("details", {}).get("backend_job_id") or e.get("details", {}).get("job_id")  # the id in ComfyUI
             c.check("a job over the time limit -> GENERATION_TIMEOUT, and horus cancels it on the backend",
                     e.get("code") == "GENERATION_TIMEOUT" and job in Fake.cancelled, json.dumps(res)[:300] + f" cancelled={Fake.cancelled}")
             Fake.mode = "ok"
@@ -912,9 +922,9 @@ def main() -> int:
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
     passed = sum(1 for ok, _, _ in c.rows if ok)
     shipped = sum(1 for d in (ROOT / "workflows").iterdir() if (d / "manifest.json").is_file())
-    # 39 server checks of the image tools, the kind and the code table, 14 speech checks, 5 checks of the speech setup,
+    # 41 server checks of the image tools, the kind and the code table, 14 speech checks, 5 checks of the speech setup,
     # 2 checks of the speech uninstall, plus 2 style-neutral checks for each shipped workflow
-    total = 39 + 14 + 5 + 2 + 2 * shipped
+    total = 41 + 14 + 5 + 2 + 2 * shipped
     if a.report:
         a.report.write_text(json.dumps(c.report(total), indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"contract: {passed} of {total} passed")

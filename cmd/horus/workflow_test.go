@@ -416,6 +416,12 @@ type fakeImages struct {
 func (f *fakeImages) Generate(context.Context, generate.Request, generate.Options) (*generate.Result, error) {
 	return nil, errors.New("not in this test")
 }
+
+// Check is the real argument check of internal/generate: it calls no backend.
+func (f *fakeImages) Check(r generate.Request) (generate.Plan, error) {
+	return generate.New(nil, nil).Check(r)
+}
+
 func (f *fakeImages) Running(context.Context) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

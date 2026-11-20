@@ -118,6 +118,10 @@ func PythonCommand(version string) (cmd []string, notFound string) {
 	return []string{"python" + version}, fmt.Sprintf("python%s was not found. Install Python %s.", version, version)
 }
 
+// OS is the name of the operating system of this program: windows, darwin or
+// linux. horus stack-mounts writes it as HORUS_HOST_OS.
+func OS() string { return runtime.GOOS }
+
 // DefaultComfyDir gives the default install folder of ComfyUI (the default
 // of HORUS_COMFYUI_DIR) in the home folder home: <home>/ComfyUI_windows_portable
 // on Windows, <home>/horus elsewhere. On macOS the folder is outside the TCC

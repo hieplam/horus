@@ -505,7 +505,27 @@ machine: set it up with the steps above, and start it with
    `HORUS_COMFYUI_URL` line in `.env`: the containers reach ComfyUI at
    `http://host.docker.internal:8188`.
 
-2. Start the stack from the repo root. The first start builds the image
+2. Write the shared folders of the stack. An agent can ask for a PNG only in
+   a shared folder. Without `HORUS_SHARED_DIRS`, the one shared folder is the
+   output folder of horus (`.scratch/outputs` in the clone). To choose other
+   folders, put pairs `<host folder>=<container folder>` in `.env`, with `;`
+   between two pairs. Each container folder is one folder under `/shared/`.
+
+   ```
+   HORUS_SHARED_DIRS=C:\Users\you\Pictures\horus=/shared/pictures
+   ```
+
+   Then run, from the repo root:
+
+   ```
+   horus stack-mounts
+   ```
+
+   It writes `compose.override.yaml` next to `compose.yaml`. Git ignores the
+   file. After a change of `HORUS_SHARED_DIRS`, run it again, then
+   `docker compose up -d`.
+
+3. Start the stack from the repo root. The first start builds the image
    `horus:local`.
 
    ```
@@ -516,7 +536,7 @@ machine: set it up with the steps above, and start it with
    when the 3 containers are healthy. `horus-api` is healthy only when ComfyUI
    answers.
 
-3. Check the readiness. Each of the 4 lines must say `ok`.
+4. Check the readiness. Each of the 4 lines must say `ok`.
 
    ```
    docker exec horus-api horus ready
@@ -525,7 +545,7 @@ machine: set it up with the steps above, and start it with
    A `FAIL` line names the dependency that is down and why. Start it, and run
    the command again.
 
-4. Give the stack to your agent. Remove an older entry first, because
+5. Give the stack to your agent. Remove an older entry first, because
    `horus register` skips a client that already knows a server named `horus`.
 
    ```
@@ -534,9 +554,10 @@ machine: set it up with the steps above, and start it with
    ```
 
    The agent then starts `docker exec -i horus-api horus mcp`.
-   `horus register -docker -client codex` does the same for Codex. The stack
-   has no shared folder yet, so the PNG of a `generate_image` call stays in
-   the container `horus-api`.
+   `horus register -docker -client codex` does the same for Codex. The agent
+   gives and gets host paths: a PNG is in a shared folder of this machine.
+   The stack makes images only: for speech, use `horus register` without
+   `-docker`.
 
 5. Open the Horus UI at `http://127.0.0.1:8190/` (the port is
    `HORUS_API_PORT`). The read-only page shows the readiness, the queue, the

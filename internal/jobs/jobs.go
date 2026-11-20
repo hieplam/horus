@@ -104,11 +104,11 @@ type Config struct {
 	// DefaultRun is the run time of a job that the estimate uses before a job
 	// succeeded. Default 240 s.
 	DefaultRun time.Duration
-	// Poll is how often a waiter reads the job store when no event comes.
-	// Default 5 s.
+	// Poll is how often a waiter reads the job store when no event comes, and
+	// reports its progress. Default 5 s.
 	Poll time.Duration
-	// Touch is how often a waiter writes waiter_seen_at and reports progress.
-	// Default 10 s.
+	// Touch is how often a waiter writes waiter_seen_at. Default 10 s. A
+	// waiter reports its progress at each Poll.
 	Touch time.Duration
 	// Now is the clock. Default time.Now.
 	Now func() time.Time

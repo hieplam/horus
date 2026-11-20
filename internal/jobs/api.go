@@ -33,24 +33,33 @@ func (e *QueueFullError) Error() string {
 // CreatedAt, Deadline and WaiterSeenAt, inserts the job and publishes one
 // message to its work queue. A full queue gives a *QueueFullError, and no job.
 func (s *Service) Submit(ctx context.Context, j jobdata.Job) (jobdata.Job, error) {
+	j, _, err := s.SubmitStatus(ctx, j)
+	return j, err
+}
+
+// SubmitStatus is Submit, and it also gives the place of the job in the
+// queue at its insert, with its estimated start and the progress text. A
+// caller can report it at once: a free worker can move the job to running
+// before the first read of Wait.
+func (s *Service) SubmitStatus(ctx context.Context, j jobdata.Job) (jobdata.Job, Status, error) {
 	now := s.cfg.Now()
 	queued, err := s.store.Queued(ctx)
 	if err != nil {
-		return jobdata.Job{}, err
+		return jobdata.Job{}, Status{}, err
 	}
 	sum, err := s.store.Summary(ctx)
 	if err != nil {
-		return jobdata.Job{}, err
+		return jobdata.Job{}, Status{}, err
 	}
 	run := meanRun(sum, s.cfg.DefaultRun)
 	start := EstimateStart(now, queued+1, s.cfg.Slots, runningStarts(sum), run)
 	deadline := now.Add(s.cfg.QueueTimeout)
 	if c := CheckQueue(queued, s.cfg.QueueMax, start, deadline, run, s.cfg.Slots); c.Full {
-		return jobdata.Job{}, &QueueFullError{QueueCheck: c, Queued: queued, Max: s.cfg.QueueMax, Start: start, Deadline: deadline}
+		return jobdata.Job{}, Status{}, &QueueFullError{QueueCheck: c, Queued: queued, Max: s.cfg.QueueMax, Start: start, Deadline: deadline}
 	}
 	id, err := NewID(now, rand.Reader)
 	if err != nil {
-		return jobdata.Job{}, err
+		return jobdata.Job{}, Status{}, err
 	}
 	j.ID = id
 	j.WorkQueue = WorkQueue(j.Backend)
@@ -60,17 +69,18 @@ func (s *Service) Submit(ctx context.Context, j jobdata.Job) (jobdata.Job, error
 	j.Deadline = deadline
 	j.WaiterSeenAt = now
 	if err := s.store.Insert(ctx, j); err != nil {
-		return jobdata.Job{}, err
+		return jobdata.Job{}, Status{}, err
 	}
 	m := jobdata.Message{V: jobdata.MessageVersion, JobID: j.ID, Tool: j.Tool, Backend: j.Backend}
 	if err := s.broker.Publish(ctx, j.WorkQueue, m); err != nil {
 		// No message: no worker can run the job. End it now.
 		_, _ = s.move(ctx, j.ID, []jobdata.State{jobdata.Queued}, jobdata.Failed, jobdata.Change{At: s.cfg.Now(),
 			Error: &jobdata.JobError{Code: "INTERNAL", Message: "the broker refused the message: " + err.Error()}})
-		return jobdata.Job{}, err
+		return jobdata.Job{}, Status{}, err
 	}
 	s.notify(ctx, j.ID, jobdata.EventType(jobdata.Queued), now)
-	return j, nil
+	pos := queued + 1
+	return j, Status{State: jobdata.Queued, Position: pos, Total: pos, Start: start, Message: QueueText(pos, pos, start.Sub(now))}, nil
 }
 
 // Status is what a waiter tells about a job now.
@@ -130,10 +140,12 @@ func (s *Service) Touch(ctx context.Context, id string) error { return s.store.T
 
 // Wait waits until the job ends and gives the job. It wakes on each event of
 // the job and reads the job store every Config.Poll, so a lost event delays
-// it by at most Config.Poll. Every Config.Touch it writes waiter_seen_at and
-// reports the status. The progress value of a report is the seconds since the
-// job was made, so that it only rises. When ctx ends, Wait gives ctx.Err()
-// and leaves the job as it is: the caller cancels it.
+// it by at most Config.Poll. It reports the status at its start and at each
+// Config.Poll, by the poll ticker: an agent gets a message at least every
+// 10 s, also when the pipe to the agent adds some milliseconds. Every
+// Config.Touch it writes waiter_seen_at. The progress value of a report is the
+// seconds since the job was made, so that it only rises. When ctx ends, Wait
+// gives ctx.Err() and leaves the job as it is: the caller cancels it.
 func (s *Service) Wait(ctx context.Context, id string, report Report) (jobdata.Job, error) {
 	if report == nil {
 		report = func(context.Context, float64, float64, string) {}
@@ -147,6 +159,7 @@ func (s *Service) Wait(ctx context.Context, id string, report Report) (jobdata.J
 	poll := time.NewTicker(s.cfg.Poll)
 	defer poll.Stop()
 	var touched time.Time
+	due := true // the first report comes at once
 	for {
 		j, err := s.store.Get(ctx, id)
 		if err != nil {
@@ -155,40 +168,43 @@ func (s *Service) Wait(ctx context.Context, id string, report Report) (jobdata.J
 		if j.State.Ended() {
 			return j, nil
 		}
-		if now := s.cfg.Now(); touched.IsZero() || now.Sub(touched) >= s.cfg.Touch {
+		now := s.cfg.Now()
+		if touched.IsZero() || now.Sub(touched) >= s.cfg.Touch {
 			if err := s.store.Touch(ctx, id); err != nil {
 				return jobdata.Job{}, err
 			}
+			touched, due = now, true
+		}
+		if due {
 			st, err := s.status(ctx, j, now)
 			if err != nil {
 				return jobdata.Job{}, err
 			}
 			report(ctx, math.Round(now.Sub(j.CreatedAt).Seconds()), 0, st.Message)
-			touched = now
 		}
-		if err := waitWake(ctx, id, events, poll.C); err != nil {
+		if due, err = waitWake(ctx, id, events, poll.C); err != nil {
 			return jobdata.Job{}, err
 		}
 	}
 }
 
 // waitWake returns at the next event of the job id or the next tick, or with
-// ctx.Err() when ctx ends. After the event channel closes, only the ticks
-// wake it.
-func waitWake(ctx context.Context, id string, events <-chan jobdata.Event, tick <-chan time.Time) error {
+// ctx.Err() when ctx ends. tick is true when the tick woke it. After the
+// event channel closes, only the ticks wake it.
+func waitWake(ctx context.Context, id string, events <-chan jobdata.Event, tick <-chan time.Time) (bool, error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return false, ctx.Err()
 		case <-tick:
-			return nil
+			return true, nil
 		case e, ok := <-events:
 			if !ok {
 				events = nil
 				continue
 			}
 			if e.JobID == id {
-				return nil
+				return false, nil
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 # The build context of docker/horus.Dockerfile. The image needs the Go code and
 # the workflows (go:embed), and never a secret.
 .env
+compose.override.yaml
 .git
 .worktrees
 .scratch

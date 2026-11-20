@@ -541,7 +541,14 @@ func TestWaitTouches(t *testing.T) {
 	}()
 	<-r.ch
 	e.clock.Add(50 * time.Second)
-	<-r.ch // the next touch, after Config.Touch
+	// The next touch, after Config.Touch: waiter_seen_at moves to the clock.
+	deadline := time.Now().Add(5 * time.Second)
+	for !get(t, e, j.ID).WaiterSeenAt.Equal(e.clock.Now()) {
+		if time.Now().After(deadline) {
+			t.Fatal("the waiter did not touch the job 5 s after the clock moved past Config.Touch")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	e.clock.Add(50 * time.Second)
 	if _, abandoned, _ := e.store.Sweep(context.Background()); abandoned != 0 {
 		t.Error("the sweep abandoned a job that has a waiter")
@@ -674,5 +681,54 @@ func TestCancelRunningEndsTheRun(t *testing.T) {
 				t.Errorf("state %s, want cancelled", s)
 			}
 		})
+	}
+}
+
+// TestWaitReportsEveryPoll: the waiter reports at each Config.Poll, by the
+// poll ticker, also when no event wakes it and the touch is not due (the row
+// queue-progress: a message at least every 10 s). The clock is the real one.
+func TestWaitReportsEveryPoll(t *testing.T) {
+	st := brokertest.NewStore()
+	svc := jobs.New(st, brokertest.NewBroker(), jobs.Config{Poll: 200 * time.Millisecond, Touch: time.Hour})
+	j, err := svc.Submit(context.Background(), request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newReports()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _, _ = svc.Wait(ctx, j.ID, r.report) }()
+	start := time.Now()
+	var at []time.Duration
+	for len(at) < 4 {
+		select {
+		case <-r.ch:
+			at = append(at, time.Since(start))
+		case <-time.After(2 * time.Second):
+			t.Fatalf("reports at %v: no report for 2 s, want one every 200 ms", at)
+		}
+	}
+	for i := 1; i < len(at); i++ {
+		if gap := at[i] - at[i-1]; gap < 150*time.Millisecond || gap > time.Second {
+			t.Errorf("reports at %v: gap %s, want about 200 ms", at, gap)
+		}
+	}
+}
+
+// TestSubmitStatus: SubmitStatus gives the place of the job in the queue at
+// its insert, and its progress text.
+func TestSubmitStatus(t *testing.T) {
+	e := newEnv(t, jobs.Config{DefaultRun: 4 * time.Minute})
+	submit(t, e)
+	j, st, err := e.svc.SubmitStatus(context.Background(), request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != jobdata.Queued || st.Position != 2 || st.Total != 2 || !st.Start.Equal(t0.Add(4*time.Minute)) ||
+		st.Message != "waiting in the horus queue, position 2 of 2, start in about 4 min" {
+		t.Errorf("status %+v", st)
+	}
+	if got := get(t, e, j.ID); got.State != jobdata.Queued {
+		t.Errorf("state %s", got.State)
 	}
 }

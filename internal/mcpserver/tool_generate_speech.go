@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/hieplam/horus/internal/herr"
 	"github.com/hieplam/horus/internal/speak"
 )
 
@@ -23,7 +24,21 @@ type Speech interface {
 // SpeechResult is the result of generate_speech, in the key order that the tool shows.
 type SpeechResult = speak.Result
 
-func generateSpeech(speech Speech) tool {
+// speechInStack is the error of generate_speech in the stack: the stack runs
+// only image jobs, and the API process never runs a backend for a job (ADR
+// 0025, ADR 0039).
+func speechInStack() *herr.Error {
+	e := herr.New("BACKEND_UNAVAILABLE", "horus in the Docker stack makes images only: generate_speech does not run in the stack",
+		map[string]any{"tool": "generate_speech", "stack": true})
+	e.Retryable = ptr(false)
+	e.NextStep = "Tell the user that horus in the Docker stack cannot make speech. For speech, the user registers the horus " +
+		"program of this machine (horus register) and sets up the speech workflow (horus setup <workflow> -yes)."
+	return e
+}
+
+// generateSpeech is the tool. In the stack (inStack), each call gets
+// speechInStack.
+func generateSpeech(speech Speech, inStack bool) tool {
 	return tool{
 		name:  "generate_speech",
 		title: "Generate speech",
@@ -56,6 +71,9 @@ func generateSpeech(speech Speech) tool {
 			),
 		}),
 		body: func(ctx context.Context, c *call) (any, error) {
+			if inStack {
+				return nil, speechInStack()
+			}
 			res, err := speech.Speak(ctx, speak.Request{
 				Workflow:  c.args.str("workflow"),
 				Text:      c.args.str("text"),

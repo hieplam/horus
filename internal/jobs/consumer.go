@@ -187,7 +187,7 @@ func (s *Service) watchCancel(ctx context.Context, id string, stop context.Cance
 				stop()
 				return
 			}
-			if err := waitWake(wctx, id, events, poll.C); err != nil {
+			if _, err := waitWake(wctx, id, events, poll.C); err != nil {
 				return
 			}
 		}

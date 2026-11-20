@@ -114,6 +114,7 @@ func TestToolsMatchPython(t *testing.T) {
 		t.Fatalf("Go has %d tools, the golden file %d, want 6", len(got), len(g.Tools))
 	}
 	addSetupConsent(t, g.Tools)
+	addJobQueue(t, g.Tools)
 	for _, py := range g.Tools {
 		name, _ := py["name"].(string)
 		goTool, ok := got[name].(map[string]any)
@@ -183,6 +184,88 @@ func addSetupConsent(t *testing.T, tools []map[string]any) {
 		return
 	}
 	t.Fatal("the golden file has no install_workflow")
+}
+
+// addJobQueue puts the fields of the job queue into the golden tool list
+// (spec docs/specs/2026-11-19-job-queue.md, "MCP contract"): the argument
+// idempotency_key and the result fields backend_job_id and queue_seconds of
+// generate_image, and the result fields ready and queue of list_workflows,
+// with their models. The golden file itself does not change.
+func addJobQueue(t *testing.T, tools []map[string]any) {
+	t.Helper()
+	nullable := func(base map[string]any, title, desc string) map[string]any {
+		return map[string]any{"anyOf": []any{base, map[string]any{"type": "null"}}, "title": title, "description": desc}
+	}
+	ref := func(name string) map[string]any { return map[string]any{"$ref": "#/$defs/" + name} }
+	str := func(title, desc string) map[string]any {
+		m := map[string]any{"type": "string", "title": title}
+		if desc != "" {
+			m["description"] = desc
+		}
+		return m
+	}
+	typed := func(typ, title, desc string) map[string]any {
+		m := map[string]any{"type": typ, "title": title}
+		if desc != "" {
+			m["description"] = desc
+		}
+		return m
+	}
+	found := 0
+	for _, py := range tools {
+		switch py["name"] {
+		case "generate_image":
+			found++
+			in := py["inputSchema"].(map[string]any)["properties"].(map[string]any)
+			key := nullable(map[string]any{"type": "string"}, "Idempotency Key", "Optional key of this request, for a later call again "+
+				"with the same request. horus keeps it with the job in the stack, and makes a new image for each call.")
+			key["default"] = nil
+			in["idempotency_key"] = key
+			res := py["outputSchema"].(map[string]any)["$defs"].(map[string]any)["ImageResult"].(map[string]any)
+			props := res["properties"].(map[string]any)
+			props["job_id"] = str("Job Id", "The id of the job: the horus job id in the stack, else the id of the job in the backend.")
+			props["backend_job_id"] = str("Backend Job Id", "The id of the job in the backend (ComfyUI).")
+			props["queue_seconds"] = nullable(map[string]any{"type": "number"}, "Queue Seconds",
+				"Time the job waited in the horus queue before its run. Null: no horus queue.")
+			res["required"] = append(res["required"].([]any), "backend_job_id", "queue_seconds")
+		case "list_workflows":
+			found++
+			defs := py["outputSchema"].(map[string]any)["$defs"].(map[string]any)
+			list := defs["ListResult"].(map[string]any)
+			props := list["properties"].(map[string]any)
+			props["ready"] = nullable(ref("Readiness"), "Ready",
+				"In the Docker stack: the 4 dependencies of horus and their state. Null: horus runs on this machine without the stack.")
+			props["queue"] = nullable(ref("QueueState"), "Queue",
+				"In the Docker stack: the jobs that wait, the jobs that run, and the slots of the worker. Null: no horus queue.")
+			list["required"] = append(list["required"].([]any), "ready", "queue")
+			defs["Readiness"] = map[string]any{"title": "Readiness", "type": "object",
+				"required": []any{"ready", "up", "checks", "down"},
+				"properties": map[string]any{
+					"ready":  typed("boolean", "Ready", "True only when the 4 dependencies are up."),
+					"up":     typed("integer", "Up", "The count of the dependencies that are up."),
+					"checks": map[string]any{"items": ref("CheckResult"), "title": "Checks", "type": "array"},
+					"down": map[string]any{"items": map[string]any{"type": "string"}, "title": "Down", "type": "array",
+						"description": "The dependencies that are down."},
+				}}
+			defs["CheckResult"] = map[string]any{"title": "CheckResult", "type": "object",
+				"required": []any{"dependency", "up", "detail"},
+				"properties": map[string]any{
+					"dependency": map[string]any{"enum": []any{"horus-db", "comfyui", "horus-worker", "horus-api"}, "title": "Dependency", "type": "string"},
+					"up":         typed("boolean", "Up", ""),
+					"detail":     str("Detail", ""),
+				}}
+			defs["QueueState"] = map[string]any{"title": "QueueState", "type": "object",
+				"required": []any{"waiting", "running", "slots"},
+				"properties": map[string]any{
+					"waiting": typed("integer", "Waiting", "Jobs in the horus queue that wait for a slot."),
+					"running": typed("integer", "Running", "Jobs that run now."),
+					"slots":   typed("integer", "Slots", "The jobs that the worker runs at the same time (HORUS_WORKER_CONCURRENCY)."),
+				}}
+		}
+	}
+	if found != 2 {
+		t.Fatalf("the golden file has %d of generate_image and list_workflows", found)
+	}
 }
 
 func callTool(t *testing.T, cs *mcp.ClientSession, name string, args any) *mcp.CallToolResult {
@@ -257,11 +340,11 @@ func TestArgumentErrors(t *testing.T) {
 			t.Errorf("%v: isError=%v sc=%v text=%q", c.args, res.IsError, res.StructuredContent, text)
 		}
 	}
-	a, problems := parseArgs(json.RawMessage(`{"workflow":"w","subject":"s","seed":7.0,"width":null,"extra":1}`), generateImage(nil).args)
+	a, problems := parseArgs(json.RawMessage(`{"workflow":"w","subject":"s","seed":7.0,"width":null,"extra":1}`), generateImage(nil, nil).args)
 	if len(problems) > 0 || *a.intPtr("seed") != 7 || a.intPtr("width") != nil || a.boolean("overwrite") || a.strPtr("out_path") != nil {
 		t.Fatalf("args %v, problems %v", a, problems)
 	}
-	if _, problems := parseArgs(json.RawMessage(`{"workflow":"w","subject":"s","seed":7.5,"overwrite":"yes"}`), generateImage(nil).args); len(problems) != 2 {
+	if _, problems := parseArgs(json.RawMessage(`{"workflow":"w","subject":"s","seed":7.5,"overwrite":"yes"}`), generateImage(nil, nil).args); len(problems) != 2 {
 		t.Fatalf("problems %v", problems)
 	}
 }

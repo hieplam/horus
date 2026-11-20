@@ -141,7 +141,14 @@ type Result struct {
 	Seconds        float64  `json:"seconds"`
 	BackendSeconds *float64 `json:"backend_seconds"`
 	StartedBackend bool     `json:"started_backend"`
-	JobID          string   `json:"job_id"`
+	// JobID is the id of the job: the id of the job in ComfyUI on the direct
+	// path, and the horus job id in the stack.
+	JobID string `json:"job_id"`
+	// BackendJobID is the id of the job in ComfyUI.
+	BackendJobID string `json:"backend_job_id"`
+	// QueueSeconds is the wait of the job in the horus queue, from its insert
+	// to the start of its run. nil on the direct path: no horus queue.
+	QueueSeconds *float64 `json:"queue_seconds"`
 
 	// Not part of the tool result (json "-"): the step count that ran and the
 	// file name that ComfyUI reported. horus run-illustration prints them.
@@ -532,6 +539,7 @@ func (s *Service) run(ctx context.Context, w *catalog.Workflow, req Plan, o Opti
 		BackendSeconds: job.BackendSeconds,
 		StartedBackend: started,
 		JobID:          promptID,
+		BackendJobID:   promptID,
 		Steps:          steps,
 		ComfyOutput:    images[0].Filename,
 	}, nil

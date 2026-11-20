@@ -1,5 +1,6 @@
-// Package mcpserver is the horus MCP server (stdio), and the readiness of
-// horus in the stack (ready.go).
+// Package mcpserver is the horus MCP server (stdio), the readiness of horus
+// in the stack (ready.go), and generate_image through the job queue of the
+// stack (queue.go, paths.go).
 //
 // Tools (one file each, tool_<name>.go):
 //
@@ -26,6 +27,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hieplam/horus/internal/generate"
+	"github.com/hieplam/horus/internal/jobdata"
 	"github.com/hieplam/horus/internal/settings"
 	"github.com/hieplam/horus/internal/version"
 )
@@ -51,6 +53,9 @@ type call struct {
 	args   args
 	req    *mcp.CallToolRequest
 	report Reporter
+	// ready is the readiness report of the gate of the stack, or nil on the
+	// direct path.
+	ready *jobdata.Readiness
 }
 
 // tool is one tool: its definition, its argument fields and its body.
@@ -67,18 +72,32 @@ type tool struct {
 // Images is what the tools need from the image service internal/generate.
 // cmd/horus gives the server a *generate.Service. A test gives it a fake.
 type Images interface {
-	// Generate makes one image (the tool generate_image).
+	// Generate makes one image (the tool generate_image on the direct path).
 	Generate(ctx context.Context, r generate.Request, o generate.Options) (*generate.Result, error)
+	// Check checks the arguments of generate_image, and gives the plan of
+	// the run (the tool generate_image in the stack). It calls no backend.
+	Check(r generate.Request) (generate.Plan, error)
 	// Running reports if the image backend answers (backend_running of list_workflows).
 	Running(ctx context.Context) (bool, error)
 	// FreeMemory unloads the models before uninstall_workflow deletes their files.
 	FreeMemory(ctx context.Context)
 }
 
+// Options are the parts of the stack. The zero value is the direct path.
+type Options struct {
+	// Ready is the readiness gate of the stack: each call first runs it, and
+	// a call while a dependency is down gets NOT_READY. nil: no gate.
+	Ready ReadyFunc
+	// Queue is the job queue of the stack. With it, generate_image goes
+	// through the queue and never calls ComfyUI, list_workflows shows the
+	// queue, and generate_speech refuses (ADR 0039). nil: the direct path.
+	Queue *Queue
+}
+
 // tools is the list of the 6 tools. Each tool lives in its own file.
-func tools(images Images, setup Setup, speech Speech) []tool {
-	return []tool{listWorkflows(images, setup), describeWorkflow(setup), installWorkflow(setup), uninstallWorkflow(images, setup, speech),
-		generateImage(images), generateSpeech(speech)}
+func tools(images Images, setup Setup, speech Speech, q *Queue) []tool {
+	return []tool{listWorkflows(images, setup, q), describeWorkflow(setup), installWorkflow(setup), uninstallWorkflow(images, setup, speech),
+		generateImage(images, q), generateSpeech(speech, q != nil)}
 }
 
 func (t tool) definition() *mcp.Tool {
@@ -99,12 +118,15 @@ func (t tool) definition() *mcp.Tool {
 // dependency is down gets NOT_READY. nil ready: the direct path, no gate.
 func (t tool) handler(ready ReadyFunc) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var gate *jobdata.Readiness
 		if ready != nil {
-			if r := ready(ctx); !r.Ready {
+			r := ready(ctx)
+			if !r.Ready {
 				e := notReady(r)
 				logf("INFO", "call %s failed: %s", t.name, e)
 				return failResult(e), nil
 			}
+			gate = &r
 		}
 		a, problems := parseArgs(req.Params.Arguments, t.args)
 		if len(problems) > 0 {
@@ -116,7 +138,7 @@ func (t tool) handler(ready ReadyFunc) mcp.ToolHandler {
 			logf("INFO", "call %s failed: %s", t.name, e)
 			return failResult(e), nil
 		}
-		c := &call{args: a, req: req, report: reporter(req)}
+		c := &call{args: a, req: req, report: reporter(req), ready: gate}
 		return guard(ctx, t.name, func(ctx context.Context) (any, error) { return t.body(ctx, c) }), nil
 	}
 }
@@ -128,27 +150,27 @@ func pyNone(v any) any {
 	return v
 }
 
-// New makes the server with the 6 tools. The tools make images, and ask
-// the image backend, through images. They set up the model files of a
-// workflow through setup. They make speech through speech.
+// New makes the server with the 6 tools on the direct path. The tools make
+// images, and ask the image backend, through images. They set up the model
+// files of a workflow through setup. They make speech through speech.
 func New(images Images, setup Setup, speech Speech) *mcp.Server {
-	return NewWithReady(images, setup, speech, nil)
+	return NewWith(images, setup, speech, Options{})
 }
 
-// NewWithReady is New with the readiness gate of the stack: each call first
-// runs ready, and a call while a dependency is down gets NOT_READY. nil
-// ready: no gate (the direct path).
-func NewWithReady(images Images, setup Setup, speech Speech, ready ReadyFunc) *mcp.Server {
+// NewWith is New with the parts of the stack in o.
+func NewWith(images Images, setup Setup, speech Speech, o Options) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: version.Version}, &mcp.ServerOptions{Instructions: serverInstructions})
-	for _, t := range tools(images, setup, speech) {
-		s.AddTool(t.definition(), t.handler(ready))
+	for _, t := range tools(images, setup, speech, o.Queue) {
+		s.AddTool(t.definition(), t.handler(o.Ready))
 	}
 	return s
 }
 
 // Run serves the tools over stdio until the client closes the connection.
-// ready is the readiness gate of the stack, or nil on the direct path.
-func Run(ctx context.Context, images Images, setup Setup, speech Speech, ready ReadyFunc) error {
+// o holds the parts of the stack, or is the zero value on the direct path.
+// When the connection closes, Run returns after each call returned: a call
+// that waits for a job cancels the job first.
+func Run(ctx context.Context, images Images, setup Setup, speech Speech, o Options) error {
 	if path := settings.Get("HORUS_LOG_FILE", ""); path != "" {
 		if f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
 			defer f.Close()
@@ -157,7 +179,7 @@ func Run(ctx context.Context, images Images, setup Setup, speech Speech, ready R
 			logf("WARNING", "cannot open HORUS_LOG_FILE: %v", err)
 		}
 	}
-	return NewWithReady(images, setup, speech, ready).Run(ctx, &mcp.StdioTransport{})
+	return NewWith(images, setup, speech, o).Run(ctx, &mcp.StdioTransport{})
 }
 
 type teeWriter struct {

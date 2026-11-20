@@ -3,8 +3,10 @@ package postgres_test
 import (
 	"context"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -201,24 +203,85 @@ func TestBrokerDefaults(t *testing.T) {
 	}
 }
 
+// lateSecond is a broker whose second Consume starts after delay. The contract
+// check of two consumers starts them one after the other, and a slow start of
+// the second one must not change the result of the stub check.
+type lateSecond struct {
+	*postgres.Broker
+	delay time.Duration
+	calls atomic.Int32
+}
+
+func (l *lateSecond) Consume(ctx context.Context, queue string, prefetch int) (<-chan jobdata.Delivery, error) {
+	if l.calls.Add(1) == 2 {
+		time.Sleep(l.delay)
+	}
+	return l.Broker.Consume(ctx, queue, prefetch)
+}
+
+// stubLockKey is the key of the advisory lock that the stub claim waits on.
+const stubLockKey = 180227
+
 // TestStubNoSkipLocked is a stub check: a claim without FOR UPDATE SKIP LOCKED
 // gives one message to two consumers, and the contract check of two
-// consumers fails. The stub claim waits 0.5 s inside its statement, so that
-// the first claims of the two consumers run at the same time on each run.
+// consumers fails. The stub claim waits on a shared advisory lock inside its
+// statement. The test holds the exclusive lock of the same key, waits until
+// two claims wait on it (an event in pg_locks, not a time window), and then
+// releases it. So the first claims of the two consumers run at the same time
+// on each run, also when the second consumer starts late.
 func TestStubNoSkipLocked(t *testing.T) {
-	b := postgres.NewBroker(open(t, pgtest.URL(t)), postgres.BrokerOptions{Visibility: time.Second})
+	url := pgtest.URL(t)
+	base := postgres.NewBroker(open(t, url), postgres.BrokerOptions{Visibility: time.Second})
 	stub := postgres.ClaimSQL
 	for _, r := range []struct{ old, new string }{
 		{"FOR UPDATE SKIP LOCKED", ""},
-		{"WHERE queue = $1", "WHERE queue = $1 AND (SELECT true FROM pg_sleep(0.5))"},
+		{"WHERE queue = $1", "WHERE queue = $1 AND (SELECT true FROM pg_advisory_xact_lock_shared(" + strconv.Itoa(stubLockKey) + "))"},
 	} {
 		if !strings.Contains(stub, r.old) {
 			t.Fatalf("the claim SQL has no %q", r.old)
 		}
 		stub = strings.Replace(stub, r.old, r.new, 1)
 	}
-	postgres.SetClaim(b, stub)
-	got := brokertest.Failures(t, "two_consumers_never_share", b)
+	postgres.SetClaim(base, stub)
+
+	ctx := context.Background()
+	hold := sqlConn(t, url)
+	if _, err := hold.Exec(ctx, "SELECT pg_advisory_lock($1)", stubLockKey); err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			_, _ = hold.Exec(ctx, "SELECT pg_advisory_unlock($1)", stubLockKey)
+		}
+	}
+	defer release()
+
+	result := make(chan []string, 1)
+	go func() {
+		result <- brokertest.Failures(t, "two_consumers_never_share", &lateSecond{Broker: base, delay: time.Second})
+	}()
+
+	watch := sqlConn(t, url)
+	deadline := time.Now().Add(brokertest.Timeout)
+	for {
+		var waiting int
+		err := watch.QueryRow(ctx, "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = $1 AND mode = 'ShareLock' AND NOT granted", int64(stubLockKey)).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d claims wait on the lock in %s, want 2", waiting, brokertest.Timeout)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	release()
+
+	got := <-result
 	if len(got) == 0 || !strings.Contains(got[0], "came 2 times, want 1") {
 		t.Errorf("a claim without SKIP LOCKED: the failures %q, want a message that came 2 times", got)
 	}

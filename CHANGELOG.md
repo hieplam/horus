@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/hieplam/horus/compare/v0.1.3...v0.1.4) (2026-11-20)
+
+
+### Features
+
+* **mcpserver:** MCP over HTTP at /mcp with the token, the header checks and register -http ([#204](https://github.com/hieplam/horus/issues/204)) ([#247](https://github.com/hieplam/horus/issues/247)) ([d38888a](https://github.com/hieplam/horus/commit/d38888aa1080033aef55514df946db9a7b3a55ba))
+
 ## [0.1.3](https://github.com/hieplam/horus/compare/v0.1.2...v0.1.3) (2026-11-20)
 
 

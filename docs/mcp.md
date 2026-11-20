@@ -868,9 +868,13 @@ runs this test and stops the stack. It runs with `--listen 0.0.0.0`, and it
 makes the shared folder writable for the container user (uid 10001). The goal
 rows `same-contract` and `worker-lost` of
 `go test -tags goal -v ./goals/2026-11-19-job-queue` start the stack themselves.
-`worker-lost` runs `docker kill horus_test-worker` while a job runs. The waiting
-call gets `WORKER_LOST` in 90 s or less, Docker restarts the worker, and the
-next call ends with a PNG.
+`worker-lost` sends SIGKILL to the worker process while a job runs: a container
+with `--pid=host` runs `kill -9` on the host process id of the worker. Docker
+sees a crash, so it restarts the worker. The waiting call gets `WORKER_LOST`
+in 90 s or less, and the next call ends with a PNG. The command `docker kill`
+is a stop that a person asks for: Docker 29.8 does not restart the container
+after it, also with `restart: always`. After a `docker kill` of `horus-worker`,
+run `docker compose start horus-worker`.
 
 ### The peak tool
 

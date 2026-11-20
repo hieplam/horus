@@ -127,10 +127,16 @@ func TestSameContract(t *testing.T) {
 	t.Fatal("not built: /mcp: the HTTP run of tests/mcp_contract.py (task #204, MCP over HTTP)")
 }
 
-// TestWorkerLost kills horus-worker with docker kill while it runs a job. The
-// waiting call gets WORKER_LOST in 90 s or less. Docker restarts the
-// container (its restart count is 1 or more, and it is running), and a new
-// call then ends with a PNG at its host path.
+// TestWorkerLost kills the process of horus-worker with SIGKILL while it runs
+// a job, as a crash or the out-of-memory killer does: a container with
+// --pid=host sends kill -9 to the host process id of the worker. Docker sees
+// an exit with code 137 that no person asked for, so its restart policy
+// starts the container again. (The command docker kill is a stop that a
+// person asks for: Docker 29.8 never restarts the container after it, also
+// with restart: always. A kill -9 from inside the container is ignored,
+// because the worker is process 1 there.) The waiting
+// call gets WORKER_LOST in 90 s or less, the container is running again with
+// a new start time, and a new call then ends with a PNG at its host path.
 func TestWorkerLost(t *testing.T) {
 	f, st := e2eStack(t, 20*time.Second)
 	args := func(seed int, name string) map[string]any {
@@ -160,41 +166,49 @@ func TestWorkerLost(t *testing.T) {
 	}); why != "" {
 		t.Fatal(why)
 	}
-	if code, out := run(t, root, "docker", "kill", workerName); code != 0 {
-		t.Fatalf("docker kill %s: exit code %d\n%s", workerName, code, out)
+	_, firstStart := run(t, root, "docker", "inspect", "-f", "{{.State.StartedAt}}", workerName)
+	code, pid := run(t, root, "docker", "inspect", "-f", "{{.State.Pid}}", workerName)
+	pid = strings.TrimSpace(pid)
+	if code != 0 || pid == "" || pid == "0" {
+		t.Fatalf("docker inspect %s: no process id (exit code %d): %q", workerName, code, pid)
+	}
+	if code, out := run(t, root, "docker", "run", "--rm", "--privileged", "--pid=host", "alpine:3.22", "kill", "-9", pid); code != 0 {
+		t.Fatalf("kill -9 %s of %s from a container with --pid=host: exit code %d\n%s", pid, workerName, code, out)
 	}
 	killed := time.Now()
 	var got answer
 	select {
 	case got = <-lost:
 	case <-time.After(150 * time.Second):
-		t.Fatal("the waiting call got no answer in 150 s after docker kill of horus-worker")
+		t.Fatal("the waiting call got no answer in 150 s after SIGKILL of horus-worker")
 	}
 	took := got.at.Sub(killed)
 	switch {
 	case got.err != nil:
 		t.Fatalf("the waiting call: %v", got.err)
 	case got.e.OK || got.e.Error == nil || got.e.Error.Code != "WORKER_LOST" || got.e.Error.ActionBy != "retry":
-		t.Fatalf("the waiting call after docker kill: %+v, want WORKER_LOST with action_by retry", got.e)
+		t.Fatalf("the waiting call after SIGKILL of the worker: %+v, want WORKER_LOST with action_by retry", got.e)
 	case took > 90*time.Second:
-		t.Fatalf("WORKER_LOST came %s after docker kill, want 90 s or less", took.Round(time.Second))
+		t.Fatalf("WORKER_LOST came %s after SIGKILL of the worker, want 90 s or less", took.Round(time.Second))
 	}
-	t.Logf("calls that end with WORKER_LOST: 1, %s after docker kill: %s", took.Round(100*time.Millisecond), got.e.Error.Message)
+	t.Logf("calls that end with WORKER_LOST: 1, %s after SIGKILL of the worker: %s", took.Round(100*time.Millisecond), got.e.Error.Message)
 
-	code, out := run(t, root, "docker", "inspect", "-f", "{{.State.Running}} {{.RestartCount}}", workerName)
-	var running bool
-	var restarts int
-	if code == 0 {
-		_, _ = fmt.Sscanf(strings.TrimSpace(out), "%t %d", &running, &restarts)
+	_, why := eventually(60*time.Second, func() string {
+		code, out := run(t, root, "docker", "inspect", "-f", "{{.State.Running}} {{.State.StartedAt}}", workerName)
+		state, start, _ := strings.Cut(strings.TrimSpace(out), " ")
+		if code != 0 || state != "true" || start == strings.TrimSpace(firstStart) {
+			return fmt.Sprintf("docker inspect %s: %q (exit code %d), want running with a new start time (first start %s)", workerName, strings.TrimSpace(out), code, strings.TrimSpace(firstStart))
+		}
+		return ""
+	})
+	if why != "" {
+		t.Fatalf("Docker did not restart horus-worker: %s", why)
 	}
-	if code != 0 || !running || restarts < 1 {
-		t.Fatalf("docker inspect %s: %q (exit code %d), want running with a restart count of 1 or more: Docker did not restart horus-worker", workerName, strings.TrimSpace(out), code)
-	}
-	t.Logf("Docker restarted %s: running, restart count %d", workerName, restarts)
+	t.Logf("Docker restarted %s: running, with a new start time", workerName)
 
 	next := filepath.Join(st.shared, "after.png")
 	var e envelope
-	_, why := eventually(60*time.Second, func() string {
+	_, why = eventually(60*time.Second, func() string {
 		s, err := openSession(t, 15*time.Second)
 		if err != nil {
 			return "a new session: " + err.Error()

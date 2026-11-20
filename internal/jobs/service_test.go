@@ -41,6 +41,12 @@ type env struct {
 
 func newEnv(t *testing.T, cfg jobs.Config) *env {
 	t.Helper()
+	return newEnvWith(t, cfg, func(b *brokertest.Broker) jobs.Broker { return b })
+}
+
+// newEnvWith is newEnv with a broker that wraps the in-memory broker.
+func newEnvWith(t *testing.T, cfg jobs.Config, wrap func(*brokertest.Broker) jobs.Broker) *env {
+	t.Helper()
 	c := &clock{t: t0}
 	st := brokertest.NewStore()
 	st.Now = c.Now
@@ -49,7 +55,7 @@ func newEnv(t *testing.T, cfg jobs.Config) *env {
 	if cfg.Poll == 0 {
 		cfg.Poll = 10 * time.Millisecond
 	}
-	return &env{svc: jobs.New(st, b, cfg), store: st, broker: b, clock: c}
+	return &env{svc: jobs.New(st, wrap(b), cfg), store: st, broker: b, clock: c}
 }
 
 func request() jobdata.Job {
@@ -194,6 +200,16 @@ func ok(calls *atomic.Int32) jobs.RunFunc {
 	}
 }
 
+// failsTest says if the error of a delivery fails the test. The error of a
+// delivery that ends after the test started its end is not a failure: the
+// test stopped the consumer, so the broker refuses the ack of a message that
+// the consumer held, and the broker gives the message again. The job is
+// done, and the next delivery does nothing (the idempotent consumer). While
+// the consumer runs, each error that is not Stopped fails the test.
+func failsTest(ending bool, o jobs.Outcome, err error) bool {
+	return err != nil && o != jobs.Stopped && !ending
+}
+
 // consume runs the consumer until the test ends, and gives the outcomes.
 func consume(t *testing.T, e *env, c jobs.Consumer) <-chan jobs.Outcome {
 	t.Helper()
@@ -202,8 +218,9 @@ func consume(t *testing.T, e *env, c jobs.Consumer) <-chan jobs.Outcome {
 	if c.Slots == 0 {
 		c.Slots = 1
 	}
+	var ending atomic.Bool
 	c.Done = func(_ jobdata.Message, o jobs.Outcome, err error) {
-		if err != nil && o != jobs.Stopped {
+		if failsTest(ending.Load(), o, err) {
 			t.Errorf("outcome %s: %v", o, err)
 		}
 		out <- o
@@ -214,7 +231,7 @@ func consume(t *testing.T, e *env, c jobs.Consumer) <-chan jobs.Outcome {
 		defer close(done)
 		_ = e.svc.Consume(ctx, c)
 	}()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() { ending.Store(true); cancel(); <-done })
 	return out
 }
 
@@ -419,7 +436,11 @@ func (r *reports) report(_ context.Context, progress, total float64, message str
 }
 
 func TestWait(t *testing.T) {
-	e := newEnv(t, jobs.Config{DefaultRun: 4 * time.Minute})
+	testWait(t, newEnv(t, jobs.Config{DefaultRun: 4 * time.Minute}))
+}
+
+func testWait(t *testing.T, e *env) {
+	t.Helper()
 	j := submit(t, e)
 	r := newReports()
 	type res struct {

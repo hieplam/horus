@@ -219,6 +219,11 @@ class Server(ThreadingHTTPServer):
 
 def make_handler(fake: FakeComfy):
     class Handler(BaseHTTPRequestHandler):
+        # HTTP/1.1 keeps each connection open for the next request. With HTTP/1.0, each request of the stack opens a
+        # new connection through host.docker.internal, and on Windows about 1 in 140 of them hangs until its time
+        # limit (measured: 32 of 4490 requests of a Go client in a container; a Go server on the host: 0 of 51538).
+        protocol_version = "HTTP/1.1"
+
         def log_message(self, *a):
             pass
 

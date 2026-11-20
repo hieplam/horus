@@ -307,7 +307,7 @@ it starts ComfyUI, and `horus stop-comfyui` reads it.
 | `describe_workflow(workflow)` | One workflow in full, with its `kind`. An image workflow shows size limits and how to write the subject (rules and examples). A speech workflow shows `text` (limits), `voices`, `default_voice`, `tags` and `formats`, and no graph. Both show the license and the state of each model file. | No |
 | `install_workflow(workflow, accept_license=false, accept_setup=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license and the size. When the machine needs a setup step (ComfyUI for an image workflow; Python 3.12, FFmpeg or the speech venv for a speech workflow), it first runs the setup plan: without `accept_setup=true` it returns `SETUP_CONFIRMATION_REQUIRED` with the steps. | Yes: downloads GB, installs ComfyUI, a venv and a system package |
 | `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files of an image workflow or a speech workflow. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another workflow of the same kind lists is kept unless `remove_shared=true`. | Yes: deletes files |
-| `generate_image(workflow, subject, out_path?, seed?, width?, height?, overwrite=false)` | Makes one PNG and waits until it is on disk. Returns the absolute path and the seed. | Writes one PNG |
+| `generate_image(workflow, subject, out_path?, seed?, width?, height?, overwrite=false, idempotency_key?)` | Makes one PNG and waits until it is on disk. Returns the absolute path, the seed, `job_id`, `backend_job_id` and `queue_seconds`. | Writes one PNG |
 | `generate_speech(workflow, text, voice?, out_path?, overwrite=false)` | Makes one audio file and waits until it is on disk. Returns the absolute path and the transcript. | Writes one audio file |
 
 The install state (`install_state`: `installed`, `partially_installed` or `not_installed`) counts the parts that the workflow needs. An image workflow has its model files in the model folders of ComfyUI. A speech workflow has its parts in the speech folder (ADR 0032): the speech venv, each model file of `models.json` at `<speech folder>/models/<folder>/<file>` with its size, and the programs `ffmpeg` and `ffprobe` on the PATH. `install_state` is `installed` only when `generate_speech` finds each part. `describe_workflow` shows each model file as `present`, `missing` or `wrong_size`.
@@ -323,7 +323,17 @@ refuses a `manifest.json` that has `theme` or `caption`, and
 `out_path` must be absolute and end with `.png`. Without it, the PNG goes to
 `HORUS_OUTPUT_DIR` (default `.scratch/outputs/<workflow>/` in this repo, or
 `<user folder>/outputs/<workflow>/` without a repo). The
-server never replaces a file unless `overwrite=true`.
+server never replaces a file unless `overwrite=true`. In the stack, `out_path`
+must be in a shared folder: see [`generate_image` in the stack](#generate_image-in-the-stack).
+
+The result of `generate_image` has `workflow`, `path`, `bytes`, `width`,
+`height`, `seed`, `seconds`, `backend_seconds`, `started_backend`, `job_id`,
+`backend_job_id` and `queue_seconds`. `backend_job_id` is the id of the job in
+ComfyUI. On this machine without the stack, `job_id` is that id too, and
+`queue_seconds` is `null`. In the stack, `job_id` is the horus job id, and
+`queue_seconds` is the wait in the horus queue. `idempotency_key` is an
+optional key of the request: in the stack, horus keeps it with the job. Each
+call makes a new image, also with the same key.
 
 ### `generate_speech`
 
@@ -394,7 +404,7 @@ A caller decides from three fields:
 
 ## Error codes
 
-The single source is the Go package `internal/herr`. It has 23 codes. `horus errors` prints the table, and `horus errors -json` prints it as JSON. The contract test reads `horus errors -json` and fails when this table misses a code.
+The single source is the Go package `internal/herr`. It has 25 codes. `horus errors` prints the table, and `horus errors -json` prints it as JSON. The contract test reads `horus errors -json` and fails when this table misses a code.
 
 | Code | Retryable | Action by | Next step |
 |---|---|---|---|
@@ -417,9 +427,11 @@ The single source is the Go package `internal/herr`. It has 23 codes. `horus err
 | `DOWNLOAD_FAILED` | yes | retry | Call `install_workflow` again. It resumes the partial download. |
 | `OUT_OF_MEMORY` | yes | caller | The GPU ran out of memory. Call again. If it fails again, use a smaller width and height. |
 | `GENERATION_FAILED` | yes | retry | Call again with the same arguments. If it fails twice, report `details.backend_message` to the user. Some causes are not retryable; then `retryable` is `false` and `next_step` says why. For speech, the speech worker stopped or answered with an error: report `details.worker_message`. The next call starts a new speech worker. |
-| `GENERATION_TIMEOUT` | yes | retry | The job ran longer than `HORUS_GENERATE_TIMEOUT` (default 1800 s). horus removed it from the ComfyUI queue, or stopped the speech worker. Call again later. |
+| `GENERATION_TIMEOUT` | yes | retry | The job ran longer than `HORUS_GENERATE_TIMEOUT` (default 1800 s). horus removed it from the ComfyUI queue, or stopped the speech worker. Call again later. In the stack, `details.phase` is `running` (the run took too long) or `queued` (the job waited longer than `HORUS_QUEUE_TIMEOUT` and never started). |
 | `CANCELLED` | yes | retry | Someone cancelled the job in ComfyUI. Call again if the image is still needed. |
 | `NOT_READY` | yes | human | horus runs in the stack, and a dependency of horus is down: `details.down` names it, and `details.checks` gives each of the 4 checks. Tell the user. The user starts it, then the caller calls again. See [the stack and its readiness](#the-stack-and-its-readiness). |
+| `QUEUE_FULL` | yes | retry | In the stack: the horus queue holds `HORUS_QUEUE_MAX` jobs, or the estimated start of the job is after its deadline. Call again after `details.retry_after_seconds`. `details.reason` is `count` or `deadline`. |
+| `WORKER_LOST` | yes | retry | In the stack: the worker stopped while it ran the job. Call again. |
 | `INTERNAL` | no | human | A defect in horus or in a workflow. Report `details` to the user. |
 
 ## Long calls
@@ -491,7 +503,7 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | `HORUS_COMFYUI_DIR` | Windows: `%USERPROFILE%\ComfyUI_windows_portable`. macOS: `~/horus`. | The install folder of ComfyUI. ComfyUI itself is in its subfolder `ComfyUI`. |
 | `HORUS_OUTPUT_DIR` | `.scratch/outputs` in this repo, else `<user folder>/outputs` | Where a PNG or an audio file goes when the call has no `out_path`. |
 | `HORUS_AUTOSTART` | `1` | `0`: never start ComfyUI; return `BACKEND_UNAVAILABLE`. |
-| `HORUS_GENERATE_TIMEOUT` | `1800` | Seconds before horus cancels a job, or stops the speech worker, and returns `GENERATION_TIMEOUT`. |
+| `HORUS_GENERATE_TIMEOUT` | `1800` | Seconds before horus cancels a job, or stops the speech worker, and returns `GENERATION_TIMEOUT`. In the stack, they count from the start of the run of the job. |
 | `HORUS_SPEECH_DIR` | `<user folder>/speech` | The speech folder: the speech venv (`venv/`), the model files of the speech workflows (`models/`) and the file of the speech worker (`worker.py`). |
 | `HORUS_WORKFLOWS_DIR` | `workflows` in this repo, else the copy of the built-in workflows | Another workflows folder (tests use it). It replaces the built-in workflows. `horus workflow`, `horus setup` and `horus doctor -workflow` also use it. |
 | `HORUS_LOG_FILE` | none | Also write the server log to this file. Each call logs its tool name and its `progressToken`. |
@@ -501,6 +513,11 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | `HORUS_API_PORT` | `8190` | The port of `horus api` on 127.0.0.1: the [Horus UI](#the-horus-ui), `/readyz` and `/livez`. In the stack, `horus api` listens on this port in the container, and `compose.yaml` publishes the same port only on 127.0.0.1 of the host. The Horus UI answers only to a `Host` header with this port. |
 | `HORUS_STACK` | `horus` | The name of the stack in `compose.yaml`: its containers are `<name>-api`, `<name>-worker` and `<name>-db`, its volume `<name>-db-data`, its image `<name>:local`. `horus register -docker` uses it for the name of the container. |
 | `HORUS_DB_PASSWORD` | none | Only for `docker compose`: the password of the database in `horus-db`. `compose.yaml` gives it to the containers as `PGPASSWORD`. |
+| `HORUS_QUEUE_MAX` | `20` | In the stack: the count of queued jobs at which a new call gets `QUEUE_FULL`. |
+| `HORUS_QUEUE_TIMEOUT` | `7200` | In the stack: the most seconds that a job waits in the queue. The deadline of a job is its insert time plus this time. A job after its deadline never starts. |
+| `HORUS_RUN_ESTIMATE` | `240` | In the stack: the seconds of one run that the estimated start of a queued job uses until a job succeeded. Then the mean run time of the last 10 succeeded jobs counts. |
+| `HORUS_SHARED_DIRS` | the output folder of horus and `/shared/outputs` | The shared folders of the stack: pairs `<host folder>=<container folder>`, with `;` between two pairs, for example `C:\Users\me\Pictures\horus=/shared/pictures`. Each container folder is one folder under `/shared/`. `horus stack-mounts` reads it on the host. |
+| `HORUS_HOST_OS` | set by `horus stack-mounts` | In the stack: the system of the host (`windows`, `darwin` or `linux`). It gives the rules of a host path. |
 
 Only the code of `internal/download` reads `HF_TOKEN`, and `go test ./internal/archtest`
 enforces that. It reads the environment variable first, then the line in the `.env` file of the
@@ -570,7 +587,7 @@ after a start. Each container has `restart: unless-stopped`.
 - `horus mcp` with `HORUS_DATABASE_URL` runs the 4 checks at its start. In the stack, the agent starts it with `docker exec -i horus-api horus mcp`. When a check fails, `horus mcp` writes the report to the standard error and exits 1, so the session does not start.
 - In an open session, each call runs the 4 checks first. A call while a dependency is down gets `NOT_READY`, with the names of the dependencies that are down in `details.down`. When the dependency is up again, the next call runs. horus needs no action.
 - On the host without `HORUS_DATABASE_URL`, `horus mcp` makes no readiness check (the direct path).
-- The stack has no shared folder yet, so the PNG of a `generate_image` call stays in the container `horus-api`.
+- `generate_image` goes through the job queue: see [`generate_image` in the stack](#generate_image-in-the-stack).
 
 ```mermaid
 sequenceDiagram
@@ -608,11 +625,65 @@ What an agent sees:
 | A call in an open session while a dependency is down | `NOT_READY`, `action_by` human, with `details.down`. |
 | The dependency is up again | The next session and the next call work. |
 
+### `generate_image` in the stack
+
+With `HORUS_DATABASE_URL`, the API process never calls ComfyUI for a job
+([ADR 0025](adr/0025-run-each-job-through-a-broker-and-one-worker.md)). It puts
+the job in the job queue, and the worker runs it.
+
+Terms:
+
+- **Host path:** a path of the machine of the agent, for example `C:\Users\me\Pictures\horus\cover.png`.
+- **Container path:** the same file as the containers see it, for example `/shared/pictures/cover.png`.
+- **Shared folder:** a host folder that the stack mounts into `horus-api` and `horus-worker`. `HORUS_SHARED_DIRS` gives each pair of a host folder and its container folder.
+- **Deadline:** the insert time of the job plus `HORUS_QUEUE_TIMEOUT`.
+
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant P as API process (horus mcp in horus-api)
+  participant S as Job store (horus-db)
+  participant W as Worker (horus-worker)
+  participant C as ComfyUI (host)
+  A->>P: call generate_image, out_path = a host path
+  P->>P: the 4 checks, the host path to the container path, generate.Check
+  P->>P: the fingerprint and the key (recipe version 1)
+  alt the queue holds HORUS_QUEUE_MAX jobs, or the start is after the deadline
+    P-->>A: QUEUE_FULL, details.retry_after_seconds
+  end
+  P->>S: insert the job (queued), publish one message
+  loop every 5 s while the job waits or runs
+    P->>S: read the job, its place in the queue (waiter_seen_at every 10 s)
+    P-->>A: progress: waiting in the horus queue, position 2 of 3, start in about 4 min
+  end
+  W->>S: move queued to running (only if queued)
+  W->>C: POST /prompt, then GET /history until the job ends
+  W->>W: write the PNG at the container path
+  W->>S: move running to succeeded, with the result
+  P->>S: read the result
+  P-->>A: the host path of the PNG, job_id, backend_job_id, queue_seconds
+```
+
+- **The shared folders.** `HORUS_SHARED_DIRS` holds pairs `<host folder>=<container folder>`, with `;` between two pairs. Each container folder is one folder under `/shared/`. Without the setting, the one pair is the output folder of horus on the host and `/shared/outputs`. `horus stack-mounts`, in the clone, writes `compose.override.yaml` next to `compose.yaml`: one mount of each pair into `horus-api` and `horus-worker`, and the settings `HORUS_SHARED_DIRS`, `HORUS_OUTPUT_DIR` and `HORUS_HOST_OS` of the two containers. `docker compose up -d` reads that file ([ADR 0039](adr/0039-generate-image-in-the-stack-uses-shared-folders-of-host-paths.md)). After a change of `HORUS_SHARED_DIRS`, run `horus stack-mounts` again, then `docker compose up -d`.
+- **The paths.** The API process changes the host path of `out_path` to its container path, and the job row holds the container path. The result gives the host path. A call without `out_path` writes its PNG into the first shared folder. An `out_path` outside the shared folders gets `INVALID_ARGUMENT`, and `details.shared_dirs` lists the host folders. A stack without a shared folder gets `BACKEND_NOT_INSTALLED`, and `next_step` names `horus stack-mounts`.
+- **The queue.** A call gets `QUEUE_FULL` at once when `HORUS_QUEUE_MAX` jobs wait, or when the estimated start of its job is after the deadline. A job waits up to `HORUS_QUEUE_TIMEOUT`. A job after its deadline never starts, and its call gets `GENERATION_TIMEOUT` with `details.phase` `queued`. `HORUS_GENERATE_TIMEOUT` counts from the start of the run: then `details.phase` is `running`.
+- **Progress.** While the job waits, the progress text is `waiting in the horus queue, position P of T, start in about M min`. While it runs, the text is the text of the run (`rendering, 42 s`). The API process sends one message every 5 s.
+- **Cancel.** A cancel of the call, or the end of the session (the agent leaves), cancels the job. A queued job moves to `cancelled` at once and never reaches ComfyUI. The worker stops a running job, and ComfyUI gets the cancel of the job.
+- **The key.** Each job row holds `request_hash` (the request fingerprint) and `idempotency_key` of recipe version 1 ([ADR 0027](adr/0027-the-idempotency-key-and-the-idempotent-consumer.md)). The dedupe is off: two equal calls make two jobs.
+- **The errors of a job.** The error of a failed job comes to the call with its code, for example `WORKER_LOST`. `details.job_id` is the horus job id, and `details.backend_job_id` is the id of the job in ComfyUI.
+- **`list_workflows`.** In the stack, its result also has `ready` (the 4 dependencies and their state) and `queue` (`waiting`, `running` and `slots`). On this machine without the stack, both are `null`.
+- **`generate_speech`.** The stack makes images only. In the stack, `generate_speech` answers `BACKEND_UNAVAILABLE`, not retryable, and `next_step` sends the user to the horus program of the host for speech. Issue #235 puts it through the job queue.
+
 The goal suite `goals/2026-11-19-job-queue` starts its own test stack
 `horus_test` (`HORUS_STACK=horus_test`, host port 18190) with a fake ComfyUI
 on 127.0.0.1 of the host, and removes the stack and its volume at the end. It
-needs Docker Desktop: Docker Desktop gives a container the loopback of the
-host at `host.docker.internal`. Run one row:
+names its compose files with `COMPOSE_FILE`, so it never reads a
+`compose.override.yaml` of the owner. It needs Docker Desktop: Docker Desktop
+gives a container the loopback of the host at `host.docker.internal`. The rows
+of `generate_image` in the stack also run the peak tool: they need the Python
+of the test tools (`HORUS_TEST_PYTHON`, else `.scratch/test-venv` of the repo,
+else `python3` or `python` with the package `mcp`). A run of the whole suite
+takes about 25 minutes. Run one row:
 
 ```
 go test -tags goal -count=1 -run TestStackStartsTogether -v ./goals/2026-11-19-job-queue
@@ -739,8 +810,8 @@ failure of the worker, the test starts the server two more times, with the
 fake worker in the modes `die` and `error`.
 
 It ends with `contract: N of M passed` and exits 0 only when all pass. The total
-M is 37 server checks of the image tools, the kind and the code table, plus 16 speech checks,
-plus 7 checks of the speech setup, the install and the uninstall, plus 2 for each shipped workflow (64 with the 2 shipped workflows). The second check of a workflow depends on its
+M is 39 server checks of the image tools, the kind and the code table, plus 16 speech checks,
+plus 7 checks of the speech setup, the install and the uninstall, plus 2 for each shipped workflow (66 with the 2 shipped workflows). The second check of a workflow depends on its
 kind: an image workflow has no style words in its graph, and a speech workflow
 has no graph, no subject and no output. `--report <file>` also writes each
 check, and the answers of the server to the speech checks, as JSON. The goal
@@ -758,11 +829,21 @@ time (`--parallel`) and holds the others in its queue. It needs no GPU.
 ```
 
 - `--scale` (default 10) divides every time. One image takes 240 / scale
-  seconds. The tool sets `HORUS_GENERATE_TIMEOUT` and `HORUS_QUEUE_TIMEOUT` to
-  1800 / scale and 7200 / scale.
+  seconds. The tool sets `HORUS_GENERATE_TIMEOUT`, `HORUS_QUEUE_TIMEOUT` and
+  `HORUS_RUN_ESTIMATE` of each `horus mcp` to 1800 / scale, 7200 / scale and
+  240 / scale.
 - `--leave 3,6 --leave-at 60` ends the server process of the calls 3 and 6 at
   once, 60 / scale seconds after the calls start. This is an agent that leaves.
 - `--target stack --stack <name>` starts `docker exec -i <name>-api horus mcp`.
+  Start the stack with `HORUS_COMFYUI_URL=http://host.docker.internal:<port>`
+  and give the same port to `--port`: the stack reaches the fake as its
+  ComfyUI. The tool waits until `horus ready` in `<name>-api` exits 0
+  (`--ready-timeout`, default 180 s). `--out-dir` must be a shared folder of
+  the stack. Set `HORUS_GENERATE_TIMEOUT`, `HORUS_QUEUE_TIMEOUT` and
+  `HORUS_RUN_ESTIMATE` of the stack to 1800, 7200 and 240 divided by the
+  scale. `--listen 0.0.0.0` is for Docker on Linux.
+- Call n sends its call (n - 1) x 0.1 s after call 1, so the number of a call
+  is its order.
 - The last line of stdout is one JSON line: `png`, `generation_timeout`,
   `queue_full`, `wait_for_error_seconds`, `gpu_seconds_for_nobody`,
   `max_jobs_in_comfyui` and `max_running`. Seconds are wall-clock seconds.

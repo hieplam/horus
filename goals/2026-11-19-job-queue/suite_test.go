@@ -99,6 +99,12 @@ func TestBoundedBackendQueue(t *testing.T) {
 // timed. Before the start, the row measures the health check of horus-db on
 // a new volume: horus-db is never healthy while the database refuses TCP,
 // because Docker Compose starts horus-worker when horus-db is healthy.
+//
+// Then the row proves that horus is ready because ComfyUI answers. It stops
+// the fake ComfyUI: horus ready exits 1 with the line FAIL comfyui and 3 ok
+// lines, and horus-api becomes unhealthy in docker compose ps. It starts the
+// fake again: horus ready exits 0 with 4 ok lines, and horus-api is healthy
+// again. A fake that answers GET /system_stats with 500 is down too.
 func TestStackStartsTogether(t *testing.T) {
 	fake := startFake(t)
 	env := stackEnv(t, fake)
@@ -148,12 +154,78 @@ func TestStackStartsTogether(t *testing.T) {
 	}
 	t.Logf("containers healthy after one command: %d of 3; up -d --wait took %s; horus ready exit 0 after %s",
 		healthy, took.Round(100*time.Millisecond), ready.Round(100*time.Millisecond))
+
+	// horus becomes ready when ComfyUI answers. So while the fake ComfyUI does
+	// not answer, horus ready exits 1 with the line FAIL comfyui and an ok
+	// line for each of the 3 other dependencies. A horus ready that runs no
+	// check fails here.
+	fake.stop()
+	if _, _, why := horusReady(t, []string{"comfyui"}); why != "" {
+		t.Fatalf("the fake ComfyUI does not answer: %s", why)
+	}
+	// The health check of horus-api is horus ready, with an interval of 5 s,
+	// a time limit of 4 s and 3 retries (compose.yaml). So Docker gives
+	// horus-api as unhealthy in 3 * (5 + 4) s or less: "3 healthy" needs
+	// ComfyUI. The 2 other containers do not need ComfyUI, and stay healthy.
+	unhealthy, why := eventuallyBy(27*time.Second, func() string {
+		if h := healthOf(t, env, apiName); h != "unhealthy" {
+			return fmt.Sprintf("the health of %s in docker compose ps is %q, want unhealthy", apiName, h)
+		}
+		return ""
+	})
+	if why != "" {
+		t.Fatalf("the fake ComfyUI does not answer for %s: %s", unhealthy.Round(time.Second), why)
+	}
+	for _, name := range []string{dbName, workerName} {
+		if h := healthOf(t, env, name); h != "healthy" {
+			t.Fatalf("the fake ComfyUI does not answer: the health of %s in docker compose ps is %q, want healthy", name, h)
+		}
+	}
+	if _, _, why := horusReady(t, []string{"comfyui"}); why != "" {
+		t.Fatalf("the fake ComfyUI does not answer, and %s is unhealthy: %s", apiName, why)
+	}
+
+	// The fake ComfyUI answers again: horus ready exits 0 with 4 ok lines at
+	// once, and horus-api is healthy again at its next health check (5 s, and
+	// 4 s for the check).
+	fake.start(t)
+	if _, _, why := horusReady(t, nil); why != "" {
+		t.Fatalf("the fake ComfyUI answers again: %s", why)
+	}
+	again, why := eventuallyBy(9*time.Second, func() string {
+		if h := healthOf(t, env, apiName); h != "healthy" {
+			return fmt.Sprintf("the health of %s in docker compose ps is %q, want healthy", apiName, h)
+		}
+		return ""
+	})
+	if why != "" {
+		t.Fatalf("the fake ComfyUI answers again for %s: %s", again.Round(time.Second), why)
+	}
+	t.Logf("the fake ComfyUI does not answer: horus ready exit 1 with FAIL comfyui and 3 ok lines, %s unhealthy after %s; "+
+		"it answers again: horus ready exit 0 with 4 ok lines, %s healthy after %s",
+		apiName, unhealthy.Round(100*time.Millisecond), apiName, again.Round(100*time.Millisecond))
+
+	// "ComfyUI answers" is GET /system_stats with 200, not an open port: a
+	// fake that answers 500 is down for horus ready.
+	fake.broken.Store(true)
+	if _, _, why := horusReady(t, []string{"comfyui"}); why != "" {
+		t.Fatalf("the fake ComfyUI answers GET /system_stats with 500: %s", why)
+	}
+	fake.broken.Store(false)
+	if _, _, why := horusReady(t, nil); why != "" {
+		t.Fatalf("the fake ComfyUI answers GET /system_stats with 200 again: %s", why)
+	}
+	t.Log("the fake ComfyUI answers GET /system_stats with 500: horus ready exit 1 with FAIL comfyui; with 200 again: exit 0")
 }
 
 // oneStop is one dependency of the row ready-when-four-up: how to stop it and
-// start it again.
+// start it again, and the dependencies that the readiness report names while
+// it is stopped.
 type oneStop struct {
-	dep         string // the name in the readiness report
+	dep string // the name in the readiness report
+	// down is the whole list of the report while only dep is stopped, in the
+	// order of the report. nil for horus-api: no report comes.
+	down        []string
 	stop, start func(t *testing.T)
 }
 
@@ -168,10 +240,27 @@ type oneStop struct {
 //     dependency. Over HTTP, it gets 503 with the readiness report that names
 //     the dependency. When horus-api stops, docker exec fails and names its
 //     container, and /mcp gives no HTTP answer;
+//   - each answer names only the dependencies that the stop takes down: the
+//     row compares the whole list, and a dependency that is up has an ok line
+//     and is not in the list. A report that names each of the 4 dependencies,
+//     or always the same one, fails;
+//   - horus ready in horus-api and /readyz give the same report in the same
+//     10 s: exit code 1 and 503;
+//   - while the dependency is stopped, each tool of the server gets
+//     NOT_READY with the same list, in the two open sessions;
 //   - no request reaches ComfyUI while horus is not ready;
 //   - after the dependency starts again, a new session starts and a call gets
 //     no NOT_READY, in 30 s or less, over stdio and over HTTP, with no action
-//     on horus.
+//     on horus. In the same 30 s, the two sessions that were open before the
+//     stop serve again, horus ready exits 0 and /readyz answers 200.
+//
+// The list of each stop, by the design of the checks (docs/mcp.md, "The stack
+// and its readiness"): the check of horus-worker reads the row of the worker
+// and the worker lock in horus-db. So horus cannot check horus-worker without
+// horus-db, and a stop of horus-db gives horus-db and horus-worker. The checks
+// of ComfyUI and of horus-api do not use horus-db, and the check of horus-db
+// uses no other dependency. So a stop of horus-worker gives only horus-worker,
+// and a stop of ComfyUI gives only comfyui.
 func TestReadyWhenFourUp(t *testing.T) {
 	fake := startFake(t)
 	env := newStack(t, fake)
@@ -187,77 +276,140 @@ func TestReadyWhenFourUp(t *testing.T) {
 		}
 	}
 	steps := []oneStop{
-		{"horus-db", docker("stop", dbName), docker("start", dbName)},
-		{"horus-worker", docker("stop", workerName), docker("start", workerName)},
-		{"comfyui", func(*testing.T) { fake.stop() }, fake.start},
-		{"horus-api", docker("stop", apiName), docker("start", apiName)},
+		{"horus-db", []string{"horus-db", "horus-worker"}, docker("stop", dbName), docker("start", dbName)},
+		{"horus-worker", []string{"horus-worker"}, docker("stop", workerName), docker("start", workerName)},
+		{"comfyui", []string{"comfyui"}, func(*testing.T) { fake.stop() }, fake.start},
+		{"horus-api", nil, docker("stop", apiName), docker("start", apiName)},
 	}
 	call := map[string]any{"workflow": "it-illustration", "subject": "A falcon over a server rack. The picture contains no text."}
+	notRunning := "container " + apiID + " is not running"
 
-	// stdioDown checks over stdio that dep is named: the call in the open
-	// session, and a new session.
-	stdioDown := func(dep string, open *session) string {
+	// stdioDown checks over stdio that the stop of step is named: the call in
+	// the open session, and a new session. It gives the lists that it read.
+	stdioDown := func(step oneStop, open *session) (lists, why string) {
+		dep := step.dep
+		var inCall []string
 		if dep != "horus-api" {
 			e, err := open.call("generate_image", call, 15*time.Second)
 			if err != nil {
-				return "the call in the open stdio session: " + err.Error()
+				return "", "the call in the open stdio session: " + err.Error()
 			}
-			if down := downNames(e); !hasAll(down, dep) {
-				return fmt.Sprintf("the call in the open stdio session: %+v, want NOT_READY with %s in details.down", e, dep)
+			inCall = downNames(e)
+			if !hasAll(inCall, dep) {
+				return "", fmt.Sprintf("the call in the open stdio session: %+v, want NOT_READY with %s in details.down", e, dep)
+			}
+			if why := wrongNotReady(e, step.down); why != "" {
+				return "", "the call in the open stdio session: " + why
 			}
 		}
 		s, err := openSession(t, 15*time.Second)
 		if err == nil {
 			s.close()
-			return "a new stdio session started"
+			return "", "a new stdio session started"
 		}
 		var no *errNoSession
 		if !errors.As(err, &no) {
-			return "a new stdio session: " + err.Error()
+			return "", "a new stdio session: " + err.Error()
 		}
 		want := "FAIL " + dep
 		if dep == "horus-api" {
-			want = "container " + apiID + " is not running"
+			want = notRunning
 		}
 		if no.exit == 0 || !strings.Contains(no.stderr, want) {
-			return fmt.Sprintf("a new stdio session ended with exit code %d and does not say %q: %s", no.exit, want, no.stderr)
+			return "", fmt.Sprintf("a new stdio session ended with exit code %d and does not say %q: %s", no.exit, want, no.stderr)
 		}
-		return ""
+		if dep == "horus-api" {
+			return "docker exec fails, the container is not running", ""
+		}
+		if no.exit != 1 {
+			return "", fmt.Sprintf("a new stdio session ended with exit code %d, want 1: %s", no.exit, no.stderr)
+		}
+		failed, why := wrongText(no.stderr, step.down)
+		if why != "" {
+			return "", fmt.Sprintf("the error output of a new stdio session: %s:\n%s", why, no.stderr)
+		}
+		return fmt.Sprintf("details.down %v, FAIL lines of a new session %v", inCall, failed), ""
 	}
 	// httpDown checks the same over HTTP.
-	httpDown := func(dep string, open *httpSession) string {
+	httpDown := func(step oneStop, open *httpSession) (lists, why string) {
+		dep := step.dep
+		var inCall []string
 		if dep != "horus-api" {
 			e, err := open.call("generate_image", call, 15*time.Second)
 			if err != nil {
-				return "the call in the open HTTP session: " + err.Error()
+				return "", "the call in the open HTTP session: " + err.Error()
 			}
-			if down := downNames(e); !hasAll(down, dep) {
-				return fmt.Sprintf("the call in the open HTTP session: %+v, want NOT_READY with %s in details.down", e, dep)
+			inCall = downNames(e)
+			if !hasAll(inCall, dep) {
+				return "", fmt.Sprintf("the call in the open HTTP session: %+v, want NOT_READY with %s in details.down", e, dep)
+			}
+			if why := wrongNotReady(e, step.down); why != "" {
+				return "", "the call in the open HTTP session: " + why
 			}
 		}
 		s, err := openHTTP(token, 15*time.Second)
 		if err == nil {
 			s.close()
-			return "a new HTTP session started"
+			return "", "a new HTTP session started"
 		}
 		var no *errNoHTTP
 		if !errors.As(err, &no) {
-			return "a new HTTP session: " + err.Error()
+			return "", "a new HTTP session: " + err.Error()
 		}
 		if dep == "horus-api" {
 			if no.status != 0 {
-				return fmt.Sprintf("a new HTTP session while horus-api is stopped: %s, want no HTTP answer", no)
+				return "", fmt.Sprintf("a new HTTP session while horus-api is stopped: %s, want no HTTP answer", no)
 			}
-			return ""
+			return "no HTTP answer", ""
 		}
-		if !hasAll(downOf(no), dep) {
-			return fmt.Sprintf("a new HTTP session: %s, want 503 with the readiness report that names %s", no, dep)
+		r, ok := reportOf(no)
+		if !ok || r.Ready || !hasAll(r.Down, dep) {
+			return "", fmt.Sprintf("a new HTTP session: %s, want 503 with the readiness report that names %s", no, dep)
 		}
-		return ""
+		if why := wrongReport(r, step.down); why != "" {
+			return "", fmt.Sprintf("the 503 of a new HTTP session: %s: %s", why, no)
+		}
+		return fmt.Sprintf("details.down %v, down of the 503 of a new session %v", inCall, r.Down), ""
 	}
-	// serves checks that a new session starts and list_workflows works, over
-	// stdio and over HTTP.
-	serves := func() string {
+	// commandDown checks horus ready in horus-api: exit code 1 and the FAIL
+	// lines of the stop. When horus-api is stopped, docker exec fails.
+	commandDown := func(step oneStop) (lists, why string) {
+		if step.dep == "horus-api" {
+			code, out := run(t, root, "docker", "exec", apiName, "horus", "ready")
+			if code == 0 || !strings.Contains(out, notRunning) {
+				return "", fmt.Sprintf("docker exec %s horus ready: exit code %d, and it does not say %q: %s", apiName, code, notRunning, out)
+			}
+			return "docker exec fails, the container is not running", ""
+		}
+		_, out, why := horusReady(t, step.down)
+		if why != "" {
+			return "", why
+		}
+		failed, _ := wrongText(out, step.down)
+		return fmt.Sprintf("exit code 1, FAIL lines %v", failed), ""
+	}
+	// pageDown checks /readyz: 503 with the report of the stop. When
+	// horus-api is stopped, it gives no HTTP answer.
+	pageDown := func(step oneStop) (lists, why string) {
+		if step.dep == "horus-api" {
+			status, _, body, err := getReadyz()
+			if err == nil || status != 0 {
+				return "", fmt.Sprintf("GET /readyz while horus-api is stopped: HTTP %d, want no HTTP answer: %s", status, body)
+			}
+			return "no HTTP answer", ""
+		}
+		down, why := readyz(step.down)
+		if why != "" {
+			return "", why
+		}
+		return fmt.Sprintf("503, down %v", down), ""
+	}
+	// serves checks that horus serves again: a new session starts and
+	// list_workflows works, over stdio and over HTTP, horus ready exits 0 with
+	// 4 ok lines, and /readyz answers 200. open and hopen are the sessions
+	// that were open before the stop (nil: the stop ended them): a call in
+	// each one works again, with no action on horus.
+	serves := func(open *session, hopen *httpSession) string {
 		s, err := openSession(t, 15*time.Second)
 		if err != nil {
 			return "a new stdio session: " + err.Error()
@@ -273,6 +425,22 @@ func TestReadyWhenFourUp(t *testing.T) {
 		defer h.close()
 		if e, err := h.call("list_workflows", map[string]any{}, 15*time.Second); err != nil || !e.OK {
 			return fmt.Sprintf("list_workflows over HTTP: %+v %v", e, err)
+		}
+		if open != nil {
+			if e, err := open.call("list_workflows", map[string]any{}, 15*time.Second); err != nil || !e.OK {
+				return fmt.Sprintf("list_workflows in the stdio session that was open before the stop: %+v %v", e, err)
+			}
+		}
+		if hopen != nil {
+			if e, err := hopen.call("list_workflows", map[string]any{}, 15*time.Second); err != nil || !e.OK {
+				return fmt.Sprintf("list_workflows in the HTTP session that was open before the stop: %+v %v", e, err)
+			}
+		}
+		if _, _, why := horusReady(t, nil); why != "" {
+			return why
+		}
+		if _, why := readyz(nil); why != "" {
+			return why
 		}
 		return ""
 	}
@@ -293,40 +461,126 @@ func TestReadyWhenFourUp(t *testing.T) {
 		if e, err := hopen.call("list_workflows", map[string]any{}, 30*time.Second); err != nil || !e.OK {
 			t.Fatalf("%s: before the stop, list_workflows over HTTP: %+v %v", step.dep, e, err)
 		}
+		tools, err := toolNames(open)
+		if err != nil || !hasAll(tools, "generate_image", "list_workflows") {
+			t.Fatalf("%s: before the stop, tools/list over stdio: %v %v, want the tools of horus", step.dep, tools, err)
+		}
+		if _, _, why := horusReady(t, nil); why != "" {
+			t.Fatalf("%s: before the stop: %s", step.dep, why)
+		}
+		if _, why := readyz(nil); why != "" {
+			t.Fatalf("%s: before the stop: %s", step.dep, why)
+		}
 		jobsBefore := fake.jobs.Load()
 		step.stop(t)
-		// The two ways run at the same time, so that each one has its own
+		// The 4 ways run at the same time, so that each one has its own
 		// time from the stop.
 		var wg sync.WaitGroup
-		var stdioTook, httpTook time.Duration
-		var stdioWhy, httpWhy string
-		wg.Add(2)
+		var stdioTook, httpTook, commandTook, pageTook time.Duration
+		var stdioWhy, httpWhy, commandWhy, pageWhy string
+		var stdioLists, httpLists, commandLists, pageLists string
+		wg.Add(4)
 		go func() {
 			defer wg.Done()
-			stdioTook, stdioWhy = eventuallyBy(10*time.Second, func() string { return stdioDown(step.dep, open) })
+			stdioTook, stdioWhy = eventuallyBy(10*time.Second, func() (why string) {
+				stdioLists, why = stdioDown(step, open)
+				return why
+			})
 		}()
 		go func() {
 			defer wg.Done()
-			httpTook, httpWhy = eventuallyBy(10*time.Second, func() string { return httpDown(step.dep, hopen) })
+			httpTook, httpWhy = eventuallyBy(10*time.Second, func() (why string) {
+				httpLists, why = httpDown(step, hopen)
+				return why
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			commandTook, commandWhy = eventuallyBy(10*time.Second, func() (why string) {
+				commandLists, why = commandDown(step)
+				return why
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			pageTook, pageWhy = eventuallyBy(10*time.Second, func() (why string) {
+				pageLists, why = pageDown(step)
+				return why
+			})
 		}()
 		wg.Wait()
-		open.close()
-		hopen.close()
+		if step.dep == "horus-api" {
+			// The stop ended the two sessions.
+			open.close()
+			hopen.close()
+			open, hopen = nil, nil
+		}
+		closeOpen := func() {
+			if open != nil {
+				open.close()
+				hopen.close()
+			}
+		}
 		if stdioWhy != "" {
+			closeOpen()
 			t.Fatalf("%s is stopped: not named over stdio in 10 s: %s", step.dep, stdioWhy)
 		}
 		if httpWhy != "" {
+			closeOpen()
 			t.Fatalf("%s is stopped: not named over HTTP in 10 s: %s", step.dep, httpWhy)
+		}
+		if commandWhy != "" {
+			closeOpen()
+			t.Fatalf("%s is stopped: not named by horus ready in 10 s: %s", step.dep, commandWhy)
+		}
+		if pageWhy != "" {
+			closeOpen()
+			t.Fatalf("%s is stopped: not named by /readyz in 10 s: %s", step.dep, pageWhy)
+		}
+		if open != nil {
+			// The gate is in front of each tool, not only of generate_image.
+			// The dependency is still stopped, and the row has no time limit
+			// for these calls.
+			for _, tool := range tools {
+				e, err := open.call(tool, map[string]any{}, 15*time.Second)
+				if err == nil {
+					if why := wrongNotReady(e, step.down); why != "" {
+						err = errors.New(why)
+					}
+				}
+				if err != nil {
+					closeOpen()
+					t.Fatalf("%s is stopped: the tool %s in the open stdio session: %v", step.dep, tool, err)
+				}
+				e, err = hopen.call(tool, map[string]any{}, 15*time.Second)
+				if err == nil {
+					if why := wrongNotReady(e, step.down); why != "" {
+						err = errors.New(why)
+					}
+				}
+				if err != nil {
+					closeOpen()
+					t.Fatalf("%s is stopped: the tool %s in the open HTTP session: %v", step.dep, tool, err)
+				}
+			}
 		}
 		if n := fake.jobs.Load() - jobsBefore; n != 0 {
 			t.Errorf("%s is stopped: %d requests reached ComfyUI while horus was not ready", step.dep, n)
 		}
 		named++
 		namedHTTP++
-		t.Logf("%s stopped: named over stdio in %s, over HTTP in %s", step.dep, stdioTook.Round(100*time.Millisecond), httpTook.Round(100*time.Millisecond))
+		t.Logf("%s stopped: named over stdio in %s, over HTTP in %s, by horus ready in %s, by /readyz in %s",
+			step.dep, stdioTook.Round(100*time.Millisecond), httpTook.Round(100*time.Millisecond),
+			commandTook.Round(100*time.Millisecond), pageTook.Round(100*time.Millisecond))
+		t.Logf("%s stopped: the lists: over stdio: %s; over HTTP: %s; horus ready: %s; /readyz: %s",
+			step.dep, stdioLists, httpLists, commandLists, pageLists)
+		if open != nil {
+			t.Logf("%s stopped: NOT_READY with the same list from each of the %d tools, over stdio and over HTTP: %v", step.dep, len(tools), tools)
+		}
 
 		step.start(t)
-		took, why := eventuallyBy(30*time.Second, serves)
+		took, why := eventuallyBy(30*time.Second, func() string { return serves(open, hopen) })
+		closeOpen()
 		if why != "" {
 			t.Fatalf("%s started again: horus does not serve again in 30 s: %s", step.dep, why)
 		}
@@ -363,7 +617,7 @@ func TestReadyWhenFourUp(t *testing.T) {
 	t.Logf("the whole stack stopped: no session over stdio or over HTTP in %s", took.Round(100*time.Millisecond))
 	start := time.Now()
 	upWait(t, env)
-	_, why = eventuallyBy(30*time.Second, serves)
+	_, why = eventuallyBy(30*time.Second, func() string { return serves(nil, nil) })
 	if back := time.Since(start); why != "" || back > 30*time.Second {
 		t.Fatalf("the whole stack started again: horus does not serve again in 30 s (%s): %s", back.Round(time.Second), why)
 	}

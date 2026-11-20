@@ -46,6 +46,9 @@ type fakeComfy struct {
 	mu   sync.Mutex
 	srv  *http.Server
 	jobs atomic.Int32
+	// broken makes GET /system_stats answer 500: the port answers, and
+	// ComfyUI does not work.
+	broken atomic.Bool
 }
 
 // startFake starts the fake on 127.0.0.1 of a free port. Docker Desktop
@@ -69,6 +72,11 @@ func (f *fakeComfy) listen(addr string) error {
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodGet && r.URL.Path == "/system_stats" {
+			if f.broken.Load() {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"error": "the fake ComfyUI of the goal suite is broken"}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"system": {"comfyui_version": "fake"}, "devices": []}`))
 			return
 		}

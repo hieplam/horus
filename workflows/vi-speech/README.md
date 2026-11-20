@@ -25,6 +25,7 @@ recognition model **Whisper small** (reads the transcript) and the audio codec
 |---|---|
 | `manifest.json` | The public contract: summary, text limits, the 25 voices, the default voice, the tags, the formats and the measured timing. It has no graph, no subject and no output size. |
 | `models.json` | The 19 model files with repo, revision, license, byte size and SHA-256. The files come from 3 repos. |
+| `examples/` | `plain.mp3` and `tag.mp3`: two example audio files from the real run. |
 | `README.md` | This page. |
 
 ## What the caller gives

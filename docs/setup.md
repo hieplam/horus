@@ -551,7 +551,7 @@ servers:
 
 | Server | Program | What it is for |
 |---|---|---|
-| horus MCP server | `horus mcp` | The same image tool that a user's agent gets. Test it here. |
+| horus MCP server | `horus mcp` | The same tools that a user's agent gets. Test it here. |
 | comfy MCP server | `horus comfy-mcp`. It runs the program `comfy-mcp` (version 0.10.0) from the venv of `horus install-comfy-mcp`, or from the PATH. | Low-level ComfyUI tools: `server_info`, `validate_workflow`, `set_workflow_slot`, `run_workflow` and more. Use them to build, check and debug a workflow. See [running workflows](running-workflows.md). |
 
 The file `.mcp.json` of the clone starts both servers through `horus`, on

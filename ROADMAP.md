@@ -44,8 +44,8 @@ An agent that needs an image does not read docs. It calls a tool.
   Python speech worker that `horus mcp` starts at the first call and keeps
   ([epic #181](https://github.com/hieplam/horus/issues/181), spec
   [`2026-11-20-text-to-speech.md`](docs/specs/2026-11-20-text-to-speech.md)).
-  The install of a speech workflow through `install_workflow` and the real run
-  with the models are the next tasks of that epic.
+  `install_workflow`, `uninstall_workflow`, `horus setup` and `horus doctor`
+  also handle a speech workflow.
 - Every result is one envelope with typed errors (`code`, `retryable`,
   `action_by`, `next_step`).
 

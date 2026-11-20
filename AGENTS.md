@@ -139,10 +139,10 @@ internal/archtest/                the test of the design rules
 internal/brokertest/              the contract suite of a broker and the store contract of a job store (each one passes its suite), the in-memory broker and the in-memory job store of the tests
 scripts/                          lint-public.py (a Python check before a pull request: private data, dead links, the ADR folder), frozen-suites.py (refuses a change to a frozen goal suite), build-release.sh (builds the 3 release assets)
 tests/                            mcp_contract.py (the contract test of the MCP server, fake ComfyUI, no GPU), peak_load.py (the peak tool: many agents at once), workflow_parity.py, requirements.txt
-tests/speech/                     the tests with the real speech models (not in CI): baseline.py, worker_real.py (it runs only with HORUS_SPEECH_REAL=1)
+tests/speech/                     the tests with the real speech models (not in CI): baseline.py, worker_real.py (it runs only with HORUS_SPEECH_REAL=1), real_run.py and sentences.json (the real run of the goal suite)
 workflows/embed.go                the go:embed line: the program holds each workflow folder (add a new folder there)
 workflows/<name>/                 an image workflow: manifest.json, workflow.json, models.json, README.md, examples/
-workflows/vi-speech/              the speech workflow (kind speech): manifest.json, models.json, README.md. No graph and no examples
+workflows/vi-speech/              the speech workflow (kind speech): manifest.json, models.json, README.md, examples/ (two example audio files). No graph
 workflows/_template/README.md     template for a new workflow README
 prompts/<family>/<name>.md        one saved prompt each, with its result
 ```

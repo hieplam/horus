@@ -130,7 +130,7 @@ func TestRunningStep(t *testing.T) {
 				return false
 			}
 			r.step, r.steps = v.RunningJobs[0].Step, v.RunningJobs[0].Steps
-			return r.steps == total && (total == 0 || r.step == value)
+			return r.steps == total && r.step == value
 		})
 		panel := part(fetch(t, "GET", base+"/", "", 200), "panel-running")
 		bar, line := runningBar.FindStringSubmatch(panel), runningLine.FindAllStringSubmatch(panel, -1)

@@ -107,12 +107,14 @@ type Pill struct {
 
 // RunningRow is one running job.
 type RunningRow struct {
-	ID       string  `json:"id"`
-	Workflow string  `json:"workflow"`
-	Caller   string  `json:"caller"`
-	Subject  string  `json:"subject"`
-	Step     float64 `json:"step"`
-	Steps    float64 `json:"steps"`
+	ID       string `json:"id"`
+	Workflow string `json:"workflow"`
+	Caller   string `json:"caller"`
+	Subject  string `json:"subject"`
+	// Step and Steps: the step of the sampler node that ComfyUI reports,
+	// and the total. Both are 0 while ComfyUI reports no step.
+	Step  float64 `json:"step"`
+	Steps float64 `json:"steps"`
 	// RunSeconds is the time since the start, WaitedSeconds the time in the
 	// queue before the start.
 	RunSeconds    int `json:"run_seconds"`
@@ -384,9 +386,9 @@ func runningRow(j jobdata.Job, limit time.Duration, now time.Time) RunningRow {
 	step := "starting"
 	r.Percent = "0%"
 	if p := j.Progress; p != nil {
-		r.Step, r.Steps = p.Value, p.Total
 		switch {
 		case p.Total > 0:
+			r.Step, r.Steps = p.Value, p.Total
 			step = fmt.Sprintf("step %g of %g", p.Value, p.Total)
 			pct := p.Value / p.Total * 100
 			pct = max(0, min(100, pct))

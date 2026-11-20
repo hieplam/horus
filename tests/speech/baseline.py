@@ -6,7 +6,11 @@ words, the loudness, the seconds of each call, the load time, the memory and the
 
 Run it with the Python of a venv that has the packages `vieneu` and `faster-whisper`, with ffmpeg on the PATH:
 
-    <venv python> tests/speech/baseline.py --models <folder> [--out <folder>] [--long]
+    <venv python> tests/speech/baseline.py --models <folder> [--out <folder>] [--runs N] [--long]
+
+--runs N speaks each sentence N times and ends with a table: for each sentence, the runs, the median and the worst
+share of wrong words. The spread of the spec comes from `--runs 12`. The folder of --out keeps each file, and
+results.jsonl in it keeps the transcript and the share of each file.
 
 The model folder has three folders: `vieneu` (config.json, denoiser.onnx, onnx_update/), `codec` and
 `whisper-small`. The files and their SHA-256 are in workflows/vi-speech/models.json. The script loads each model
@@ -19,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -144,6 +149,7 @@ def main() -> int:
     ap.add_argument("--models", type=Path, required=True, help="the folder with vieneu/, codec/ and whisper-small/")
     ap.add_argument("--out", type=Path, default=None, help="where the audio files go; default: a temp folder")
     ap.add_argument("--voice", default=None, help="a preset voice; default: the default voice of the package")
+    ap.add_argument("--runs", type=int, default=1, help="speak each sentence this many times (the spread of the spec: 12)")
     ap.add_argument("--long", action="store_true", help="also measure the longest text that works (slow)")
     args = ap.parse_args()
     models = args.models.resolve()
@@ -188,16 +194,29 @@ def main() -> int:
 
     sentences = json.loads((HERE / "sentences.json").read_text(encoding="utf-8"))["sentences"]
     made, worst = 0, 0.0
-    for s in sentences:
-        out = out_dir / f"{s['id']}.wav"
-        r = speak(s["text"], out)
-        ok = out.is_file() and r["lufs"] is not None and abs(r["lufs"] - TARGET_LUFS) <= 0.5 and r["transcript"]
-        made += 1 if ok else 0
-        worst = max(worst, r["wrong"])
-        print(f"{s['id']}: {'ok' if ok else 'FAIL'}, wrong words {r['wrong']}, loudness {r['lufs']} LUFS, "
-              f"audio {r['audio_seconds']} s, call {r['seconds']} s (speak {r['speak_seconds']} s, read {r['read_seconds']} s)")
-        print(f"  text:       {s['text']}")
-        print(f"  transcript: {r['transcript']}")
+    shares: dict[str, list[float]] = {s["id"]: [] for s in sentences}
+    results = (out_dir / "results.jsonl").open("w", encoding="utf-8")
+    for run in range(1, args.runs + 1):
+        for s in sentences:
+            name = s["id"] if args.runs == 1 else f"{s['id']}-{run:02d}"
+            out = out_dir / f"{name}.wav"
+            r = speak(s["text"], out)
+            ok = out.is_file() and r["lufs"] is not None and abs(r["lufs"] - TARGET_LUFS) <= 0.5 and r["transcript"]
+            made += 1 if ok else 0
+            worst = max(worst, r["wrong"])
+            shares[s["id"]].append(r["wrong"])
+            results.write(json.dumps({"run": run, "id": s["id"], "file": out.name, **r}, ensure_ascii=False) + "\n")
+            results.flush()
+            print(f"{name}: {'ok' if ok else 'FAIL'}, wrong words {r['wrong']}, loudness {r['lufs']} LUFS, "
+                  f"audio {r['audio_seconds']} s, call {r['seconds']} s (speak {r['speak_seconds']} s, read {r['read_seconds']} s)")
+            print(f"  text:       {s['text']}")
+            print(f"  transcript: {r['transcript']}")
+    results.close()
+    print(f"\nshare of wrong words, {args.runs} runs of each sentence:\n")
+    print("| Sentence | Runs | Median | Worst |\n|---|---:|---:|---:|")
+    for sid, vals in shares.items():
+        print(f"| `{sid}` | {len(vals)} | {statistics.median(vals):.3f} | {max(vals):.3f} |")
+    print()
 
     if args.long:
         base = " ".join(s["text"] for s in sentences if "[" not in s["text"])
@@ -213,9 +232,9 @@ def main() -> int:
         print(f"longest text that works: {longest} chars")
 
     print(f"memory: peak {peak_memory_mb():.0f} MB in one process with both models")
-    print(f"baseline: {made} of {len(sentences)} files, worst share of wrong words {worst}")
-    print(f"files: {out_dir}")
-    return 0 if made == len(sentences) else 1
+    print(f"baseline: {made} of {len(sentences) * args.runs} files, worst share of wrong words {worst}")
+    print(f"files: {out_dir} (each file, its transcript and its share: results.jsonl)")
+    return 0 if made == len(sentences) * args.runs else 1
 
 
 if __name__ == "__main__":

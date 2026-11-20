@@ -27,12 +27,12 @@ func TestWorkerLockHeld(t *testing.T) {
 	}
 	held(false, "no worker")
 	held(false, "a second check")
-	release, err := store.WorkerLock(ctx)
+	lock, err := store.WorkerLock(ctx)
 	if err != nil {
 		t.Fatalf("a worker after two checks does not get the lock: %v", err)
 	}
 	held(true, "a worker holds the lock")
-	release()
+	lock.Release()
 	held(false, "the worker released the lock")
 }
 

@@ -104,7 +104,7 @@ func TestBoundedBackendQueue(t *testing.T) {
 // the fake ComfyUI: horus ready exits 1 with the line FAIL comfyui and 3 ok
 // lines, and horus-api becomes unhealthy in docker compose ps. It starts the
 // fake again: horus ready exits 0 with 4 ok lines, and horus-api is healthy
-// again.
+// again. A fake that answers GET /system_stats with 500 is down too.
 func TestStackStartsTogether(t *testing.T) {
 	fake := startFake(t)
 	env := stackEnv(t, fake)
@@ -204,6 +204,18 @@ func TestStackStartsTogether(t *testing.T) {
 	t.Logf("the fake ComfyUI does not answer: horus ready exit 1 with FAIL comfyui and 3 ok lines, %s unhealthy after %s; "+
 		"it answers again: horus ready exit 0 with 4 ok lines, %s healthy after %s",
 		apiName, unhealthy.Round(100*time.Millisecond), apiName, again.Round(100*time.Millisecond))
+
+	// "ComfyUI answers" is GET /system_stats with 200, not an open port: a
+	// fake that answers 500 is down for horus ready.
+	fake.broken.Store(true)
+	if _, _, why := horusReady(t, []string{"comfyui"}); why != "" {
+		t.Fatalf("the fake ComfyUI answers GET /system_stats with 500: %s", why)
+	}
+	fake.broken.Store(false)
+	if _, _, why := horusReady(t, nil); why != "" {
+		t.Fatalf("the fake ComfyUI answers GET /system_stats with 200 again: %s", why)
+	}
+	t.Log("the fake ComfyUI answers GET /system_stats with 500: horus ready exit 1 with FAIL comfyui; with 200 again: exit 0")
 }
 
 // oneStop is one dependency of the row ready-when-four-up: how to stop it and

@@ -208,17 +208,11 @@ func (s *httpSession) close() {
 	}
 }
 
-// readinessReport is the body of a 503 of /mcp: the readiness report.
-type readinessReport struct {
-	Ready bool     `json:"ready"`
-	Down  []string `json:"down"`
-}
-
-// downOf gives the dependencies that a 503 of /mcp names in its report.
-func downOf(no *errNoHTTP) []string {
-	var r readinessReport
-	if no.status != http.StatusServiceUnavailable || json.Unmarshal([]byte(no.body), &r) != nil || r.Ready {
-		return nil
+// reportOf gives the readiness report of a 503 of /mcp. ok is false when the
+// answer is not a 503 with the report as JSON.
+func reportOf(no *errNoHTTP) (r readinessReport, ok bool) {
+	if no.status != http.StatusServiceUnavailable || json.Unmarshal([]byte(no.body), &r) != nil {
+		return readinessReport{}, false
 	}
-	return r.Down
+	return r, true
 }

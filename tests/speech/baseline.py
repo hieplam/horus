@@ -1,7 +1,7 @@
 """baseline: measure the speech models of the workflow vi-speech on this machine.
 
 It speaks the 5 fixed sentences of tests/speech/sentences.json with VieNeu, reads each file back with the speech
-recognition model, and prints the facts that docs/specs/2026-11-20-text-to-speech.md needs: the share of wrong
+recognition model through the function `transcribe` of internal/speechworker/worker.py, and prints the facts that docs/specs/2026-11-20-text-to-speech.md needs: the share of wrong
 words, the loudness, the seconds of each call, the load time, the memory and the longest text that works.
 
 Run it with the Python of a venv that has the packages `vieneu` and `faster-whisper`, with ffmpeg on the PATH:
@@ -33,6 +33,7 @@ from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+WORKER = HERE.parents[1] / "internal" / "speechworker" / "worker.py"
 TARGET_LUFS = -18.0
 PEAK_LIMIT = 0.891  # -1 dBFS, so the gain never clips
 WAV = ["-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le"]
@@ -73,14 +74,15 @@ def encode(take: Path, out: Path) -> None:
         gain += TARGET_LUFS - measured
 
 
-def samples_16k(path: Path):
-    """The audio as 16 kHz mono float samples, the input of the speech recognition model. ffmpeg decodes it,
-    so the result does not depend on the audio reader of the faster-whisper package."""
-    import numpy as np
+def worker_module():
+    """The file of the speech worker as a module. The baseline reads each file with its function `transcribe`, so
+    the measured share of wrong words comes from the transcript step of the product."""
+    import importlib.util
 
-    r = subprocess.run([tool("ffmpeg"), "-loglevel", "error", "-i", str(path), "-ar", "16000", "-ac", "1", "-f", "f32le", "-"],
-                       capture_output=True, check=True)
-    return np.frombuffer(r.stdout, dtype=np.float32)
+    spec = importlib.util.spec_from_file_location("horus_speech_worker", WORKER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def words(text: str) -> list[str]:
@@ -173,6 +175,7 @@ def main() -> int:
     started = time.monotonic()
     stt = WhisperModel(str(models / "whisper-small"), device="cpu", compute_type="int8")
     stt_load = time.monotonic() - started
+    worker = worker_module()
     voices = [voice_id for _label, voice_id in tts.list_preset_voices()]
     voice = args.voice or getattr(tts, "_default_voice", None) or voices[0]
     print(f"load: vieneu {tts_load:.1f} s, speech recognition {stt_load:.1f} s, voices {len(voices)}, voice '{voice}'")
@@ -186,8 +189,7 @@ def main() -> int:
         speak_s = time.monotonic() - started
         encode(take, out)
         started_read = time.monotonic()
-        segments, _info = stt.transcribe(samples_16k(out), language="vi", beam_size=5, condition_on_previous_text=False)
-        transcript = " ".join(s.text.strip() for s in segments)
+        transcript = worker.transcribe(stt, out)
         return {"seconds": round(time.monotonic() - started, 1), "speak_seconds": round(speak_s, 1),
                 "read_seconds": round(time.monotonic() - started_read, 1), "audio_seconds": round(audio_seconds(out), 2),
                 "lufs": lufs(out), "transcript": transcript, "wrong": wrong_share(text, transcript)}

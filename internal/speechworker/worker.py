@@ -26,7 +26,9 @@ output carries only the protocol: the worker sends the output of the Python pack
 `speak` sends the text to the model as written. It only joins the white space. The audio file gets the loudness
 -18 LUFS (ffmpeg, the filter ebur128). The format `wav` is 48 kHz, 16-bit, mono. The format `mp3` is 44.1 kHz,
 128 kbps, mono. The worker writes the file to `<out>.part` and then renames it, so a failed request leaves no file at
-`out`. Then the speech recognition model reads the file and gives the transcript.
+`out`. Then the speech recognition model reads the file and gives the transcript. The input of that model is the
+audio of the file after 0.5 s of silence: with the silence, the model reads fewer wrong words. The silence is not in
+the audio file.
 """
 from __future__ import annotations
 
@@ -43,6 +45,7 @@ from pathlib import Path
 
 TARGET_LUFS = -18.0
 PEAK_LIMIT = 0.891  # -1 dBFS, so the gain never clips
+LEAD_SILENCE = 0.5  # seconds of silence before the audio in the input of the speech recognition model
 FORMATS = {  # the ffmpeg arguments of each format; -f names the format, because the file name ends with .part
     "wav": ["-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", "-f", "wav"],
     "mp3": ["-ar", "44100", "-ac", "1", "-b:a", "128k", "-f", "mp3"],
@@ -101,12 +104,21 @@ def encode(take: Path, out: Path, fmt: list[str]) -> None:
 
 
 def samples_16k(path: Path):
-    """The audio as 16 kHz mono float samples, the input of the speech recognition model. ffmpeg decodes it, so the
-    result does not depend on the audio reader of the faster-whisper package."""
+    """The input of the speech recognition model: LEAD_SILENCE seconds of silence, then the audio of the file as
+    16 kHz mono float samples. ffmpeg decodes the file, so the result does not depend on the audio reader of the
+    faster-whisper package. The silence is only in this input, not in the audio file."""
     import numpy as np
 
     r = run(ffmpeg("-loglevel", "error", "-i", str(path), "-ar", "16000", "-ac", "1", "-f", "f32le", "-"), check=True)
-    return np.frombuffer(r.stdout, dtype=np.float32)
+    lead = np.zeros(round(16000 * LEAD_SILENCE), dtype=np.float32)
+    return np.concatenate([lead, np.frombuffer(r.stdout, dtype=np.float32)])
+
+
+def transcribe(stt, path: Path) -> str:
+    """The transcript of the audio file at path: the words that the speech recognition model reads from it.
+    tests/speech/baseline.py calls this function too, so the measured baseline uses these settings."""
+    segments, _info = stt.transcribe(samples_16k(path), language="vi", beam_size=5, condition_on_previous_text=False)
+    return " ".join(s.text.strip() for s in segments).strip()
 
 
 def load_vieneu(models: Path):
@@ -174,8 +186,7 @@ class Worker:
             take.unlink(missing_ok=True)
 
         started = time.monotonic()
-        segments, _info = self.stt.transcribe(samples_16k(out), language="vi", beam_size=5, condition_on_previous_text=False)
-        transcript = " ".join(s.text.strip() for s in segments).strip()
+        transcript = transcribe(self.stt, out)
         return {"path": str(out), "bytes": out.stat().st_size, "format": fmt, "audio_seconds": round(audio_seconds(out), 2),
                 "lufs": lufs(out), "transcript": transcript, "speak_seconds": round(speak_seconds, 1),
                 "read_seconds": round(time.monotonic() - started, 1)}

@@ -188,8 +188,8 @@ audio for the same text two times, so the transcript can differ from the text
 in a few words.
 
 **Speech worker.** A Python process that holds the speech model and the speech
-recognition model in memory, so each call does not load them again. The speech
-worker and the tool `generate_speech` are not in the program yet. See
+recognition model in memory, so each call does not load them again. `horus mcp`
+starts it at the first `generate_speech` call. See
 [the spec](specs/2026-11-20-text-to-speech.md).
 
 **If wrong.** A text with a `[tag]` that the model does not perform is read

@@ -26,6 +26,7 @@ import (
 	"github.com/hieplam/horus/internal/cli"
 	"github.com/hieplam/horus/internal/download"
 	"github.com/hieplam/horus/internal/platform"
+	"github.com/hieplam/horus/internal/provision"
 	"github.com/hieplam/horus/internal/settings"
 	"github.com/hieplam/horus/internal/speechsetup"
 )
@@ -249,6 +250,64 @@ func TestSpeechSetupYesWithPackagesMakesTheSpeechSetup(t *testing.T) {
 				!strings.Contains(text, "Workflow 'stand-in-speech' is of the kind speech. It needs no ComfyUI") ||
 				!strings.Contains(text, "PASS  models for 'stand-in-speech'") {
 				t.Errorf("horus doctor:\n%s", text)
+			}
+		})
+	}
+}
+
+// TestSpeechSetupThenUninstallLeavesNoFileOfTheSpeechSetup: horus setup
+// -yes -with-packages makes the speech setup, and the speech worker file is
+// there as after a generate_speech. horus uninstall names the model file,
+// the speech venv and the worker file as REMOVE items and changes nothing.
+// horus uninstall -yes leaves 0 files in the speech folder and removes the
+// folder. Python 3.12 and FFmpeg, the system packages, stay.
+func TestSpeechSetupThenUninstallLeavesNoFileOfTheSpeechSetup(t *testing.T) {
+	for _, goos := range goosCases {
+		t.Run(goos, func(t *testing.T) {
+			r := newSpeechSetupRig(t, goos)
+			if code, out := r.setup(t, "-yes", "-with-packages"); code != 0 {
+				t.Fatalf("setup: exit %d:\n%s", code, out)
+			}
+			must(t, os.WriteFile(r.place.Script, []byte("# the speech worker"), 0o644))
+			program := filepath.Join(r.root, "program", platform.ExeName("horus"))
+			must(t, os.MkdirAll(filepath.Dir(program), 0o755))
+			must(t, os.WriteFile(program, []byte("program"), 0o755))
+			sm := r.sm
+			sm.installer = sandboxOS{profile: filepath.Join(r.root, "home", ".zprofile"), program: program}
+			place := cli.SetupPlace{ComfyUIDir: filepath.Join(r.root, "no-comfyui"), ServerURL: "http://127.0.0.1:9"}
+			args := []string{"-workflows-dir", r.workflows, "-comfyui-dir", place.ComfyUIDir, "-server-url", place.ServerURL}
+			at := func(p cli.SetupPlace) cli.Uninstaller { return newUninstall(p, sm) }
+
+			u, err := newUninstall(place, sm).UninstallPlan(context.Background(), provision.UninstallRequest{WorkflowsDir: r.workflows})
+			must(t, err)
+			planInsideSandbox(t, []string{r.root}, u)
+			before := snapshot(t, r.root)
+			var buf bytes.Buffer
+			code := cli.RunUninstall(context.Background(), args, &buf, &buf, at)
+			for _, w := range []string{"REMOVE  " + filepath.Join(r.place.Models, "tts", "model.bin") + "  (model file model.bin of workflow stand-in-speech)",
+				"REMOVE  " + r.place.Venv + "  (the speech venv", "REMOVE  " + r.place.Script + "  (the file of the speech worker",
+				"A system package (7-Zip, Python, FFmpeg) stays."} {
+				if !strings.Contains(buf.String(), w) {
+					t.Errorf("the plan lacks %q:\n%s", w, buf.String())
+				}
+			}
+			if after := snapshot(t, r.root); code != 0 || after != before {
+				t.Fatalf("uninstall without -yes: exit %d, files changed: %v\n%s", code, after != before, buf.String())
+			}
+
+			buf.Reset()
+			if code := cli.RunUninstall(context.Background(), append(args, "-yes"), &buf, &buf, at); code != 0 {
+				t.Fatalf("uninstall -yes: exit %d:\n%s", code, buf.String())
+			}
+			if _, err := os.Lstat(r.place.Dir); !os.IsNotExist(err) {
+				t.Errorf("the speech folder is still there (%v): %v\n%s", err, files(t, r.place.Dir), buf.String())
+			}
+			for _, pkg := range r.put {
+				for _, p := range pkg {
+					if !platform.IsFile(p) {
+						t.Errorf("the system package file %s was removed", p)
+					}
+				}
 			}
 		})
 	}

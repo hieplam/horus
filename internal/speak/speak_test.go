@@ -409,6 +409,27 @@ func TestCloseEndsTheWorkers(t *testing.T) {
 	herrOf(t, err, "GENERATION_FAILED")
 }
 
+// TestStopWorkersEndsTheWorkerAndTheNextCallMakesANewOne: StopWorkers
+// closes the worker (uninstall_workflow calls it before it deletes model
+// files), and the service stays open: the next call makes a new worker.
+func TestStopWorkersEndsTheWorkerAndTheNextCallMakesANewOne(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.speak(Request{Text: "xin chào"}); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.StopWorkers()
+	if !e.worker.closed {
+		t.Fatal("StopWorkers did not close the worker")
+	}
+	res, err := e.speak(Request{Text: "xin chào"})
+	if err != nil {
+		t.Fatalf("a call after StopWorkers: %v", err)
+	}
+	if len(e.made) != 2 || !res.StartedWorker {
+		t.Fatalf("workers made: %d, started_worker %v; want a new worker", len(e.made), res.StartedWorker)
+	}
+}
+
 func TestAnotherPlaceGetsAnotherWorker(t *testing.T) {
 	e := newEnv(t)
 	if _, err := e.speak(Request{Text: "xin chào"}); err != nil {

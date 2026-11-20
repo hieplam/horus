@@ -578,13 +578,21 @@ Terms:
 
 | Dependency | Check (2 s at most) | Health check of the container | Starts after |
 |---|---|---|---|
-| `horus-db` | The database answers, and its schema `horus` has the version of the program | `pg_isready` | nothing |
+| `horus-db` | The database answers, and its schema `horus` has the version of the program | `pg_isready -h 127.0.0.1`: the database accepts a connection over TCP | nothing |
 | `comfyui` | `GET <HORUS_COMFYUI_URL>/system_stats` answers 200 | none: the owner starts ComfyUI on the host | the owner starts it |
 | `horus-worker` | The newest row in `horus.workers` has a heartbeat newer than 15 s, and a worker holds the worker lock | `horus ready -only horus-worker` | `horus-db` is healthy |
 | `horus-api` | `horus api` answers `GET http://127.0.0.1:<HORUS_API_PORT>/livez` with 200 | `horus ready`: all 4 checks | `horus-db` and `horus-worker` are healthy |
 
 Docker runs each health check every 5 s, and every 1 s in the first 60 s
 after a start. Each container has `restart: unless-stopped`.
+
+The health check of `horus-db` asks over TCP (`-h 127.0.0.1`), because
+`horus worker` and `horus api` connect over TCP
+([ADR 0042](adr/0042-the-health-check-of-horus-db-asks-over-tcp.md)). On a
+new volume, the image of Postgres first runs a temporary server that listens
+only on the Unix socket. A `pg_isready` without `-h` asks the Unix socket, so
+`horus-db` is healthy while it refuses TCP, `horus-worker` starts too early,
+and `docker compose up -d --wait` can end with exit code 1.
 
 - `horus ready` runs the 4 checks and prints one `ok` or `FAIL` line for each. Its exit code is 0 only when all pass. It needs `HORUS_DATABASE_URL`, so run it in the stack: `docker exec horus-api horus ready`. `-only <dependency>` runs one check.
 - `horus api` is the main process of `horus-api`. It serves [`/mcp`](#mcp-over-http-mcp): the tools over HTTP. It serves `GET /readyz`: the report as JSON, with 200 when horus is ready, else 503. It serves `GET /livez`: 200 while it runs. It serves [the Horus UI](#the-horus-ui) at `/`. It writes the report to its log when the readiness changes (`docker logs horus-api`).
@@ -605,7 +613,7 @@ sequenceDiagram
   O->>C: start ComfyUI
   O->>D: docker compose up -d --wait
   D->>DB: start
-  D->>W: start, after horus-db is healthy (pg_isready)
+  D->>W: start, after horus-db is healthy (pg_isready over TCP)
   W->>DB: apply the schema, take the worker lock, heartbeat every 5 s
   D->>API: start, after horus-worker is healthy (horus ready -only horus-worker)
   API->>C: GET /system_stats
@@ -791,7 +799,10 @@ gives a container the loopback of the host at `host.docker.internal`. The rows
 of `generate_image` in the stack also run the peak tool: they need the Python
 of the test tools (`HORUS_TEST_PYTHON`, else `.scratch/test-venv` of the repo,
 else `python3` or `python` with the package `mcp`). A run of the whole suite
-takes about 25 minutes. Run one row:
+takes about 25 minutes. The row `stack-starts-together` first measures the
+health check of `horus-db` from `compose.yaml` in a container of its own on a
+new volume, next to `pg_isready -h 127.0.0.1`: it fails when the health check
+passes while the database refuses TCP. Run one row:
 
 ```
 go test -tags goal -count=1 -run TestStackStartsTogether -v ./goals/2026-11-19-job-queue

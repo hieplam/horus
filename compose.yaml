@@ -54,8 +54,12 @@ services:
       POSTGRES_PASSWORD: ${HORUS_DB_PASSWORD}
     volumes:
       - db-data:/var/lib/postgresql
+    # Over TCP (-h), the way horus worker and horus api connect. On a new
+    # volume, the image first runs a temporary server that listens only on
+    # the Unix socket: without -h, horus-db is healthy while it refuses TCP,
+    # and horus-worker starts too early (ADR 0042).
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "horus", "-d", "horus"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "horus", "-d", "horus"]
       interval: 5s
       timeout: 4s
       retries: 3

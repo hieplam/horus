@@ -74,3 +74,4 @@ record. You do not need to remember it:
 | [0040](0040-mcp-over-http-checks-the-host-the-origin-the-token-and-the-readiness.md) | `/mcp` checks the Host, the Origin, the token and the readiness in this order, ends a call when its agent goes away, and a client config names only the variable of the token | Accepted |
 | [0041](0041-install-workflow-in-the-stack-changes-only-the-models-folder.md) | In the stack, the model tools read and change only the models folder of `HORUS_MODELS_DIR`, and `horus stack-mounts` mounts it into `horus-api` | Accepted |
 | [0042](0042-the-health-check-of-horus-db-asks-over-tcp.md) | The health check of `horus-db` asks over TCP, and horus waits for no database at its start | Accepted |
+| [0043](0043-the-horus-ui-shows-the-times-of-the-browser-and-host-paths.md) | The Horus UI shows the clock times of the time zone of the browser, counts today from its 00:00, and shows host paths | Accepted |

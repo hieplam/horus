@@ -124,7 +124,8 @@ The first speech workflow is the folder `workflows/vi-speech/`: `manifest.json`,
 ### The speech worker
 
 - The speech worker is one Python file that the `horus` program holds. horus
-  writes it to the user folder and starts it with the Python of the speech
+  writes it to the speech folder ([ADR 0032](../adr/0032-the-speech-setup-is-one-folder-in-the-user-folder.md))
+  and starts it with the Python of the speech
   venv.
 - `horus mcp` starts the speech worker at the first `generate_speech` call. It
   keeps the worker until `horus mcp` ends. Then the worker ends too.
@@ -156,7 +157,9 @@ The steps, in order:
 2. A system package step for ffmpeg, only when `ffmpeg` and `ffprobe` are not
    on the PATH.
 3. The speech venv, with the pinned versions of the Python packages. horus
-   writes its install record (`horus-install.json`) there.
+   writes its install record (`horus-install.json`) there right after the venv
+   is made, and writes it again with the list of packages after the pip install
+   ([ADR 0035](../adr/0035-the-install-record-of-the-speech-venv-lists-its-packages.md)).
 4. The model files. `internal/download` downloads each file and checks its
    byte size and its SHA-256.
 

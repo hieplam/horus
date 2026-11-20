@@ -159,8 +159,9 @@ or the node is missing, the run fails. Quality can also drop a little.
 **What they are.** MCP is the Model Context Protocol. It lets an AI agent call
 tools. horus has two MCP servers:
 
-- The **horus MCP server** (`horus mcp`) is the image tool. Every agent makes
-  images with it: `list_workflows`, `describe_workflow`, `generate_image`. The
+- The **horus MCP server** (`horus mcp`) is the tool for images and speech.
+  Every agent makes them with it: `list_workflows`, `describe_workflow`,
+  `generate_image`, `generate_speech`. The
   agent never sees ComfyUI. `horus register` adds it to Claude Code or Codex.
   See [`mcp.md`](mcp.md).
 - The **comfy MCP server** gives a developer low-level tools to control ComfyUI,

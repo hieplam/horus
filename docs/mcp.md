@@ -679,8 +679,8 @@ failure of the worker, the test starts the server two more times, with the
 fake worker in the modes `die` and `error`.
 
 It ends with `contract: N of M passed` and exits 0 only when all pass. The total
-M is 39 server checks of the image tools, the kind and the code table, plus 14 speech checks,
-plus 5 checks of the speech setup, plus 2 for each shipped workflow. The second check of a workflow depends on its
+M is 37 server checks of the image tools, the kind and the code table, plus 16 speech checks,
+plus 7 checks of the speech setup, the install and the uninstall, plus 2 for each shipped workflow (64 with the 2 shipped workflows). The second check of a workflow depends on its
 kind: an image workflow has no style words in its graph, and a speech workflow
 has no graph, no subject and no output. `--report <file>` also writes each
 check, and the answers of the server to the speech checks, as JSON. The goal

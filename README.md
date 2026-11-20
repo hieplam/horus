@@ -5,7 +5,7 @@ Get your first image from a local AI model, with an AI agent at the controls.
 horus is a starter kit for engineers who are new to local image generation.
 It installs [ComfyUI](https://github.com/comfyanonymous/ComfyUI) on a Windows PC
 with an NVIDIA GPU or on a Mac with Apple Silicon, downloads one verified model set (FLUX 3 Image Klein), and
-gives an AI agent (Claude Code or Codex) one image tool: the horus MCP server.
+gives an AI agent (Claude Code or Codex) the image and speech tools of the horus MCP server.
 
 You describe the image. The agent picks a workflow, writes the subject and
 calls `generate_image`. horus runs the job on your ComfyUI and returns the path
@@ -130,7 +130,7 @@ runs the plan.
 | Part | What it is |
 |---|---|
 | ComfyUI | The program that runs image models on your GPU. A job is a graph of nodes, called a workflow. |
-| horus MCP server | The image tool for agents, started as `horus mcp`. MCP (Model Context Protocol) is the standard way an agent calls tools. The tools: `list_workflows`, `describe_workflow`, `install_workflow`, `uninstall_workflow`, `generate_image`. The caller names a workflow and a subject and gets a PNG path. horus adds no style: the caller writes the look in the subject. The caller never sees ComfyUI. See [`docs/mcp.md`](docs/mcp.md). |
+| horus MCP server | The image and speech tools for agents, started as `horus mcp`. MCP (Model Context Protocol) is the standard way an agent calls tools. The tools: `list_workflows`, `describe_workflow`, `install_workflow`, `uninstall_workflow`, `generate_image`, `generate_speech`. For an image, the caller names a workflow and a subject and gets a PNG path. For speech, the caller names a workflow, a text and a voice, and gets an audio file path and its transcript. horus adds no style: the caller writes the look in the subject. The caller never sees ComfyUI or the speech worker. See [`docs/mcp.md`](docs/mcp.md). |
 | horus commands | The commands that you run: `horus setup`, `horus doctor`, `horus register`, `horus uninstall`. The horus MCP server and the commands are one program, `horus`. |
 | comfy MCP server | A separate program with low-level ComfyUI tools such as `validate_workflow` and `run_workflow`. Only an agent in a clone of this repo uses it, to build and debug a workflow. |
 | This repo | The rules, the Go code of the `horus` program, the workflows and the saved prompts. An agent reads it when it changes horus or makes a new workflow. To make images you need no clone: the program holds the workflows. |
@@ -185,7 +185,7 @@ horus register
 
 To register it with Codex, run `horus register -client codex`. After this, an agent
 in any folder of your PC has the tools `list_workflows`, `describe_workflow`,
-`install_workflow`, `uninstall_workflow` and `generate_image`. Check the machine at
+`install_workflow`, `uninstall_workflow`, `generate_image` and `generate_speech`. Check the machine at
 any time with `horus doctor`.
 
 ## Uninstall
@@ -241,7 +241,7 @@ as a child program (a stdio server). The full setup is [`docs/setup.md`](docs/se
 
 In a clone, the file `.mcp.json` gives the agent two servers. The comfy MCP
 server is the low-level tool to build, check and debug a workflow. The horus MCP
-server is the same image tool that a user's agent gets. Both servers send HTTP
+server has the same tools that a user's agent gets. Both servers send HTTP
 requests to the same ComfyUI.
 
 ```mermaid
@@ -295,13 +295,13 @@ programs. If you skip step 3, `/mcp` shows the server as failed. An agent in thi
 repo reads [`AGENTS.md`](AGENTS.md), which tells it to run `horus doctor` and
 the install command that a FAIL line names.
 
-## Give other agents an image tool
+## Give other agents the horus tools
 
 `horus register` (see "Set up the machine") adds the server `horus` to your agent.
 After this, an agent in any folder of your PC (for example a video project
 that needs pictures) has the horus tools. It calls `list_workflows`, reads the
-rules of a style with `describe_workflow`, and calls `generate_image`. The call
-waits until the PNG is on disk and returns its path. Errors have a code, a
+rules of a style with `describe_workflow`, and calls `generate_image` or `generate_speech`. The call
+waits until the PNG or the audio file is on disk and returns its path (for speech, also the transcript). Errors have a code, a
 `next_step` and `action_by`, so the agent knows if it must retry, change its
 call or ask you. Details: [`docs/mcp.md`](docs/mcp.md). Without a clone, the
 tools use the workflows that the program holds. In a clone, `horus register` also
@@ -341,7 +341,7 @@ List them, install the files of one, or remove them with
 | Workflow | Does | Model family |
 |---|---|---|
 | [`it-illustration`](workflows/it-illustration/README.md) | Text to image, 1536×1024. No style of its own: the caller writes the look. | FLUX 3 Image Klein |
-| [`vi-speech`](workflows/vi-speech/README.md) | Text to speech in Vietnamese, 25 preset voices, on the CPU. Kind `speech`. The server lists it. The tool `generate_speech` and the install of this workflow are not in the program yet. | VieNeu-TTS v3 Turbo |
+| [`vi-speech`](workflows/vi-speech/README.md) | Text to speech in Vietnamese, 25 preset voices, on the CPU. Kind `speech`. The tool `generate_speech` makes the audio file and its transcript. | VieNeu-TTS v3 Turbo |
 
 ## License
 

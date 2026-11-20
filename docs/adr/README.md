@@ -71,3 +71,4 @@ record. You do not need to remember it:
 | [0037](0037-the-worker-checks-its-lock-and-takes-it-again.md) | The worker checks its worker lock at each heartbeat, and takes it again when its session ended | Accepted |
 | [0038](0038-the-horus-ui-renders-on-the-server-and-checks-the-published-port.md) | The Horus UI renders on the server, reads the depth of the broker, and checks the Host with the published port | Accepted |
 | [0039](0039-generate-image-in-the-stack-uses-shared-folders-of-host-paths.md) | In the stack, `generate_image` takes and gives host paths in shared folders, and `horus stack-mounts` writes the mounts | Accepted |
+| [0040](0040-mcp-over-http-checks-the-host-the-origin-the-token-and-the-readiness.md) | `/mcp` checks the Host, the Origin, the token and the readiness in this order, ends a call when its agent goes away, and a client config names only the variable of the token | Accepted |

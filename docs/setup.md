@@ -505,6 +505,19 @@ machine: set it up with the steps above, and start it with
    `HORUS_COMFYUI_URL` line in `.env`: the containers reach ComfyUI at
    `http://host.docker.internal:8188`.
 
+   An agent that connects over HTTP (step 5) also needs the bearer token
+   `HORUS_API_TOKEN` in `.env`. These commands write a random token into
+   `.env` and print nothing. Run one of them one time, in the repo root:
+
+   ```
+   # Windows (PowerShell)
+   $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); Add-Content .env ("HORUS_API_TOKEN=" + -join ($b | ForEach-Object { $_.ToString('x2') }))
+   # macOS (Terminal)
+   echo "HORUS_API_TOKEN=$(openssl rand -hex 32)" >> .env
+   ```
+
+   Without the token, `/mcp` refuses each request, and stdio still works.
+
 2. Write the shared folders of the stack. An agent can ask for a PNG only in
    a shared folder. Without `HORUS_SHARED_DIRS`, the one shared folder is the
    output folder of horus (`.scratch/outputs` in the clone). To choose other
@@ -545,21 +558,42 @@ machine: set it up with the steps above, and start it with
    A `FAIL` line names the dependency that is down and why. Start it, and run
    the command again.
 
-5. Give the stack to your agent. Remove an older entry first, because
-   `horus register` skips a client that already knows a server named `horus`.
+5. Give the stack to your agent, over stdio or over HTTP. Remove an older
+   entry first, because `horus register` skips a client that already knows a
+   server named `horus`.
 
    ```
    claude mcp remove horus
    horus register -docker
    ```
 
-   The agent then starts `docker exec -i horus-api horus mcp`.
-   `horus register -docker -client codex` does the same for Codex. The agent
-   gives and gets host paths: a PNG is in a shared folder of this machine.
-   The stack makes images only: for speech, use `horus register` without
-   `-docker`.
+   With `-docker`, the agent starts `docker exec -i horus-api horus mcp`
+   (stdio). Or connect over HTTP:
 
-5. Open the Horus UI at `http://127.0.0.1:8190/` (the port is
+   ```
+   horus register -http
+   ```
+
+   With `-http`, the agent connects to `http://127.0.0.1:8190/mcp` (the port
+   is `HORUS_API_PORT`), and sends the header
+   `Authorization: Bearer <HORUS_API_TOKEN>`. The config of the agent names
+   the variable `HORUS_API_TOKEN`, not the token. So give the agent the
+   variable: set it in the environment, with the value of `.env`, then start
+   a new agent session.
+
+   ```
+   # Windows (PowerShell): a variable of your user, from the line in .env
+   $t = (Get-Content .env | Where-Object { $_ -like 'HORUS_API_TOKEN=*' }) -replace '^HORUS_API_TOKEN=', ''; [Environment]::SetEnvironmentVariable('HORUS_API_TOKEN', "$t", 'User')
+   # macOS (Terminal): a line in ~/.zshrc, from the line in .env
+   echo "export $(grep '^HORUS_API_TOKEN=' .env)" >> ~/.zshrc
+   ```
+
+   `-client codex` works with `-docker` and with `-http`. The agent gives and
+   gets host paths: a PNG is in a shared folder of this machine. The stack
+   makes images only: for speech, use `horus register` without `-docker` or
+   `-http`.
+
+6. Open the Horus UI at `http://127.0.0.1:8190/` (the port is
    `HORUS_API_PORT`). The read-only page shows the readiness, the queue, the
    running jobs, the recent results, the worker and the workflows
    ([the Horus UI](mcp.md#the-horus-ui)). Use the host name `127.0.0.1` or

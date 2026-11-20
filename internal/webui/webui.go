@@ -11,8 +11,8 @@
 // not 127.0.0.1:<port> or localhost:<port> (403), so that a web page of
 // another domain cannot read them through DNS rebinding. They need no token,
 // and no route changes a job. The page is in the program (go:embed), with no
-// build step. cmd/horus puts this handler and the handler of /mcp on one
-// server. The spec: docs/specs/2026-11-19-job-queue.md, "Readiness" and "The
+// build step. cmd/horus puts this handler and the handler of /mcp
+// (mcpserver.NewHTTP) on one server. The spec: docs/specs/2026-11-19-job-queue.md, "Readiness" and "The
 // Horus UI".
 package webui
 
@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/hieplam/horus/internal/catalog"
+	"github.com/hieplam/horus/internal/httpguard"
 	"github.com/hieplam/horus/internal/jobdata"
 	"github.com/hieplam/horus/internal/provision"
 	"github.com/hieplam/horus/internal/settings"
@@ -138,7 +139,8 @@ func Handler(c Config) http.Handler {
 }
 
 // guard refuses a request whose Host header is not 127.0.0.1:<port> or
-// localhost:<port>, for a port of c.Ports, with 403. It sets the headers of
+// localhost:<port>, for a port of c.Ports, with 403 (httpguard.HostAllowed,
+// the same check as /mcp). It sets the headers of
 // a page that stays on this machine.
 func (c Config) guard(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -147,25 +149,13 @@ func (c Config) guard(next http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'")
-		if !HostAllowed(r.Host, c.Ports) {
+		if !httpguard.HostAllowed(r.Host, c.Ports) {
 			http.Error(w, fmt.Sprintf("horus api: the Horus UI answers only to the Host 127.0.0.1:<port> or localhost:<port>, not %q", r.Host),
 				http.StatusForbidden)
 			return
 		}
 		next(w, r)
 	}
-}
-
-// HostAllowed tells if the Host header host is 127.0.0.1:<port> or
-// localhost:<port> for one of the ports.
-func HostAllowed(host string, ports []int) bool {
-	for _, p := range ports {
-		ps := strconv.Itoa(p)
-		if host == "127.0.0.1:"+ps || host == "localhost:"+ps {
-			return true
-		}
-	}
-	return false
 }
 
 // view runs the reads of one request and builds the view.

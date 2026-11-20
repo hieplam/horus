@@ -224,9 +224,16 @@ the 3 containers and ComfyUI. `docker exec horus-api horus ready` prints one
 readiness, the queue, the running jobs, the recent results, the worker and the
 workflows. See [the Horus UI](mcp.md#the-horus-ui).
 
+**Two ways in.** An agent connects to the stack over stdio or over HTTP, with
+the same tools. Over stdio, its harness starts `docker exec -i horus-api horus
+mcp` (`horus register -docker`). Over HTTP, its harness connects to
+`http://127.0.0.1:8190/mcp` with the bearer token `HORUS_API_TOKEN`
+(`horus register -http`). See [MCP over HTTP](mcp.md#mcp-over-http-mcp).
+
 **If wrong.** When a dependency is down, an agent cannot start a session, and
 a call gets `NOT_READY` with the name of the dependency. When it is up again,
-horus serves again. The Horus UI shows the dependency that is down.
+horus serves again. The Horus UI shows the dependency that is down. Over HTTP,
+a request without the right token gets 401.
 
 ## Job queue and shared folder
 

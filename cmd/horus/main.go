@@ -80,7 +80,7 @@ var commands = map[string]command{
 			return cli.ComfyMCP(ctx, args, os.Stdin, os.Stdout, os.Stderr, platform.Programs{})
 		})
 	}},
-	"register": {"register horus mcp with Claude Code or Codex (-docker: horus mcp in the stack)", func(args []string) int {
+	"register": {"register horus mcp with Claude Code or Codex (-docker or -http: horus in the stack)", func(args []string) int {
 		return withSignal(func(ctx context.Context) int {
 			return cli.Register(ctx, args, os.Stdout, os.Stderr, platform.Programs{})
 		})
@@ -103,7 +103,7 @@ var commands = map[string]command{
 	"worker": {"run the jobs of the job queue on ComfyUI (needs HORUS_DATABASE_URL)", func(args []string) int {
 		return withStop(func(ctx context.Context) int { return cli.Worker(ctx, args, os.Stdout, os.Stderr, runWorker) })
 	}},
-	"api": {"serve the Horus UI, /readyz and /livez of horus in the stack (needs HORUS_DATABASE_URL)", func(args []string) int {
+	"api": {"serve /mcp, the Horus UI, /readyz and /livez of horus in the stack (needs HORUS_DATABASE_URL)", func(args []string) int {
 		return withStop(func(ctx context.Context) int { return cli.API(ctx, args, os.Stdout, os.Stderr, runAPI) })
 	}},
 	"stack-mounts": {"write compose.override.yaml: the shared folders of the stack (HORUS_SHARED_DIRS)", func(args []string) int {

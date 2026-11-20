@@ -36,6 +36,7 @@ var layers = map[string]string{
 	"internal/catalog":                 base,
 	"internal/graph":                   base,
 	"internal/herr":                    base,
+	"internal/httpguard":               base, // the checks of a request to horus api: the Host header, the Origin header, the bearer token
 	"internal/jobdata":                 base,
 	"internal/settings":                base,
 	"internal/platform":                base,

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"io"
 	"slices"
@@ -144,5 +145,49 @@ func TestRegisterDocker(t *testing.T) {
 	if code := Register(context.Background(), []string{"-docker"}, &out, &errOut, f); code != 1 ||
 		!strings.Contains(errOut.String(), "The docker command was not found") || len(f.runs) != 0 {
 		t.Errorf("no docker: exit %d, %s, %d runs", code, errOut.String(), len(f.runs))
+	}
+}
+
+// TestRegisterHTTP: -http registers http://127.0.0.1:<HORUS_API_PORT>/mcp
+// with the name of the variable HORUS_API_TOKEN, for Claude Code and for
+// Codex. The token is never in a command: a token in the environment of the
+// register run does not reach the client.
+func TestRegisterHTTP(t *testing.T) {
+	root := repoDir(t)
+	useRoot(t, root)
+	token := rand.Text()
+	t.Setenv("HORUS_API_TOKEN", token)
+	for _, c := range []struct {
+		port string
+		args []string
+		want string
+	}{
+		{"", []string{"-http"}, "/bin/claude mcp get horus\n" +
+			"/bin/claude mcp add --scope user --transport http horus http://127.0.0.1:8190/mcp --header Authorization: Bearer ${HORUS_API_TOKEN}"},
+		{"18190", []string{"-http"}, "/bin/claude mcp get horus\n" +
+			"/bin/claude mcp add --scope user --transport http horus http://127.0.0.1:18190/mcp --header Authorization: Bearer ${HORUS_API_TOKEN}"},
+		{"", []string{"-http", "-client", "codex"}, "/bin/codex mcp get horus\n" +
+			"/bin/codex mcp add horus --url http://127.0.0.1:8190/mcp --bearer-token-env-var HORUS_API_TOKEN"},
+	} {
+		t.Setenv("HORUS_API_PORT", c.port)
+		f := &fakePrograms{claude: "/bin/claude", codex: "/bin/codex", docker: "/bin/docker"}
+		var out, errOut bytes.Buffer
+		if code := Register(context.Background(), c.args, &out, &errOut, f); code != 0 {
+			t.Fatalf("%v: exit %d: %s", c.args, code, errOut.String())
+		}
+		if f.commands() != c.want {
+			t.Errorf("%v: commands:\n%s\nwant:\n%s", c.args, f.commands(), c.want)
+		}
+		if strings.Contains(f.commands()+out.String()+errOut.String(), token) {
+			t.Errorf("%v: the token is in a command or in the output", c.args)
+		}
+		if !strings.Contains(out.String(), "HORUS_API_TOKEN") {
+			t.Errorf("%v: the output does not name the variable: %q", c.args, out.String())
+		}
+	}
+	f := &fakePrograms{claude: "/bin/claude", docker: "/bin/docker"}
+	var out, errOut bytes.Buffer
+	if code := Register(context.Background(), []string{"-http", "-docker"}, &out, &errOut, f); code != 2 || len(f.runs) != 0 {
+		t.Errorf("-http and -docker: exit %d, %s, %d runs; want 2 and no run", code, errOut.String(), len(f.runs))
 	}
 }

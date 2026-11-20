@@ -3,8 +3,8 @@
 // The pure graph conversion is in internal/graph.
 //
 // The wire format stays in this package: the JSON of /history and /queue, the
-// client_id of a job, and the mapping of a rejected graph or a failed job to a
-// horus error (jobs.go).
+// client_id of a job, the messages of the WebSocket (steps.go), and the
+// mapping of a rejected graph or a failed job to a horus error (jobs.go).
 //
 // ComfyUI endpoints used:
 //
@@ -17,6 +17,7 @@
 //	POST /interrupt           stop the running job
 //	POST /free                unload models (before horus deletes model files)
 //	GET  /view                download an output image
+//	GET  /ws?clientId=<id>    the WebSocket of one job: the step of the node that runs
 package comfy
 
 import (
@@ -31,6 +32,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -44,6 +46,11 @@ import (
 // HORUS_COMFYUI_URL setting, read at each request.
 type Client struct {
 	URL string
+
+	// watches holds the WebSocket of each job that this client submitted and
+	// that did not end yet, by prompt id.
+	mu      sync.Mutex
+	watches map[string]*watch
 }
 
 // New makes a client for url. An empty url makes a client for the
@@ -216,9 +223,24 @@ func uuid4() string {
 }
 
 // Submit posts the graph with a new client_id and returns the prompt_id.
-func (c *Client) Submit(ctx context.Context, api *graph.API) (string, error) {
+// Before the post it opens the WebSocket of that client_id, so that Step can
+// give the steps of the job. ComfyUI sends them only there. A WebSocket that
+// ComfyUI refuses does not fail the job. The WebSocket closes when the job
+// ends, when ctx ends, at Cancel, and when History reports the end of the job.
+func (c *Client) Submit(ctx context.Context, api *graph.API) (id string, err error) {
+	clientID := uuid4()
+	w := c.listen(ctx, clientID)
+	defer func() {
+		switch {
+		case w == nil:
+		case err != nil:
+			w.stop()
+		default:
+			c.watching(id, w)
+		}
+	}()
 	var reply catalog.Object
-	err := c.postJSON(ctx, "/prompt", map[string]any{"prompt": api, "client_id": uuid4()}, 60*time.Second, &reply)
+	err = c.postJSON(ctx, "/prompt", map[string]any{"prompt": api, "client_id": clientID}, 60*time.Second, &reply)
 	var he *httpError
 	if errors.As(err, &he) {
 		if json.Unmarshal(he.Body, &reply) != nil {
@@ -231,9 +253,9 @@ func (c *Client) Submit(ctx context.Context, api *graph.API) (string, error) {
 	if graph.Truthy(reply.Raw("node_errors")) || graph.Truthy(reply.Raw("error")) {
 		return "", rejectedGraphError(&reply)
 	}
-	var id any
-	_ = reply.Decode("prompt_id", &id)
-	if s, ok := id.(string); ok && s != "" {
+	var promptID any
+	_ = reply.Decode("prompt_id", &promptID)
+	if s, ok := promptID.(string); ok && s != "" {
 		return s, nil
 	}
 	return "", herr.New("INTERNAL", "ComfyUI returned no prompt_id", map[string]any{"reply": headRunes(graph.PyDumps(&reply), 500)})
@@ -297,18 +319,21 @@ func (c *Client) entry(ctx context.Context, promptID string) (*historyEntry, err
 
 // History polls the job one time. It returns nil when /history does not know
 // the job yet, and the horus error of jobError when the job failed. A job that
-// is done has its images and its backend time.
+// is done has its images and its backend time. The end of the job also drops
+// its steps.
 func (c *Client) History(ctx context.Context, promptID string) (*graph.Job, error) {
 	e, err := c.entry(ctx, promptID)
 	if err != nil || e == nil {
 		return nil, err
 	}
 	if e.Status.StatusStr == "error" {
+		c.forget(promptID)
 		return nil, jobError(promptID, e.Status)
 	}
 	if !e.Status.Completed {
 		return &graph.Job{}, nil
 	}
+	c.forget(promptID)
 	return &graph.Job{Done: true, Images: e.Images(), BackendSeconds: executionSeconds(e)}, nil
 }
 
@@ -345,8 +370,10 @@ func number(v any) float64 {
 	return 0
 }
 
-// Cancel stops the running job or removes the pending job. Errors are ignored.
+// Cancel stops the running job or removes the pending job, and drops its
+// steps. Errors are ignored.
 func (c *Client) Cancel(ctx context.Context, promptID string) {
+	c.forget(promptID)
 	state, err := c.QueueState(ctx, promptID)
 	if err != nil {
 		return

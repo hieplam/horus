@@ -185,7 +185,7 @@ func Reference(now time.Time) Fixture {
 		StartedAt: wstart, LoadedResourceKey: ResourceKey}
 
 	b.running("A flat vector illustration of a message queue between three laptops and one server, blue and orange palette",
-		"Claude Code · folder horus", 151*time.Second, 0, &jobdata.Progress{Value: 9, Total: 15, Message: "step 9 of 15"})
+		"Claude Code · folder horus", 151*time.Second, 0, &jobdata.Progress{Value: 9, Total: 15, Message: "rendering, step 9 of 15, 151 s"})
 	b.queued("An isometric diagram of a Kubernetes cluster with three nodes", "Codex · folder blog", 130*time.Second)
 	b.queued("A line drawing of a database with a clock, muted colours", "Claude Code · folder docs", 65*time.Second)
 	b.queued("A poster of a falcon eye made of circuit lines", "Claude Code · folder horus", 12*time.Second)
@@ -217,7 +217,7 @@ func Other(now time.Time) Fixture {
 	worker := jobdata.Worker{ID: b.worker, Host: "horus-worker", PID: 7, Version: "0.0.0-fixture", Slots: 2, StartedAt: wstart}
 
 	b.running("A watercolour map of a data centre with two rows of racks", "Codex · folder infra", 40*time.Second, 75*time.Second,
-		&jobdata.Progress{Value: 3, Total: 20, Message: "step 3 of 20"})
+		&jobdata.Progress{Value: 3, Total: 20, Message: "rendering, step 3 of 20, 40 s"})
 	b.running("A blueprint of a load balancer in front of four servers", "Claude Code · folder blog", 5*time.Second, 200*time.Second, nil)
 	for i, s := range []string{"A pixel art router with blinking lights", "A chalk drawing of a hash table",
 		"A paper cut of a cloud with three buckets", "A neon sign of a terminal prompt", "A photo-style render of a fibre cable"} {

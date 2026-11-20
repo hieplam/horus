@@ -11,7 +11,8 @@
 //  4. Refuse early when the server does not list a model file of the graph (WORKFLOW_NOT_INSTALLED).
 //  5. Set caption (the caller's subject, exactly as written), seed, size and file prefix.
 //     horus adds no style text: the caller owns the look, the palette and the design system.
-//  6. Submit, give the id of the job to Options.Submitted, then wait. Report progress every few seconds.
+//  6. Submit, give the id of the job to Options.Submitted, then wait. Report progress every few seconds,
+//     and at each new step of the sampler node that ComfyUI reports ("rendering, step 9 of 15, 42 s").
 //  7. Save the PNG to out_path.
 //
 // A timeout or a cancelled call removes the job from the ComfyUI queue, so a
@@ -64,6 +65,11 @@ type ComfyUI interface {
 	// History polls the job one time: nil when the server does not list it
 	// yet, the horus error of the job when it failed.
 	History(ctx context.Context, jobID string) (*graph.Job, error)
+	// Step gives the last step that the server reported for one node of the
+	// job: value of total. ok is false when the server reported no step of
+	// the node, or when the adapter cannot read the steps of the job. It does
+	// no input and no output.
+	Step(jobID, nodeID string) (value, total float64, ok bool)
 	// QueueState says where the job is in the backend queue.
 	QueueState(ctx context.Context, jobID string) (graph.Queue, error)
 	// Cancel stops or removes the job. Errors are ignored.
@@ -337,6 +343,12 @@ type Options struct {
 	// Submitted, when it is not nil, gets the id of the job in ComfyUI after
 	// the submit and before the wait. The worker saves it as backend_job_id.
 	Submitted func(ctx context.Context, backendJobID string)
+	// Step, when it is not nil, gets the step of the sampler node each time
+	// ComfyUI reports a new one: step of total. total 0 means that no step is
+	// known (ComfyUI reported none yet, or its WebSocket ended). The next
+	// Report comes right after it, in the same goroutine. The worker saves
+	// the step in the job row.
+	Step func(ctx context.Context, step, total float64)
 }
 
 // Generate makes one image: Check, then Run.
@@ -480,7 +492,8 @@ func (s *Service) run(ctx context.Context, w *catalog.Workflow, req Plan, o Opti
 	// The step count: set it when the caller asked, and read it for the result.
 	// A workflow without a KSampler node has no step count (0).
 	var steps int64
-	if sampler, err := nodeID(api, "KSampler"); err == nil {
+	sampler, err := nodeID(api, "KSampler")
+	if err == nil {
 		if req.Steps != nil {
 			if err := api.Node(sampler).Inputs.Set("steps", *req.Steps); err != nil {
 				return nil, err
@@ -499,7 +512,7 @@ func (s *Service) run(ctx context.Context, w *catalog.Workflow, req Plan, o Opti
 		o.Submitted(ctx, promptID)
 	}
 	report(ctx, 0, 0, fmt.Sprintf("job %s submitted", promptID))
-	job, err := wait(ctx, c, promptID, timeout, report, t0)
+	job, err := wait(ctx, c, promptID, sampler, timeout, report, o.Step, t0)
 	if err != nil {
 		if ctx.Err() != nil {
 			// The call was cancelled: remove the job, with a context that still works.
@@ -617,13 +630,22 @@ func seconds(d time.Duration) string {
 	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64)
 }
 
+// stepOf is the step of the sampler node: value of total. total 0: not known.
+type stepOf struct {
+	value, total float64
+}
+
 // wait polls the job every PollInterval until it is done, it fails, the time
 // limit passes or the call is cancelled. A failed job gives the error that
-// the adapter mapped.
-func wait(ctx context.Context, c ComfyUI, promptID string, timeout time.Duration, report Report, t0 time.Time) (*graph.Job, error) {
+// the adapter mapped. At each poll it reads the step of the node sampler
+// ("": the graph has no sampler node). A new step goes to onStep, and makes a
+// report at once.
+func wait(ctx context.Context, c ComfyUI, promptID, sampler string, timeout time.Duration, report Report,
+	onStep func(ctx context.Context, step, total float64), t0 time.Time) (*graph.Job, error) {
 	deadline := time.Now().Add(timeout)
 	var lastReport time.Time // zero: no report yet, so the first poll reports
 	var absentSince time.Time
+	var step stepOf
 	for {
 		entry, err := c.History(ctx, promptID)
 		if err != nil {
@@ -639,6 +661,18 @@ func wait(ctx context.Context, c ComfyUI, promptID string, timeout time.Duration
 				map[string]any{"job_id": promptID, "timeout_seconds": json.Number(seconds(timeout))})
 		}
 		due := lastReport.IsZero() || now.Sub(lastReport) >= ReportInterval
+		if sampler != "" {
+			var cur stepOf
+			if value, total, ok := c.Step(promptID, sampler); ok {
+				cur = stepOf{value, total}
+			}
+			if cur != step {
+				step, due = cur, true
+				if onStep != nil {
+					onStep(ctx, step.value, step.total)
+				}
+			}
+		}
 		if due || entry == nil {
 			state, err := c.QueueState(ctx, promptID)
 			if err != nil {
@@ -661,6 +695,9 @@ func wait(ctx context.Context, c ComfyUI, promptID string, timeout time.Duration
 				text := "finishing"
 				if state.Running {
 					text = "rendering"
+					if step.total > 0 {
+						text = fmt.Sprintf("rendering, step %g of %g", step.value, step.total)
+					}
 				} else if state.Pending() {
 					text = fmt.Sprintf("waiting in the backend queue, position %d", state.Position)
 				}

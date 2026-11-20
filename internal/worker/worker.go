@@ -17,7 +17,9 @@
 //
 // The worker never starts ComfyUI (generate.Options.NoStart): the owner starts
 // it. The worker saves backend_job_id before the wait (generate.Options.Submitted),
-// and generate.Run writes the PNG as file.part, then renames it.
+// and generate.Run writes the PNG as file.part, then renames it. The progress
+// of a running job holds the step of the sampler node that ComfyUI reports
+// (generate.Options.Step): value 9 of total 15. Without a step, the total is 0.
 //
 // The spec: docs/specs/2026-11-19-job-queue.md.
 package worker
@@ -398,9 +400,18 @@ func (l *loop) run(ctx context.Context, j jobdata.Job, progress func(jobdata.Pro
 	if err := json.Unmarshal(j.Payload, &p); err != nil || p.Workflow == "" {
 		return nil, herr.New("INTERNAL", "the payload of the job is not a plan of generate_image", map[string]any{"job_id": j.ID})
 	}
+	// The step of the sampler node that ComfyUI reports: steps 0 means not
+	// known. Step and Report come from one goroutine.
+	var step, steps float64
 	res, err := l.gen.Run(ctx, p, generate.Options{
 		NoStart: true,
+		Step:    func(_ context.Context, value, total float64) { step, steps = value, total },
 		Report: func(_ context.Context, value, total float64, message string) {
+			if steps > 0 {
+				// The job row holds the step, so that the Horus UI shows
+				// "step 9 of 15" and its bar.
+				value, total = step, steps
+			}
 			progress(jobdata.Progress{Value: value, Total: total, Message: message})
 		},
 		Submitted: func(ctx context.Context, backendJobID string) {

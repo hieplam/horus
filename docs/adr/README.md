@@ -67,3 +67,4 @@ record. You do not need to remember it:
 | [0033](0033-each-job-store-passes-one-store-contract-with-the-clock-of-the-program.md) | Each job store passes one store contract, and takes its times from the clock of the program | Accepted |
 | [0034](0034-the-payload-of-a-job-is-the-plan-of-generate-check.md) | The payload of a job is the plan of `generate.Check`, and the worker holds a delivery until ComfyUI answers | Accepted |
 | [0035](0035-the-install-record-of-the-speech-venv-lists-its-packages.md) | Write the install record of the speech venv before the pip install, and list the packages after it | Accepted |
+| [0037](0037-the-worker-checks-its-lock-and-takes-it-again.md) | The worker checks its worker lock at each heartbeat, and takes it again when its session ended | Accepted |

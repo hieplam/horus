@@ -22,7 +22,8 @@ type Store struct {
 	jobs    map[string]*jobdata.Job
 	order   []string // the ids in the order of Insert
 	events  []EventRow
-	locked  bool
+	lock    int // the number of the lock that holds the worker lock; 0: free
+	locks   int // the count of locks that WorkerLock gave
 	workers map[string]jobdata.Worker
 }
 
@@ -283,21 +284,44 @@ func (s *Store) DeleteOld(ctx context.Context, age time.Duration) (int, error) {
 }
 
 // WorkerLock takes the one-worker lock, or gives jobdata.ErrWorkerLocked.
-func (s *Store) WorkerLock(ctx context.Context) (func(), error) {
+// Each lock has its own number, as each Postgres lock has its own session.
+func (s *Store) WorkerLock(ctx context.Context) (jobdata.Lock, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.locked {
-		return nil, jobdata.ErrWorkerLocked
+	if s.lock != 0 {
+		return jobdata.Lock{}, jobdata.ErrWorkerLocked
 	}
-	s.locked = true
+	s.locks++
+	mine := s.locks
+	s.lock = mine
 	var once sync.Once
-	return func() {
-		once.Do(func() {
+	return jobdata.Lock{
+		Check: func(context.Context) error {
 			s.mu.Lock()
-			s.locked = false
-			s.mu.Unlock()
-		})
+			defer s.mu.Unlock()
+			if s.lock != mine {
+				return jobdata.ErrLockLost
+			}
+			return nil
+		},
+		Release: func() {
+			once.Do(func() {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if s.lock == mine {
+					s.lock = 0
+				}
+			})
+		},
 	}, nil
+}
+
+// EndLockSession ends the session of the worker lock, as a restart of
+// horus-db does: the holder loses the lock, and the lock is free.
+func (s *Store) EndLockSession() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lock = 0
 }
 
 // Events gives the types of the event rows of a job, in order.

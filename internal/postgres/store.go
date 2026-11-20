@@ -447,29 +447,52 @@ func (s *Store) Events(ctx context.Context, id string) ([]jobdata.Event, error) 
 
 // WorkerLock takes the one-worker lock: a session advisory lock on its own
 // connection. It gives jobdata.ErrWorkerLocked when another session holds it.
-// The release unlocks and closes the connection. When the connection breaks,
-// Postgres releases the lock too.
-func (s *Store) WorkerLock(ctx context.Context) (func(), error) {
+// When the session ends (a restart of the database, or pg_terminate_backend),
+// Postgres releases the lock. Check asks the session of the lock if it holds
+// the lock, and gives an error that wraps jobdata.ErrLockLost when the session
+// ended. The release unlocks and closes the connection.
+func (s *Store) WorkerLock(ctx context.Context) (jobdata.Lock, error) {
 	conn, err := s.db.dial(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("postgres: the connection of the worker lock: %w", err)
+		return jobdata.Lock{}, fmt.Errorf("postgres: the connection of the worker lock: %w", err)
 	}
 	var ok bool
 	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockWorker).Scan(&ok); err != nil {
 		_ = conn.Close(context.Background())
-		return nil, fmt.Errorf("postgres: take the worker lock: %w", err)
+		return jobdata.Lock{}, fmt.Errorf("postgres: take the worker lock: %w", err)
 	}
 	if !ok {
 		_ = conn.Close(context.Background())
-		return nil, jobdata.ErrWorkerLocked
+		return jobdata.Lock{}, jobdata.ErrWorkerLocked
 	}
+	var mu sync.Mutex // a pgx.Conn runs one statement at a time
 	var once sync.Once
-	return func() {
-		once.Do(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockWorker)
-			_ = conn.Close(ctx)
-		})
+	return jobdata.Lock{
+		Check: func(ctx context.Context) error {
+			mu.Lock()
+			defer mu.Unlock()
+			var held bool
+			err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_locks WHERE pid = pg_backend_pid() AND locktype = 'advisory'
+    AND granted AND objsubid = 1 AND ((classid::bigint << 32) | objid::bigint) = $1)`, lockWorker).Scan(&held)
+			if err != nil {
+				return fmt.Errorf("postgres: the session of the worker lock ended: %w: %w", jobdata.ErrLockLost, err)
+			}
+			if !held {
+				return fmt.Errorf("postgres: the session of the worker lock holds no lock: %w", jobdata.ErrLockLost)
+			}
+			return nil
+		},
+		Release: func() {
+			once.Do(func() {
+				mu.Lock()
+				defer mu.Unlock()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if !conn.IsClosed() {
+					_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockWorker)
+				}
+				_ = conn.Close(ctx)
+			})
+		},
 	}, nil
 }

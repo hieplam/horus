@@ -30,12 +30,19 @@ func TestPostgresBroker(t *testing.T) {
 }
 
 // TestPostgresStore runs the store contract on the job store of
-// internal/postgres. Each check gets its own database.
+// internal/postgres. Each check gets its own database. The end of the session
+// of the worker lock is pg_terminate_backend in that database.
 func TestPostgresStore(t *testing.T) {
 	pgtest.Need(t)
-	RunStore(t, func(t testing.TB, now func() time.Time) (jobs.Store, func(string) []string) {
-		s := postgres.NewStore(pgtest.DB(t))
+	RunStore(t, func(t testing.TB, now func() time.Time) (jobs.Store, func(string) []string, func()) {
+		url := pgtest.URL(t)
+		s := postgres.NewStore(pgtest.Open(t, url))
 		s.Now = now
+		endLock := func() {
+			if n := pgtest.EndWorkerLock(t, url); n != 1 {
+				t.Fatalf("the end of the session of the worker lock: %d sessions ended, want 1", n)
+			}
+		}
 		return s, func(id string) []string {
 			evs, err := s.Events(context.Background(), id)
 			if err != nil {
@@ -46,6 +53,6 @@ func TestPostgresStore(t *testing.T) {
 				types = append(types, e.Type)
 			}
 			return types
-		}
+		}, endLock
 	})
 }

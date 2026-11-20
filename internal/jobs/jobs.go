@@ -71,8 +71,10 @@ type Store interface {
 	Sweep(ctx context.Context) (expired, abandoned int, err error)
 	Summary(ctx context.Context) (jobdata.Summary, error)
 	// WorkerLock takes the one-worker lock. It gives jobdata.ErrWorkerLocked
-	// when another worker holds it.
-	WorkerLock(ctx context.Context) (release func(), err error)
+	// when another worker holds it. Lock.Check tells if the lock is still
+	// held: the lock goes when its session ends, for example at a restart of
+	// the database (ADR 0037).
+	WorkerLock(ctx context.Context) (jobdata.Lock, error)
 	// Heartbeat writes the row of the worker w.ID in horus.workers, with
 	// heartbeat_at at the time now. The first call inserts the row. The
 	// summary gives the row with the newest heartbeat.

@@ -158,6 +158,84 @@ func TestWorkerOnPostgres(t *testing.T) {
 	}
 }
 
+// TestWorkerTakesTheLockAgain: when the session of the worker lock ends, the
+// worker holds the lock again on a new session in 10 s or less, and writes its
+// heartbeat again. This is the readiness check of horus-worker: a heartbeat
+// newer than 15 s, and a session that holds the worker lock. First only the
+// session of the lock ends (pg_terminate_backend). Then each session of the
+// worker ends, as a restart of horus-db does. A second worker still finds the
+// lock taken.
+func TestWorkerTakesTheLockAgain(t *testing.T) {
+	pgtest.Need(t)
+	url := pgtest.URL(t)
+	imageEnv(t)
+	t.Setenv("HORUS_DATABASE_URL", url)
+	settings.Reset()
+
+	var log lockedBuffer
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runWorker(ctx, &log) }()
+
+	var first int
+	eventually(t, "the worker takes the worker lock", 10*time.Second, func() bool {
+		first = pgtest.WorkerLockHolder(t, url)
+		return first != 0
+	})
+	db := pgtest.Open(t, url)
+	queue := jobs.New(postgres.NewStore(db), postgres.NewBroker(db, postgres.BrokerOptions{}), jobs.Config{})
+
+	// again ends the sessions with end, then waits until a new session holds
+	// the worker lock and the row of the worker has a heartbeat after that.
+	again := func(what string, end func() int) {
+		t.Helper()
+		before := pgtest.WorkerLockHolder(t, url)
+		if n := end(); n == 0 {
+			t.Fatalf("%s: no session ended", what)
+		}
+		ended := time.Now()
+		var holder int
+		for holder = pgtest.WorkerLockHolder(t, url); holder == 0 || holder == before; holder = pgtest.WorkerLockHolder(t, url) {
+			if time.Since(ended) > 30*time.Second {
+				t.Fatalf("%s: no session holds the worker lock 30 s after its session ended\nthe log of the worker:\n%s", what, log.String())
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if took := time.Since(ended); took > 10*time.Second {
+			t.Errorf("%s: a session holds the worker lock again after %s, want 10 s or less", what, took.Round(time.Millisecond))
+		} else {
+			t.Logf("%s: the session %d holds the worker lock again after %s", what, holder, took.Round(time.Millisecond))
+		}
+		eventually(t, what+": a heartbeat after the new lock", 10*time.Second, func() bool {
+			sum, err := queue.Summary(context.Background())
+			return err == nil && sum.Worker != nil && sum.Worker.HeartbeatAt.After(ended)
+		})
+	}
+	again("the session of the worker lock ends", func() int { return pgtest.EndWorkerLock(t, url) })
+	again("each session of the worker ends", func() int { return pgtest.EndSessions(t, url) })
+
+	sum, err := queue.Summary(context.Background())
+	if err != nil || sum.Worker == nil {
+		t.Fatalf("the summary: %+v, %v", sum.Worker, err)
+	}
+	second, stop2 := context.WithTimeout(context.Background(), 10*time.Second)
+	defer stop2()
+	if err := runWorker(second, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "another horus worker runs: id "+sum.Worker.ID) {
+		t.Errorf("a second worker after the lock came back: %v, want the error that names the first worker", err)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("the worker after its stop: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the worker did not stop in 10 s")
+	}
+}
+
 // TestWorkerNeedsTheDatabase: without HORUS_DATABASE_URL, horus worker exits
 // with 1 and names the setting. A bad HORUS_WORKER_CONCURRENCY also exits 1.
 func TestWorkerNeedsTheDatabase(t *testing.T) {

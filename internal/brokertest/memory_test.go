@@ -126,10 +126,10 @@ func TestMemoryAckAfterStop(t *testing.T) {
 
 // TestMemoryStore runs the store contract on the in-memory job store.
 func TestMemoryStore(t *testing.T) {
-	RunStore(t, func(_ testing.TB, now func() time.Time) (jobs.Store, func(string) []string) {
+	RunStore(t, func(_ testing.TB, now func() time.Time) (jobs.Store, func(string) []string, func()) {
 		s := NewStore()
 		s.Now = now
-		return s, s.Events
+		return s, s.Events, s.EndLockSession
 	})
 }
 
@@ -152,7 +152,29 @@ func (noSweep) Sweep(context.Context) (int, int, error) { return 0, 0, nil }
 // noLock is a job store whose worker lock lets each caller in.
 type noLock struct{ *Store }
 
-func (noLock) WorkerLock(context.Context) (func(), error) { return func() {}, nil }
+func (noLock) WorkerLock(context.Context) (jobdata.Lock, error) {
+	return jobdata.Lock{Check: func(context.Context) error { return nil }, Release: func() {}}, nil
+}
+
+// lockNeverLost is a job store whose Check of the worker lock always gives
+// nil: a worker on it never finds that the session of its lock ended.
+type lockNeverLost struct{ *Store }
+
+func (s lockNeverLost) WorkerLock(ctx context.Context) (jobdata.Lock, error) {
+	l, err := s.Store.WorkerLock(ctx)
+	l.Check = func(context.Context) error { return nil }
+	return l, err
+}
+
+// releaseAny is a job store whose release of a lock frees the worker lock of
+// any holder.
+type releaseAny struct{ *Store }
+
+func (s releaseAny) WorkerLock(ctx context.Context) (jobdata.Lock, error) {
+	l, err := s.Store.WorkerLock(ctx)
+	l.Release = s.EndLockSession
+	return l, err
+}
 
 // noHeartbeat is a job store whose Heartbeat writes nothing.
 type noHeartbeat struct{ *Store }
@@ -175,13 +197,15 @@ func TestStoreChecksFailOnBadStores(t *testing.T) {
 		{"move_from_expected_state", func(s *Store) jobs.Store { return moveFromAny{s} }, "with the job in queued: true, want false"},
 		{"sweep", func(s *Store) jobs.Store { return noSweep{s} }, "Sweep: 0 expired, 0 abandoned, <nil>; want 2 and 1"},
 		{"worker_lock", func(s *Store) jobs.Store { return noLock{s} }, "error <nil>, want jobdata.ErrWorkerLocked"},
+		{"worker_lock_lost", func(s *Store) jobs.Store { return lockNeverLost{s} }, "Check after the session of the lock ended: <nil>, want jobdata.ErrLockLost"},
+		{"worker_lock_lost", func(s *Store) jobs.Store { return releaseAny{s} }, "Check of the new lock after the release of the lost lock: jobdata: this worker no longer holds the worker lock, want nil"},
 		{"heartbeat", func(s *Store) jobs.Store { return noHeartbeat{s} }, "after the first heartbeat: Summary worker <nil>"},
 		{"delete_old", func(s *Store) jobs.Store { return keepOld{s} }, "DeleteOld: 0 deleted, <nil>; want 3"},
 	} {
-		got := storeFailures(t, c.check, func(_ testing.TB, now func() time.Time) (jobs.Store, func(string) []string) {
+		got := storeFailures(t, c.check, func(_ testing.TB, now func() time.Time) (jobs.Store, func(string) []string, func()) {
 			s := NewStore()
 			s.Now = now
-			return c.wrap(s), s.Events
+			return c.wrap(s), s.Events, s.EndLockSession
 		})
 		if len(got) == 0 {
 			t.Errorf("%s passes on a bad store", c.check)

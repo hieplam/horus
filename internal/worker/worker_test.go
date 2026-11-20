@@ -521,6 +521,144 @@ func TestOneWorker(t *testing.T) {
 	}
 }
 
+// lockDown is the in-memory job store whose WorkerLock fails while down is
+// true, as the job store of a database that is down.
+type lockDown struct {
+	*brokertest.Store
+	down atomic.Bool
+}
+
+func (s *lockDown) WorkerLock(ctx context.Context) (jobdata.Lock, error) {
+	if s.down.Load() {
+		return jobdata.Lock{}, errors.New("the database is down")
+	}
+	return s.Store.WorkerLock(ctx)
+}
+
+// runOn runs a worker on the service svc until the test ends. The channel
+// gives the error of worker.Run.
+func (e *env) runOn(t *testing.T, svc *jobs.Service, c worker.Config) (stop context.CancelFunc, done <-chan error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := make(chan error, 1)
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		ch <- worker.Run(ctx, c, svc, e.gen)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-ended:
+		case <-time.After(10 * time.Second):
+			t.Error("the worker did not stop in 10 s")
+		}
+	})
+	return cancel, ch
+}
+
+// TestWorkerTakesTheLockAgain: when the session of the worker lock ends (a
+// restart of horus-db), the worker finds it at its next heartbeat. While it
+// cannot take the lock again, a delivery waits at the gate: the job stays
+// queued and reaches no submit, and the worker writes no heartbeat. When the
+// lock is free again, the worker takes it, runs the job and writes its
+// heartbeat. A second worker then finds the lock taken.
+func TestWorkerTakesTheLockAgain(t *testing.T) {
+	e := setup(t, options{})
+	store := &lockDown{Store: e.store}
+	svc := jobs.New(store, e.broker, jobs.Config{Poll: 10 * time.Millisecond})
+	var log syncBuffer
+	c := e.config("worker-1", 1, &log)
+	c.LockRetry = 20 * time.Millisecond
+	stop, done := e.runOn(t, svc, c)
+	waitFor(t, "the row of worker-1", func() bool { w := e.summaryWorker(t); return w != nil && w.ID == "worker-1" })
+
+	store.down.Store(true)
+	e.store.EndLockSession()
+	waitFor(t, "the worker finds the lost lock", func() bool {
+		return strings.Contains(log.String(), "the worker lock is lost: jobdata: this worker no longer holds the worker lock")
+	})
+	waitFor(t, "the worker cannot take the lock again", func() bool {
+		return strings.Contains(log.String(), "the worker cannot take the worker lock again: the database is down")
+	})
+	beat := e.summaryWorker(t).HeartbeatAt
+	j, _ := e.submit(t, 1)
+	waitFor(t, "the delivery waits at the gate", func() bool {
+		return strings.Contains(log.String(), "a delivery waits until the worker holds the worker lock again")
+	})
+	if st := e.state(t, j.ID); st != jobdata.Queued {
+		t.Errorf("the job while the worker has no lock: %s, want queued", st)
+	}
+	if s := len(e.fake.submits()); s != 0 {
+		t.Errorf("%d submits while the worker has no lock, want 0", s)
+	}
+	if w := e.summaryWorker(t); !w.HeartbeatAt.Equal(beat) {
+		t.Errorf("the heartbeat moved from %s to %s while the worker has no lock", beat, w.HeartbeatAt)
+	}
+
+	store.down.Store(false)
+	waitFor(t, "the worker holds the lock again", func() bool {
+		return strings.Contains(log.String(), "the worker holds the worker lock again")
+	})
+	waitFor(t, "the job succeeded", func() bool { return e.state(t, j.ID) == jobdata.Succeeded })
+	waitFor(t, "a heartbeat after the lock came back", func() bool { return e.summaryWorker(t).HeartbeatAt.After(beat) })
+	if s := len(e.fake.submits()); s != 1 {
+		t.Errorf("%d submits, want 1", s)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := worker.Run(ctx, e.config("worker-2", 1, nil), e.jobs, e.gen)
+	var le *worker.LockedError
+	if !errors.As(err, &le) || le.First == nil || le.First.ID != "worker-1" {
+		t.Errorf("a second worker after the lock came back: %v, want a *LockedError that names worker-1", err)
+	}
+	stop()
+	if err := <-done; err != nil {
+		t.Errorf("worker-1 after its stop: %v", err)
+	}
+}
+
+// TestWorkerStopsWhenAnotherTookTheLock: the session of the lock of worker-1
+// ends, and worker-2 takes the free lock first. Then worker-1 finds the lock
+// taken: it stops, and worker.Run gives a *LockedError that names worker-2.
+// So two workers never run at the same time.
+func TestWorkerStopsWhenAnotherTookTheLock(t *testing.T) {
+	e := setup(t, options{})
+	store := &lockDown{Store: e.store}
+	svc := jobs.New(store, e.broker, jobs.Config{Poll: 10 * time.Millisecond})
+	var log syncBuffer
+	c := e.config("worker-1", 1, &log)
+	c.LockRetry = 20 * time.Millisecond
+	_, done := e.runOn(t, svc, c)
+	waitFor(t, "the row of worker-1", func() bool { w := e.summaryWorker(t); return w != nil && w.ID == "worker-1" })
+
+	store.down.Store(true)
+	e.store.EndLockSession()
+	waitFor(t, "worker-1 cannot take the lock again", func() bool {
+		return strings.Contains(log.String(), "the worker cannot take the worker lock again")
+	})
+	stop2 := e.start(t, e.config("worker-2", 1, nil))
+	waitFor(t, "the row of worker-2", func() bool { w := e.summaryWorker(t); return w != nil && w.ID == "worker-2" })
+	store.down.Store(false)
+
+	select {
+	case err := <-done:
+		var le *worker.LockedError
+		if !errors.As(err, &le) || le.First == nil || le.First.ID != "worker-2" {
+			t.Errorf("worker-1 after worker-2 took the lock: %v, want a *LockedError that names worker-2", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("worker-1 still runs 10 s after worker-2 took the lock\nthe log of worker-1:\n%s", log.String())
+	}
+	if !strings.Contains(log.String(), "stopped: id worker-1: another horus worker runs: id worker-2") {
+		t.Errorf("the log of worker-1 has no stop line that names worker-2:\n%s", log.String())
+	}
+	if err := stop2(); err != nil {
+		t.Errorf("worker-2: %v", err)
+	}
+}
+
 // TestSweep: the sweep of the worker moves a queued job with no waiter for
 // more than 60 s to abandoned, and a queued job after its deadline to
 // expired. ComfyUI is down, so no delivery starts and only the sweep of the

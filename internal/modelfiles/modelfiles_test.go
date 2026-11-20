@@ -124,3 +124,37 @@ func TestSizeHashAndDelete(t *testing.T) {
 		t.Error("the file is still there")
 	}
 }
+
+// TestOnlyModelsDir: in the stack, the models folder is the one folder of a
+// model file, also for text_encoders with a text encoder folder and with an
+// extra_model_paths.yaml, and the store refuses each change of the yaml file.
+func TestOnlyModelsDir(t *testing.T) {
+	s, dir := store(t)
+	s.ModelsDir, s.TextEncoderDir, s.OnlyModelsDir = filepath.Join(dir, "models"), filepath.Join(dir, "te"), true
+	yaml := filepath.Join(s.ComfyUIDir, "ComfyUI", "extra_model_paths.yaml")
+	if err := os.WriteFile(yaml, []byte("a:\n    base_path: "+dir+"\n    vae: extra/vae\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, folder := range []string{"vae", "text_encoders"} {
+		want := filepath.Join(dir, "models", folder)
+		if got := s.Dirs(folder); fmt.Sprint(got) != fmt.Sprint([]string{want}) {
+			t.Errorf("Dirs(%s) = %v, want [%s]", folder, got, want)
+		}
+		if got := s.Own(folder); got != want {
+			t.Errorf("Own(%s) = %s, want %s", folder, got, want)
+		}
+		if got := s.Mapped(folder); len(got) != 0 {
+			t.Errorf("Mapped(%s) = %v, want none", folder, got)
+		}
+	}
+	before, _ := os.ReadFile(yaml)
+	if err := s.Map([][2]string{{"vae", filepath.Join(dir, "other")}}); err == nil {
+		t.Error("Map changed nothing but gave no error")
+	}
+	if after, _ := os.ReadFile(yaml); string(after) != string(before) {
+		t.Errorf("Map changed extra_model_paths.yaml:\n%s", after)
+	}
+	if err := s.Map(nil); err != nil {
+		t.Errorf("Map with no pair: %v", err)
+	}
+}

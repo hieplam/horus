@@ -289,6 +289,16 @@ func QueueTimeout() (int, error) { return positive("HORUS_QUEUE_TIMEOUT", "7200"
 // that, the mean run time of the last succeeded jobs counts. Default 240.
 func RunEstimate() (int, error) { return positive("HORUS_RUN_ESTIMATE", "240") }
 
+// ModelsDir is HORUS_MODELS_DIR: the folder of the model files that ComfyUI
+// reads. In a container of the stack, it is the container folder where
+// Docker mounts that host folder. Empty: not set.
+func ModelsDir() string { return strings.TrimSpace(Get("HORUS_MODELS_DIR", "")) }
+
+// ModelsHostDir is HORUS_MODELS_HOST_DIR: in the container horus-api of the
+// stack, the host folder that Docker mounts at HORUS_MODELS_DIR, as horus
+// stack-mounts writes it. Empty: not known.
+func ModelsHostDir() string { return strings.TrimSpace(Get("HORUS_MODELS_HOST_DIR", "")) }
+
 // SharedDir is one pair of HORUS_SHARED_DIRS: a folder of the host and the
 // folder in the containers of the stack where Docker mounts it.
 type SharedDir struct {

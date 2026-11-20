@@ -17,7 +17,10 @@ type UninstallResult struct {
 	FreedBytes int64         `json:"freed_bytes"`
 }
 
-func uninstallWorkflow(images Images, setup Setup, speech Speech) tool {
+// uninstallWorkflow is the tool. In the stack (m), it deletes only model files
+// in the models folder of the stack, with the same consent and the same rules
+// as on the direct path, and refuses a speech workflow (ADR 0041).
+func uninstallWorkflow(images Images, setup Setup, speech Speech, m *Models) tool {
 	return tool{
 		name:  "uninstall_workflow",
 		title: "Uninstall a workflow",
@@ -43,6 +46,9 @@ func uninstallWorkflow(images Images, setup Setup, speech Speech) tool {
 			if err != nil {
 				return nil, err
 			}
+			if err := m.refusal("uninstall_workflow", w); err != nil {
+				return nil, err
+			}
 			confirm := c.args.boolean("confirm")
 			// An open model file cannot be deleted on Windows: the image
 			// backend unloads its models, and the speech worker of this server ends.
@@ -58,6 +64,7 @@ func uninstallWorkflow(images Images, setup Setup, speech Speech) tool {
 			req.Yes, req.Force = confirm, c.args.boolean("remove_shared")
 			// A remove runs to the end: it must not stop in the middle.
 			res, err := setup.Remove(context.WithoutCancel(ctx), req)
+			m.hostItems(res)
 			if err != nil {
 				return nil, removeError(res)
 			}

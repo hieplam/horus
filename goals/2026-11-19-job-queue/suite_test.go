@@ -766,22 +766,28 @@ func TestQueueProgress(t *testing.T) {
 		t.Errorf("calls with a position message: %d of 3, want each call: the first message is the place at the insert", withPosition)
 	}
 
-	// The estimated start of the first message of a call that comes while
-	// call 1 runs: the start of the run of call 1, plus one run estimate for
-	// each job before the call, minus the time of the insert of the call. The
-	// run of call 1 started from sent[0] to runSeen. The insert of the call was
-	// from the time before the call went out to the time of its first message.
-	firstStart := func(n, before int, out time.Time, first progressNote) {
+	// The estimated start of a message of a call while call 1 runs: the start
+	// of the run of call 1, plus one run estimate for each job before the
+	// call, minus the time when horus made the message. The run of call 1
+	// started from sent[0] to runSeen. horus made the message from the time
+	// before the call went out to the time when the message came.
+	startWhileRun := func(n, before int, out time.Time, note progressNote) {
 		t.Helper()
-		lo := time.Duration(before)*estimate - first.at.Sub(sent[0])
+		lo := time.Duration(before)*estimate - note.at.Sub(sent[0])
 		hi := time.Duration(before)*estimate - out.Sub(runSeen)
 		want := startRange(lo, hi)
-		p, ok := placeOf(first.message)
+		p, ok := placeOf(note.message)
 		if !ok || !slices.Contains(want, p.start) {
-			t.Errorf("call %d: first message %q, want the estimated start %q: %d jobs before it, HORUS_RUN_ESTIMATE %d s for each one, and the run of call 1 started from %s to %s before the call",
-				n, first.message, want, before, progressRunEstimate,
-				out.Sub(runSeen).Round(100*time.Millisecond), first.at.Sub(sent[0]).Round(100*time.Millisecond))
+			t.Errorf("call %d: message %q while call 1 runs, want the estimated start %q: %d jobs before it, HORUS_RUN_ESTIMATE %d s for each one, and the run of call 1 started from %s to %s before the message",
+				n, note.message, want, before, progressRunEstimate,
+				out.Sub(runSeen).Round(100*time.Millisecond), note.at.Sub(sent[0]).Round(100*time.Millisecond))
 		}
+	}
+	// end1 is the end of the run of call 1 on the fake ComfyUI. A message that
+	// came before it is a message that horus made while call 1 ran.
+	end1 := f.endOf(81)
+	if end1.IsZero() {
+		t.Fatal("the fake ComfyUI did not end the run of call 1")
 	}
 
 	// Call 1: an empty queue and a free slot. Each of its queue texts is the
@@ -800,7 +806,7 @@ func TestQueueProgress(t *testing.T) {
 	if p, ok := placeOf(firsts[1].message); !ok || p.pos != 1 || p.total != 1 {
 		t.Errorf("call 2: first message %q, want position 1 of 1: call 1 runs, and no job waits before call 2", firsts[1].message)
 	}
-	firstStart(2, 1, sent[1], firsts[1])
+	startWhileRun(2, 1, sent[1], firsts[1])
 	// Then call 3 comes behind it: position 1 of 2, while call 1 runs.
 	behind := 0
 	lastMinutes = -1
@@ -815,6 +821,9 @@ func TestQueueProgress(t *testing.T) {
 		if i > 0 && p.pos == 1 && p.total == 2 {
 			behind++
 		}
+		if i > 0 && n.at.Before(end1) {
+			startWhileRun(2, 1, sent[1], n)
+		}
 		if lastMinutes >= 0 && p.minutes > lastMinutes {
 			t.Errorf("call 2: %q after a start in %d min, want an estimated start that never moves away", n.message, lastMinutes)
 		}
@@ -824,13 +833,17 @@ func TestQueueProgress(t *testing.T) {
 		t.Errorf("call 2: no message with position 1 of 2 after its first one, want one: call 3 waits behind call 2 while call 1 runs: %q", queueTexts(all[1]))
 	}
 
-	// Call 3: two jobs before it at its insert.
-	firstStart(3, 2, start, notes[0])
+	// Call 3: two jobs before it at its insert, and while call 1 runs.
+	startWhileRun(3, 2, start, notes[0])
+	for _, n := range notes[1:] {
+		if p, ok := placeOf(n.message); ok && p.pos == 2 && n.at.Before(end1) {
+			startWhileRun(3, 2, start, n)
+		}
+	}
 	// Then call 1 ends and call 2 runs: call 3 is 1 of 1. That text can not
 	// come before the end of the run of call 1 on the fake ComfyUI. Its
 	// estimated start is at most one run away, and horus now uses the run time
 	// of call 1 from the job store.
-	end1 := f.endOf(81)
 	rows := query(t, "select extract(epoch from finished_at - started_at) from horus.jobs where payload->>'seed' = '81' and state = 'succeeded'")
 	if len(rows) != 1 {
 		t.Fatalf("the job store has %d succeeded jobs of call 1, want 1", len(rows))
@@ -851,7 +864,7 @@ func TestQueueProgress(t *testing.T) {
 			continue
 		}
 		next++
-		if end1.IsZero() || n.at.Before(end1) {
+		if n.at.Before(end1) {
 			t.Errorf("call 3: %q came %s before the end of the run of call 1, want it after: call 2 waits before call 3 until then",
 				n.message, end1.Sub(n.at).Round(10*time.Millisecond))
 		}

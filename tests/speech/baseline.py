@@ -1,15 +1,16 @@
 """baseline: measure the speech models of the workflow vi-speech on this machine.
 
 It speaks the 5 fixed sentences of tests/speech/sentences.json with VieNeu, reads each file back with the speech
-recognition model through the function `transcribe` of internal/speechworker/worker.py, and prints the facts that docs/specs/2026-11-20-text-to-speech.md needs: the share of wrong
-words, the loudness, the seconds of each call, the load time, the memory and the longest text that works.
+recognition model through the function `transcribe` of internal/speechworker/worker.py, and prints the facts that
+docs/specs/2026-11-20-text-to-speech.md needs: the share of wrong words, the loudness, the seconds of each call, the
+load time, the memory and the longest text that works.
 
 Run it with the Python of a venv that has the packages `vieneu` and `faster-whisper`, with ffmpeg on the PATH:
 
     <venv python> tests/speech/baseline.py --models <folder> [--out <folder>] [--runs N] [--long]
 
 --runs N speaks each sentence N times and ends with a table: for each sentence, the runs, the median and the worst
-share of wrong words. The spread of the spec comes from `--runs 12`. The folder of --out keeps each file, and
+share of wrong words. The spread in the spec comes from this option. The folder of --out keeps each file, and
 results.jsonl in it keeps the transcript and the share of each file.
 
 The model folder has three folders: `vieneu` (config.json, denoiser.onnx, onnx_update/), `codec` and
@@ -151,14 +152,14 @@ def main() -> int:
     ap.add_argument("--models", type=Path, required=True, help="the folder with vieneu/, codec/ and whisper-small/")
     ap.add_argument("--out", type=Path, default=None, help="where the audio files go; default: a temp folder")
     ap.add_argument("--voice", default=None, help="a preset voice; default: the default voice of the package")
-    ap.add_argument("--runs", type=int, default=1, help="speak each sentence this many times (the spread of the spec: 12)")
+    ap.add_argument("--runs", type=int, default=1, help="speak each sentence this many times")
     ap.add_argument("--long", action="store_true", help="also measure the longest text that works (slow)")
     args = ap.parse_args()
     models = args.models.resolve()
     for part in ("vieneu/onnx_update/config.json", "codec", "whisper-small/model.bin"):
         if not (models / part).exists():
             sys.exit(f"baseline: {models / part} does not exist")
-    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
     scratch = Path(tempfile.mkdtemp(prefix="horus-speech-baseline-"))
     out_dir = (args.out or scratch / "out").resolve()

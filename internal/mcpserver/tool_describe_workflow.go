@@ -54,10 +54,12 @@ func describeResult(d catalog.Detail, state string, files []InstallFile) Describ
 // reads the items and not the ok of the result. The install state counts each
 // part that the check lists: a model file, and for a speech workflow also the
 // speech venv, ffmpeg and ffprobe.
-func fileStates(ctx context.Context, setup Setup, w *catalog.Workflow) ([]InstallFile, string) {
+// In the stack (m), each path is the host path.
+func fileStates(ctx context.Context, setup Setup, w *catalog.Workflow, m *Models) ([]InstallFile, string) {
 	req := request(w)
 	req.Quick = true
 	res, _ := setup.Check(context.WithoutCancel(ctx), req)
+	m.hostItems(res)
 	parts, present := 0, 0
 	for _, it := range res.Items {
 		if it.Kind == "file" || it.Kind == "venv" || it.Kind == "program" {
@@ -71,7 +73,7 @@ func fileStates(ctx context.Context, setup Setup, w *catalog.Workflow) ([]Instal
 	return files, provision.InstallState(present, parts)
 }
 
-func describeWorkflow(setup Setup) tool {
+func describeWorkflow(setup Setup, m *Models) tool {
 	return tool{
 		name:  "describe_workflow",
 		title: "Describe a workflow",
@@ -112,7 +114,7 @@ func describeWorkflow(setup Setup) tool {
 			if err != nil {
 				return nil, err
 			}
-			files, state := fileStates(ctx, setup, w)
+			files, state := fileStates(ctx, setup, w, m)
 			d, err := catalog.DetailOf(w)
 			if err != nil {
 				return nil, err

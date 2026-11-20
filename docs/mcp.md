@@ -82,7 +82,7 @@ sequenceDiagram
   alt every model file is present
     S-->>A: return installed, already_installed=true
   else a model file is missing
-    S-->>A: LICENSE_CONFIRMATION_REQUIRED, with the license, the size and the files
+    S-->>A: LICENSE_CONFIRMATION_REQUIRED, with the license, the size, the files and the steps of the plan
     A->>U: show the license and the size
     U-->>A: agree
     A->>S: call again with accept_license=true
@@ -306,8 +306,8 @@ it starts ComfyUI, and `horus stop-comfyui` reads it.
 |---|---|---|
 | `list_workflows` | Lists the workflows: name, `kind` (`image` or `speech`), summary, `good_for`, `not_good_for`, default size, measured time, `install_state`. | No |
 | `describe_workflow(workflow)` | One workflow in full, with its `kind`. An image workflow shows size limits and how to write the subject (rules and examples). A speech workflow shows `text` (limits), `voices`, `default_voice`, `tags` and `formats`, and no graph. Both show the license and the state of each model file. | No |
-| `install_workflow(workflow, accept_license=false, accept_setup=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license and the size. When the machine needs a setup step (ComfyUI for an image workflow; Python 3.12, FFmpeg or the speech venv for a speech workflow), it first runs the setup plan: without `accept_setup=true` it returns `SETUP_CONFIRMATION_REQUIRED` with the steps. | Yes: downloads GB, installs ComfyUI, a venv and a system package |
-| `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files of an image workflow or a speech workflow. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another workflow of the same kind lists is kept unless `remove_shared=true`. | Yes: deletes files |
+| `install_workflow(workflow, accept_license=false, accept_setup=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license, the size and the steps of the plan (`details.steps`: one step for each model file to download, with its folder). When the machine needs a setup step (ComfyUI for an image workflow; Python 3.12, FFmpeg or the speech venv for a speech workflow), it first runs the setup plan: without `accept_setup=true` it returns `SETUP_CONFIRMATION_REQUIRED` with the steps. In the stack, the plan holds only model files, in `HORUS_MODELS_DIR` ([the model files in the stack](#the-model-files-in-the-stack)). | Yes: downloads GB, installs ComfyUI, a venv and a system package |
+| `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files of an image workflow or a speech workflow. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another workflow of the same kind lists is kept unless `remove_shared=true`. In the stack, it deletes only model files in `HORUS_MODELS_DIR`. | Yes: deletes files |
 | `generate_image(workflow, subject, out_path?, seed?, width?, height?, overwrite=false, idempotency_key?)` | Makes one PNG and waits until it is on disk. Returns the absolute path, the seed, `job_id`, `backend_job_id` and `queue_seconds`. | Writes one PNG |
 | `generate_speech(workflow, text, voice?, out_path?, overwrite=false)` | Makes one audio file and waits until it is on disk. Returns the absolute path and the transcript. | Writes one audio file |
 
@@ -520,6 +520,8 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | `HORUS_RUN_ESTIMATE` | `240` | In the stack: the seconds of one run that the estimated start of a queued job uses until a job succeeded. Then the mean run time of the last 10 succeeded jobs counts. |
 | `HORUS_SHARED_DIRS` | the output folder of horus and `/shared/outputs` | The shared folders of the stack: pairs `<host folder>=<container folder>`, with `;` between two pairs, for example `C:\Users\you\Pictures\horus=/shared/pictures`. Each container folder is one folder under `/shared/`. `horus stack-mounts` reads it on the host. |
 | `HORUS_HOST_OS` | set by `horus stack-mounts` | In the stack: the system of the host (`windows`, `darwin` or `linux`). It gives the rules of a host path. |
+| `HORUS_MODELS_DIR` | `<HORUS_COMFYUI_DIR>/ComfyUI/models` on this machine; none in the stack | The folder of the model files, with one subfolder for each kind of file. On this machine, horus looks for a model file there first, and a new download goes there. For the stack, it is the host folder of the model files that ComfyUI reads: `horus stack-mounts` mounts it into `horus-api` at `/models` and sets `HORUS_MODELS_DIR=/models` there ([the model files in the stack](#the-model-files-in-the-stack)). |
+| `HORUS_MODELS_HOST_DIR` | set by `horus stack-mounts` | In `horus-api`: the host folder of `HORUS_MODELS_DIR`. The model tools show the host path of each model file. |
 
 Only the code of `internal/download` reads `HF_TOKEN`, and `go test ./internal/archtest`
 enforces that. It reads the environment variable first, then the line in the `.env` file of the
@@ -742,6 +744,44 @@ sequenceDiagram
 - **`list_workflows`.** In the stack, its result also has `ready` (the 4 dependencies and their state) and `queue` (`waiting`, `running` and `slots`). On this machine without the stack, both are `null`.
 - **`generate_speech`.** The stack makes images only. In the stack, `generate_speech` answers `BACKEND_UNAVAILABLE`, not retryable, and `next_step` sends the user to the horus program of the host for speech. Issue #235 puts it through the job queue.
 
+### The model files in the stack
+
+In the stack, `install_workflow` downloads only model files, into
+`HORUS_MODELS_DIR` ([ADR 0041](adr/0041-install-workflow-in-the-stack-changes-only-the-models-folder.md)).
+ComfyUI runs on the host, and the owner sets it up there.
+
+Terms:
+
+- **Models folder:** the host folder of `HORUS_MODELS_DIR` in the `.env` of the stack: the model files that ComfyUI reads, with one subfolder for each kind of file (`diffusion_models`, `text_encoders`, `vae`). `horus stack-mounts` mounts it into `horus-api` at `/models`. `horus-worker` gets no models folder: it never reads a model file.
+
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant P as API process (horus mcp in horus-api)
+  participant M as Models folder (/models in horus-api)
+  participant C as ComfyUI (host)
+  A->>P: call install_workflow
+  P->>M: read the plan: each model file of models.json, by its size
+  Note over P: The plan has no ComfyUI step and no system package step.
+  alt every model file is there
+    P->>C: GET /object_info: ComfyUI lists each file
+    P-->>A: installed, already_installed=true, the host path of each file
+  else a model file is missing
+    P-->>A: LICENSE_CONFIRMATION_REQUIRED, details.steps = one step for each missing file, in the host folder
+    A->>P: call again with accept_license=true (after the consent of the user)
+    P->>M: download each missing file, check its size and SHA-256
+    P->>C: GET /object_info: ComfyUI lists each file
+    P-->>A: installed, or BACKEND_RESTART_REQUIRED when ComfyUI does not list a new file yet
+  end
+```
+
+- **The install state.** `list_workflows` and `describe_workflow` read the model files only in the models folder. A file of the right size counts as present. horus in the stack never reads the ComfyUI folder of the host or its `extra_model_paths.yaml`.
+- **The plan.** It holds one step for each missing model file, and no other step. horus in the stack never installs ComfyUI or a system package. It never changes `extra_model_paths.yaml`: ComfyUI must already read the models folder.
+- **The paths.** The answers give the host path of each model file and of each folder of a step, as `generate_image` gives the host path of a PNG.
+- **`uninstall_workflow`.** It works as on this machine: without `confirm=true` it answers `CONFIRMATION_REQUIRED` with the plan. A file that another workflow lists stays unless `remove_shared=true`. A file of another size than `models.json` says is never deleted. It deletes only files in the models folder.
+- **No models folder.** Without `HORUS_MODELS_DIR`, `list_workflows` shows each image workflow `not_installed`, and `install_workflow` and `uninstall_workflow` answer `BACKEND_NOT_INSTALLED`, action by human, with `details.setting` `HORUS_MODELS_DIR`. The `next_step` names the setting and `horus stack-mounts`.
+- **A speech workflow.** The stack has no speech setup, so `install_workflow` and `uninstall_workflow` of a speech workflow answer `BACKEND_UNAVAILABLE`, not retryable. The `next_step` sends the user to the horus program of the host.
+
 The goal suite `goals/2026-11-19-job-queue` starts its own test stack
 `horus_test` (`HORUS_STACK=horus_test`, host port 18190) with a fake ComfyUI
 on 127.0.0.1 of the host, and removes the stack and its volume at the end. It
@@ -878,8 +918,8 @@ failure of the worker, the test starts the server two more times, with the
 fake worker in the modes `die` and `error`.
 
 It ends with `contract: N of M passed` and exits 0 only when all pass. The total
-M is 39 server checks of the image tools, the kind and the code table, plus 16 speech checks,
-plus 7 checks of the speech setup, the install and the uninstall, plus 2 for each shipped workflow (66 with the 2 shipped workflows). The second check of a workflow depends on its
+M is 41 server checks of the image tools, the kind and the code table, plus 16 speech checks,
+plus 7 checks of the speech setup, the install and the uninstall, plus 2 for each shipped workflow (68 with the 2 shipped workflows). The second check of a workflow depends on its
 kind: an image workflow has no style words in its graph, and a speech workflow
 has no graph, no subject and no output. `--report <file>` also writes each
 check, and the answers of the server to the speech checks, as JSON. The goal
@@ -895,11 +935,20 @@ port of the fake, `--port`. The setting `HORUS_GENERATE_TIMEOUT` of the stack
 must be 12, because the check of the time limit needs a short limit.
 
 ```
-.scratch\test-venv\Scripts\python tests\mcp_contract.py --stack horus_test --port 18188 --shared-dir <shared folder>
+.scratch\test-venv\Scripts\python tests\mcp_contract.py --stack horus_test --port 18188 --shared-dir <shared folder> --models-dir <models folder> --workflows-dir <workflows folder>
 ```
 
 - `--shared-dir` is the host folder of one shared folder of the stack
   (`HORUS_SHARED_DIRS`). The test writes its PNG files there.
+- `--models-dir` is the models folder of the stack (`HORUS_MODELS_DIR` of
+  `horus stack-mounts`), and `--workflows-dir` is the workflows folder that
+  [`tests/stack-sandbox.yaml`](../tests/stack-sandbox.yaml) mounts into the
+  stack (`HORUS_TEST_WORKFLOWS_DIR`). Give two empty test folders, never the
+  model files of the machine. At its start, the test writes the workflows
+  `it-illustration` and `absent-style` there, with stand-in model files, as
+  on the host. It refuses a models folder with a file that it did not
+  write. Start the stack with `compose.yaml`, the file of
+  `horus stack-mounts` and `tests/stack-sandbox.yaml`.
 - `--port` is the port of the fake, and `--listen` is its address. The default
   is `127.0.0.1`: Docker Desktop gives a container the loopback of the host at
   `host.docker.internal`. Docker on Linux does not. There, a fake that listens
@@ -919,30 +968,38 @@ The fake answers with HTTP/1.1, and keeps a connection open for the next
 request. With HTTP/1.0, some requests that a container sends through
 `host.docker.internal` hang until their time limit.
 
-Each run on the stack has 26 checks, over stdio and over HTTP. One check is
-new: **the stack ran the call**.
-The PNG of `generate_image` is at the host path in the shared folder. The job
-row in `horus-db` is `succeeded`, it has the id of a worker, and its
-`backend_job_id` is the id of the job that the fake ComfyUI got. `job_id` is
-the horus job id, not the id of the job in ComfyUI. A server that runs on the
-host, and not in the stack, has no job row and fails this check.
+Each run on the stack has 37 checks, over stdio and over HTTP. Two checks
+are new. **The stack ran the call**: the PNG of `generate_image` is at the
+host path in the shared folder. The job row in `horus-db` is `succeeded`, it
+has the id of a worker, and its `backend_job_id` is the id of the job that the
+fake ComfyUI got. `job_id` is the horus job id, not the id of the job in
+ComfyUI. A server that runs on the host, and not in the stack, has no job row
+and fails this check. **The stack mounts the models folder of the test**: a
+marker file that the test writes into `--models-dir` can be read in
+`<name>-api` at `HORUS_MODELS_DIR`. Without it, the test deletes no model file
+and fails the uninstall checks.
+
+The install and uninstall checks are the same on the host and on the stack.
+One of them removes one stand-in model file: `list_workflows` then shows
+`it-illustration` as `partially_installed`, and the plan of `install_workflow`
+(the first call, before the consent) holds exactly that one model file step,
+in the models folder, and no setup step. The test then writes the file again.
+No check consents to a download.
 
 The run on the stack leaves out the checks that need the sandbox of the host:
 
 | Left out | Reason |
 |---|---|
-| The install states of the sandbox workflows, and the kind of each one | The sandbox holds model files and two extra workflows. The stack run checks the kind and the `install_state` of `it-illustration`. |
 | The speech checks and the speech worker checks | The stand-in speech workflow and the fake speech worker are files of the sandbox. The container has no speech setup. |
 | `WORKFLOW_NOT_INSTALLED` for `absent-style` | `absent-style` is a copy in the sandbox. |
-| `install_workflow` and `uninstall_workflow` (9 checks) | They change the model files of the sandbox. In the stack, the model files are on the host, with ComfyUI. |
-| The setup checks and the speech setup checks | They run `install_workflow` with a fake package manager on the PATH of a server on the host. |
+| The setup checks and the speech setup checks, with the 2 uninstall checks of the speech workflow | They run `install_workflow` with a fake package manager on the PATH of a server on the host. The stack has no speech setup. |
 | The 2 style-neutral checks of each shipped workflow | They read the workflow files of the repo, not an answer of the server. The host run has them. |
 | `BACKEND_UNAVAILABLE` when ComfyUI is down | The stack has no autostart. The same step checks `NOT_READY` with `details.down` that names `comfyui`. |
 
 The CI job `stack-contract` builds the image, starts the stack `horus_test`,
 runs this test over stdio and then over HTTP, and stops the stack. It runs
-with `--listen 0.0.0.0`, and it makes the shared folder writable for the
-container user (uid 10001). It makes a new random `HORUS_API_TOKEN` for each
+with `--listen 0.0.0.0`, and it makes the shared folder and the models folder
+writable for the container user (uid 10001). It makes a new random `HORUS_API_TOKEN` for each
 run. The goal rows `same-contract` and `worker-lost` of
 `go test -tags goal -v ./goals/2026-11-19-job-queue` start the stack themselves.
 `worker-lost` sends SIGKILL to the worker process while a job runs: a container

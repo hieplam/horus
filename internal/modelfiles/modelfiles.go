@@ -4,7 +4,8 @@
 // folder/F (HORUS_MODELS_DIR; for F = text_encoders, the text encoder folder
 // HORUS_TEXT_ENCODER_DIR comes first), <ComfyUI dir>/ComfyUI/models/F, then
 // every folder that ComfyUI's extra_model_paths.yaml maps to F. A new
-// download goes to the first folder.
+// download goes to the first folder. In the stack (OnlyModelsDir), the one
+// folder is the models folder/F.
 //
 // The package also gives the size and the SHA-256 of a file, deletes a file
 // (also a read-only one), and adds folders to extra_model_paths.yaml after a
@@ -35,6 +36,12 @@ type Store struct {
 	ComfyUIDir     string // the ComfyUI portable folder (default: HORUS_COMFYUI_DIR)
 	ModelsDir      string // default: HORUS_MODELS_DIR, then <ComfyUIDir>/ComfyUI/models
 	TextEncoderDir string // default: HORUS_TEXT_ENCODER_DIR
+	// OnlyModelsDir: the models folder is the one folder of the model
+	// files, and ComfyUI reads it. horus-api of the stack sets it (ADR
+	// 0041): ComfyUI runs on the host, so the container has no ComfyUI
+	// folder and no extra_model_paths.yaml. Dirs and Own give the models
+	// folder/F, Mapped gives none, and Map refuses each change.
+	OnlyModelsDir bool
 	// Now gives the time in the name of the backup of extra_model_paths.yaml.
 	// Default: time.Now.
 	Now func() time.Time
@@ -43,6 +50,9 @@ type Store struct {
 // Dirs gives the folders where a model file of this folder is looked for, in
 // order, as full paths, each one time.
 func (s *Store) Dirs(folder string) []string {
+	if s.OnlyModelsDir {
+		return []string{fullPath(filepath.Join(s.modelsDir(), folder))}
+	}
 	var dirs []string
 	if te := s.textEncoderDir(); folder == "text_encoders" && te != "" {
 		dirs = append(dirs, te)
@@ -64,12 +74,20 @@ func (s *Store) Dirs(folder string) []string {
 // Own gives ComfyUI's own models folder for this folder, as a full path.
 // ComfyUI reads it without a line in extra_model_paths.yaml.
 func (s *Store) Own(folder string) string {
+	if s.OnlyModelsDir {
+		return fullPath(filepath.Join(s.modelsDir(), folder))
+	}
 	return fullPath(filepath.Join(s.defaultModels(), folder))
 }
 
 // Mapped gives the folders that extra_model_paths.yaml maps to this folder,
 // as full paths, in the order of the file.
-func (s *Store) Mapped(folder string) []string { return s.yaml()[folder] }
+func (s *Store) Mapped(folder string) []string {
+	if s.OnlyModelsDir {
+		return nil
+	}
+	return s.yaml()[folder]
+}
 
 // Map adds each pair {folder, dir} to extra_model_paths.yaml, in order, as a
 // block "horus_<folder>". Before the first change of a file that exists, it
@@ -77,6 +95,9 @@ func (s *Store) Mapped(folder string) []string { return s.yaml()[folder] }
 func (s *Store) Map(pairs [][2]string) error {
 	if len(pairs) == 0 {
 		return nil
+	}
+	if s.OnlyModelsDir {
+		return errors.New("horus in the stack never changes extra_model_paths.yaml: the model files go only into HORUS_MODELS_DIR")
 	}
 	yamlPath := s.yamlPath()
 	text := ""

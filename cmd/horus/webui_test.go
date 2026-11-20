@@ -23,7 +23,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/hieplam/horus/internal/catalog"
-	"github.com/hieplam/horus/internal/cli"
 	"github.com/hieplam/horus/internal/postgres"
 	"github.com/hieplam/horus/internal/postgres/pgtest"
 	"github.com/hieplam/horus/internal/settings"
@@ -174,7 +173,8 @@ WHERE state IN ('succeeded', 'failed') AND finished_at >= $1 GROUP BY workflow`,
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, err := newSetup(cli.SetupPlace{}, seams{}).List(ctx, settings.WorkflowsDir())
+	// The oracle reads the model files with the setup service of horus api: the models folder of the stack.
+	rows, err := stackSetup().List(ctx, settings.WorkflowsDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,9 @@
 // first, then the license consent (spec docs/specs/2026-11-15-release-install.md,
 // "Setup through MCP"). A speech workflow needs no ComfyUI: its plan has
 // Python 3.12, FFmpeg, the speech venv and the model files (spec
-// docs/specs/2026-11-20-text-to-speech.md, "Install and uninstall").
+// docs/specs/2026-11-20-text-to-speech.md, "Install and uninstall"). In the
+// stack, the plan holds only model files, in the models folder of the stack
+// (models.go, ADR 0041).
 package mcpserver
 
 import (
@@ -37,7 +39,9 @@ type InstallResult struct {
 	Seconds          float64       `json:"seconds"`
 }
 
-func installWorkflow(setup Setup) tool {
+// installWorkflow is the tool. In the stack (m), the setup service gives a plan
+// of model files only, in the models folder of the stack.
+func installWorkflow(setup Setup, m *Models) tool {
 	return tool{
 		name:  "install_workflow",
 		title: "Install a workflow",
@@ -63,7 +67,7 @@ func installWorkflow(setup Setup) tool {
 			"InstallFile": installFileModel,
 		}),
 		body: func(ctx context.Context, c *call) (any, error) {
-			return install(ctx, c, setup)
+			return install(ctx, c, setup, m)
 		},
 	}
 }
@@ -96,15 +100,23 @@ type licenseFile struct {
 	Bytes int64  `json:"bytes"`
 }
 
-func install(ctx context.Context, c *call, setup Setup) (any, error) {
+func install(ctx context.Context, c *call, setup Setup, m *Models) (any, error) {
 	t0 := time.Now()
 	w, err := catalog.Get(c.args.str("workflow"))
 	if err != nil {
 		return nil, err
 	}
+	if err := m.refusal("install_workflow", w); err != nil {
+		return nil, err
+	}
 	// The plan reads the facts and changes nothing. A plan with only model
-	// files (ComfyUI is installed) goes on as before.
-	if pl, err := setup.Plan(context.WithoutCancel(ctx), request(w)); err == nil && setupSteps(pl) > 0 {
+	// files (ComfyUI is installed) goes on as before. In the stack, a plan
+	// with a setup step is a bug: the stack never installs ComfyUI.
+	pl, planErr := setup.Plan(context.WithoutCancel(ctx), request(w))
+	if planErr == nil && setupSteps(pl) > 0 {
+		if m != nil {
+			return nil, setupInStack(pl, m)
+		}
 		return installWithSetup(ctx, c, setup, w, pl, t0)
 	}
 	status, err := listStatus(ctx, setup)
@@ -115,6 +127,7 @@ func install(ctx context.Context, c *call, setup Setup) (any, error) {
 		req := request(w)
 		req.Quick = true
 		if res, _ := setup.Check(context.WithoutCancel(ctx), req); res.OK {
+			m.hostItems(res)
 			files := fileRows(res.Items, "file", map[string]string{"OK": "present"})
 			return InstallResult{Workflow: w.Name, InstallState: "installed", AlreadyInstalled: true, Files: files, Seconds: seconds(t0)}, nil
 		}
@@ -124,7 +137,7 @@ func install(ctx context.Context, c *call, setup Setup) (any, error) {
 		return nil, err
 	}
 	if !c.args.boolean("accept_license") {
-		return nil, licenseRequired(w)
+		return nil, licenseRequired(w, stepRows(pl, m))
 	}
 	res, err := watchInstall(ctx, c, setup, float64(lic.DownloadBytes), 0, func(watch provision.Watch) (*provision.Result, error) {
 		return setup.Install(ctx, request(w), watch)
@@ -132,6 +145,7 @@ func install(ctx context.Context, c *call, setup Setup) (any, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
+	m.hostItems(res)
 	if err != nil {
 		return nil, installError(res, err, w)
 	}
@@ -140,8 +154,10 @@ func install(ctx context.Context, c *call, setup Setup) (any, error) {
 }
 
 // licenseRequired is the answer LICENSE_CONFIRMATION_REQUIRED of w: its
-// license, its download size and its model files.
-func licenseRequired(w *catalog.Workflow) error {
+// license, its download size, its model files, and the steps of the plan
+// (steps: as details.steps of SETUP_CONFIRMATION_REQUIRED, with the folder of
+// each step).
+func licenseRequired(w *catalog.Workflow, steps []setupStep) error {
 	lic, err := w.License()
 	if err != nil {
 		return err
@@ -157,7 +173,7 @@ func licenseRequired(w *catalog.Workflow) error {
 	}
 	return herr.New("LICENSE_CONFIRMATION_REQUIRED",
 		fmt.Sprintf("installing %s downloads %s under the license '%s'", w.Name, sizeText(lic.DownloadBytes), lic.Name),
-		map[string]any{"license": lic.Name, "license_url": lic.URL, "download_bytes": lic.DownloadBytes, "files": files})
+		map[string]any{"license": lic.Name, "license_url": lic.URL, "download_bytes": lic.DownloadBytes, "files": files, "steps": steps})
 }
 
 // watchInstall runs run in its own goroutine and sends a progress
@@ -244,8 +260,9 @@ func setupSteps(pl provision.Plan) int {
 	return n
 }
 
-// stepRows gives details.steps of pl.
-func stepRows(pl provision.Plan) []setupStep {
+// stepRows gives details.steps of pl. In the stack (m), each folder is the
+// host folder.
+func stepRows(pl provision.Plan, m *Models) []setupStep {
 	rows := []setupStep{}
 	for _, st := range pl.Steps {
 		row := setupStep{Kind: st.Kind, Name: st.Name, Command: st.Command, Dir: ptr(st.Dir)}
@@ -254,6 +271,8 @@ func stepRows(pl provision.Plan) []setupStep {
 		}
 		if *row.Dir == "" {
 			row.Dir = nil
+		} else {
+			row.Dir = ptr(m.hostPath(*row.Dir))
 		}
 		rows = append(rows, row)
 	}
@@ -305,7 +324,7 @@ func (l *lockedText) tail(n int) []string {
 // installWithSetup is install_workflow on a machine whose plan has a step
 // that is not a model file. It changes nothing before both consents.
 func installWithSetup(ctx context.Context, c *call, setup Setup, w *catalog.Workflow, pl provision.Plan, t0 time.Time) (any, error) {
-	steps := stepRows(pl)
+	steps := stepRows(pl, nil)
 	var person *provision.PersonStepError
 	if errors.As(pl.Refusal(true), &person) {
 		pkg := person.Package
@@ -332,7 +351,7 @@ func installWithSetup(ctx context.Context, c *call, setup Setup, w *catalog.Work
 	}
 	files := len(pl.Steps) - setupSteps(pl)
 	if files > 0 && !c.args.boolean("accept_license") {
-		return nil, licenseRequired(w)
+		return nil, licenseRequired(w, steps)
 	}
 	lic, err := w.License()
 	if err != nil {
@@ -358,7 +377,7 @@ func installWithSetup(ctx context.Context, c *call, setup Setup, w *catalog.Work
 		if res != nil {
 			return nil, installError(res, err, w)
 		}
-		row := stepRows(provision.Plan{Steps: []provision.Step{failed}})[0]
+		row := stepRows(provision.Plan{Steps: []provision.Step{failed}}, nil)[0]
 		e := herr.New("BACKEND_NOT_INSTALLED", fmt.Sprintf("the setup step %s (%s) failed: %v", failed.Name, failed.Kind, err),
 			map[string]any{"step": row, "steps": steps, "output_tail": out.tail(20)})
 		e.NextStep = "Show the message and details.step to the user. When the user has fixed the cause, call install_workflow again with accept_setup=true."

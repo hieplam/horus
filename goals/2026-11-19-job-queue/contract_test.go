@@ -53,15 +53,19 @@ type contractRun struct {
 // over stdio (--stack horus_test), then over HTTP (--http, with the token of
 // the stack in the environment of the test, never on its command line). The
 // test stack has HORUS_GENERATE_TIMEOUT 12, as the checks of the time limit
-// need. The contract test starts its fake ComfyUI on a free port at once, and
-// waits until horus ready exits 0, so the first run starts while the stack
-// starts. Each run writes its own PNG file in the shared folder.
+// need, and the models folder and the workflows folder of the test
+// (newSandboxStack). The contract test starts its fake ComfyUI on a free port
+// at once, writes its workflows and its stand-in model files into the two
+// folders, and waits until horus ready exits 0, so the first run starts while
+// the stack starts. Each run writes its own PNG file in the shared folder,
+// and writes the two folders again.
 func stackContracts(t *testing.T) (stdio, overHTTP contractRun) {
 	t.Helper()
 	py := pythonOf(t)
 	port := freePort(t)
-	st := newQueueStack(t, port, "HORUS_GENERATE_TIMEOUT=12")
-	args := []string{filepath.Join("tests", "mcp_contract.py"), "--stack", testStack, "--port", strconv.Itoa(port), "--shared-dir", st.shared}
+	st := newSandboxStack(t, port, "HORUS_GENERATE_TIMEOUT=12")
+	args := []string{filepath.Join("tests", "mcp_contract.py"), "--stack", testStack, "--port", strconv.Itoa(port), "--shared-dir", st.shared,
+		"--models-dir", st.models, "--workflows-dir", st.workflows}
 	one := func(env []string, args []string, meanwhile func()) contractRun {
 		cmd := &background{cmd: exec.Command(py, args...)}
 		cmd.cmd.Dir, cmd.cmd.Env = root, env

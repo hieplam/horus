@@ -296,6 +296,41 @@ func stackWith(ctx context.Context, apiURL string, cfg jobs.Config) (mcpserver.S
 // its check of ComfyUI: the worker runs each job.
 func stackImages() *generate.Service { return generate.New(comfy.New(""), noStart{}) }
 
+// stackSetup is the setup service of an API process of the stack (ADR 0041).
+// Its model files are only in HORUS_MODELS_DIR, the folder of horus-api where
+// horus stack-mounts mounts the host folder that ComfyUI reads. ComfyUI runs
+// on the host (hostComfyUI), so a plan has no ComfyUI step and no system
+// package step: only model files. The check of the model files asks the
+// ComfyUI of HORUS_COMFYUI_URL.
+func stackSetup() *provision.Service { return stackSetupFor(seams{}) }
+
+// stackSetupFor is stackSetup with the test seams s: the downloads of
+// s.download.
+func stackSetupFor(s seams) *provision.Service {
+	files := &modelfiles.Store{OnlyModelsDir: true}
+	return provision.New(files, downloader{s.download}, comfy.New(""), hostComfyUI{}, "")
+}
+
+// hostComfyUI is the ComfyUI install of the setup service of the stack. The
+// owner installs and starts ComfyUI on the host (ADR 0029), so for the plan
+// ComfyUI is installed, and the stack never installs it.
+type hostComfyUI struct{}
+
+func (hostComfyUI) Installed() (string, bool) {
+	return "the ComfyUI of the host at " + settings.ComfyURL(), true
+}
+
+func (hostComfyUI) Install(context.Context, io.Writer) error {
+	return errors.New("horus in the stack never installs ComfyUI: the owner installs it on the host")
+}
+
+// stackModels is the models folder of an API process of the stack:
+// HORUS_MODELS_DIR, its host folder HORUS_MODELS_HOST_DIR and the system of
+// the host HORUS_HOST_OS, as horus stack-mounts writes them.
+func stackModels() *mcpserver.Models {
+	return mcpserver.ModelsOf(settings.ModelsDir(), settings.ModelsHostDir(), settings.HostOS())
+}
+
 // queueConfig gives the settings of the job queue of an API process:
 // HORUS_QUEUE_MAX, HORUS_QUEUE_TIMEOUT, HORUS_WORKER_CONCURRENCY (for the
 // estimated start) and HORUS_RUN_ESTIMATE.
@@ -348,7 +383,7 @@ func stackParts(ctx context.Context, apiURL string) (mcpserver.Options, mcpserve
 		return mcpserver.Options{}, mcpserver.Stack{}, nil, fmt.Errorf("the job queue has no database: %s", stack.Ready(ctx).Text())
 	}
 	q := &mcpserver.Queue{Jobs: svc, Paths: mcpserver.PathsOf(dirs, settings.HostOS()), QueueTimeout: cfg.QueueTimeout}
-	return mcpserver.Options{Ready: stack.Ready, Queue: q}, stack, done, nil
+	return mcpserver.Options{Ready: stack.Ready, Queue: q, Models: stackModels()}, stack, done, nil
 }
 
 // downQueue is the job queue when the database cannot be used: the checks of
@@ -417,7 +452,7 @@ func runAPI(ctx context.Context, listen string, out io.Writer) error {
 	}
 	ports := webui.Ports(port, ln.Addr().String())
 	token := settings.APIToken()
-	setup := newSetup(cli.SetupPlace{}, seams{})
+	setup := stackSetup()
 	queue, _ := stack.Queue.(webui.Queue)
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpserver.NewHTTP(stackImages(), setup, opts, mcpserver.HTTPConfig{Token: token, Ports: ports}))

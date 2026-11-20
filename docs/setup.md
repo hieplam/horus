@@ -528,15 +528,31 @@ machine: set it up with the steps above, and start it with
    HORUS_SHARED_DIRS=C:\Users\you\Pictures\horus=/shared/pictures
    ```
 
+   Also put the models folder in `.env`: `HORUS_MODELS_DIR` is the host
+   folder of the model files that ComfyUI reads, with one subfolder for each
+   kind of file (`diffusion_models`, `text_encoders`, `vae`). ComfyUI must
+   read this folder: its own `ComfyUI/models` folder, or a folder that
+   `extra_model_paths.yaml` of ComfyUI maps. The stack mounts it into
+   `horus-api`. There, `list_workflows` reads the install state, and
+   `install_workflow` and `uninstall_workflow` change only the model files
+   of this folder, after the consent of the user. Without the setting,
+   `install_workflow` in the stack answers `BACKEND_NOT_INSTALLED`.
+
+   ```
+   HORUS_MODELS_DIR=C:\Users\you\ComfyUI-models
+   ```
+
    Then run, from the repo root:
 
    ```
    horus stack-mounts
    ```
 
-   It writes `compose.override.yaml` next to `compose.yaml`. Git ignores the
-   file. After a change of `HORUS_SHARED_DIRS`, run it again, then
-   `docker compose up -d`.
+   It writes `compose.override.yaml` next to `compose.yaml`: the shared
+   folders and the models folder. Git ignores the file. After a change of
+   `HORUS_SHARED_DIRS` or `HORUS_MODELS_DIR`, run it again, then
+   `docker compose up -d`. On Linux, the user of the containers (uid 10001)
+   must be able to write into the models folder.
 
 3. Start the stack from the repo root. The first start builds the image
    `horus:local`.

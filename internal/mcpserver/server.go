@@ -92,11 +92,23 @@ type Options struct {
 	// through the queue and never calls ComfyUI, list_workflows shows the
 	// queue, and generate_speech refuses (ADR 0039). nil: the direct path.
 	Queue *Queue
+	// Models is the models folder of the stack (ADR 0041). With it,
+	// install_workflow and uninstall_workflow refuse a speech workflow, and
+	// refuse each call when Models.Dir is "". The tools show the host path
+	// of each model file. nil with Queue: the stack has no models folder.
+	Models *Models
 }
 
-// tools is the list of the 6 tools. Each tool lives in its own file.
-func tools(images Images, setup Setup, speech Speech, q *Queue) []tool {
-	return []tool{listWorkflows(images, setup, q), describeWorkflow(setup), installWorkflow(setup), uninstallWorkflow(images, setup, speech),
+// tools is the list of the 6 tools. Each tool lives in its own file. In the
+// stack (o.Queue), the model tools always get a models folder: without
+// o.Models it has no folder, so install_workflow and uninstall_workflow
+// refuse each call.
+func tools(images Images, setup Setup, speech Speech, o Options) []tool {
+	q, m := o.Queue, o.Models
+	if q != nil && m == nil {
+		m = &Models{}
+	}
+	return []tool{listWorkflows(images, setup, q), describeWorkflow(setup, m), installWorkflow(setup, m), uninstallWorkflow(images, setup, speech, m),
 		generateImage(images, q), generateSpeech(speech, q != nil)}
 }
 
@@ -160,7 +172,7 @@ func New(images Images, setup Setup, speech Speech) *mcp.Server {
 // NewWith is New with the parts of the stack in o.
 func NewWith(images Images, setup Setup, speech Speech, o Options) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: version.Version}, &mcp.ServerOptions{Instructions: serverInstructions})
-	for _, t := range tools(images, setup, speech, o.Queue) {
+	for _, t := range tools(images, setup, speech, o) {
 		s.AddTool(t.definition(), t.handler(o.Ready))
 	}
 	return s

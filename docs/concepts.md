@@ -248,6 +248,14 @@ containers. An agent of the stack can ask for a PNG only in a shared folder,
 and it gets the path of this machine back. `HORUS_SHARED_DIRS` names the
 shared folders, and `horus stack-mounts` writes their mounts.
 
+**Models folder of the stack.** The folder of this machine with the model
+files that ComfyUI reads (`HORUS_MODELS_DIR`). `horus stack-mounts` mounts it
+into `horus-api`. In the stack, `install_workflow` downloads only model files
+into it, and never installs ComfyUI. See
+[the model files in the stack](mcp.md#the-model-files-in-the-stack).
+
 **If wrong.** An `out_path` outside the shared folders gets
 `INVALID_ARGUMENT` with the list of the shared folders. A full queue gives
-`QUEUE_FULL`: call again after `details.retry_after_seconds`.
+`QUEUE_FULL`: call again after `details.retry_after_seconds`. A stack without
+`HORUS_MODELS_DIR` shows each image workflow as `not_installed`, and its
+`install_workflow` gives `BACKEND_NOT_INSTALLED` that names the setting.

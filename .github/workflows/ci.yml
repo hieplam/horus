@@ -105,7 +105,7 @@ jobs:
         shell: bash
         run: |
           python tests/mcp_contract.py --server-cmd "$GITHUB_WORKSPACE/bin/horus${{ runner.os == 'Windows' && '.exe' || '' }}" mcp | tee contract.log
-          grep -q "contract: 66 of 66 passed" contract.log
+          grep -q "contract: 68 of 68 passed" contract.log
 
   stack-contract:
     # tests/mcp_contract.py over stdio into the stack horus_test (docker exec -i horus_test-api horus mcp), then over
@@ -136,9 +136,14 @@ jobs:
         shell: bash
         run: |
           shared="$RUNNER_TEMP/shared"
-          mkdir -p "$shared"
-          # The container user (uid 10001) writes the PNG files into this folder of the runner user.
-          chmod 777 "$shared"
+          mkdir -p "$shared" "$RUNNER_TEMP/models" "$RUNNER_TEMP/workflows"
+          # The container user (uid 10001) writes the PNG files into this folder of the runner user, and deletes model
+          # files in the models folder of the test. The contract test writes its stand-in model files and its two
+          # workflows into the two empty test folders: the stack mounts them as HORUS_MODELS_DIR (horus stack-mounts)
+          # and HORUS_WORKFLOWS_DIR (tests/stack-sandbox.yaml).
+          chmod 777 "$shared" "$RUNNER_TEMP/models"
+          echo "HORUS_TEST_WORKFLOWS_DIR=$RUNNER_TEMP/workflows" >> "$GITHUB_ENV"
+          export HORUS_TEST_WORKFLOWS_DIR="$RUNNER_TEMP/workflows"
           # A new password for each run: it goes only into the environment of the job.
           pw="$(openssl rand -hex 16)"
           echo "::add-mask::$pw"
@@ -149,28 +154,30 @@ jobs:
           echo "::add-mask::$tok"
           echo "HORUS_API_TOKEN=$tok" >> "$GITHUB_ENV"
           export HORUS_API_TOKEN="$tok"
-          HORUS_SHARED_DIRS="$shared=/shared/ci" bin/horus stack-mounts -o "$RUNNER_TEMP/override.yaml"
-          docker compose -p horus_test -f compose.yaml -f "$RUNNER_TEMP/override.yaml" up -d --build
+          HORUS_SHARED_DIRS="$shared=/shared/ci" HORUS_MODELS_DIR="$RUNNER_TEMP/models" bin/horus stack-mounts -o "$RUNNER_TEMP/override.yaml"
+          docker compose -p horus_test -f compose.yaml -f "$RUNNER_TEMP/override.yaml" -f tests/stack-sandbox.yaml up -d --build
       - name: Contract test over stdio into the stack
         shell: bash
         run: |
           # The test starts its fake ComfyUI, and waits until horus ready exits 0 (the 4 dependencies are up).
-          python tests/mcp_contract.py --stack horus_test --port 18188 --listen 0.0.0.0 --shared-dir "$RUNNER_TEMP/shared" | tee stack-contract.log
-          grep -q "contract: 26 of 26 passed" stack-contract.log
+          python tests/mcp_contract.py --stack horus_test --port 18188 --listen 0.0.0.0 --shared-dir "$RUNNER_TEMP/shared" \
+            --models-dir "$RUNNER_TEMP/models" --workflows-dir "$RUNNER_TEMP/workflows" | tee stack-contract.log
+          grep -q "contract: 37 of 37 passed" stack-contract.log
       - name: Contract test over HTTP to /mcp of the stack
         shell: bash
         run: |
           # The same checks over Streamable HTTP, with the token of HORUS_API_TOKEN in the environment of the test.
-          python tests/mcp_contract.py --stack horus_test --http http://127.0.0.1:18190/mcp --port 18188 --listen 0.0.0.0 --shared-dir "$RUNNER_TEMP/shared" | tee stack-contract-http.log
-          grep -q "contract: 26 of 26 passed" stack-contract-http.log
+          python tests/mcp_contract.py --stack horus_test --http http://127.0.0.1:18190/mcp --port 18188 --listen 0.0.0.0 --shared-dir "$RUNNER_TEMP/shared" \
+            --models-dir "$RUNNER_TEMP/models" --workflows-dir "$RUNNER_TEMP/workflows" | tee stack-contract-http.log
+          grep -q "contract: 37 of 37 passed" stack-contract-http.log
       - name: The logs of the stack
         if: failure()
         shell: bash
-        run: docker compose -p horus_test -f compose.yaml -f "$RUNNER_TEMP/override.yaml" logs --no-color --tail 80
+        run: docker compose -p horus_test -f compose.yaml -f "$RUNNER_TEMP/override.yaml" -f tests/stack-sandbox.yaml logs --no-color --tail 80
       - name: Stop the stack
         if: always()
         shell: bash
-        run: docker compose -p horus_test -f compose.yaml -f "$RUNNER_TEMP/override.yaml" down -v --remove-orphans
+        run: docker compose -p horus_test -f compose.yaml -f "$RUNNER_TEMP/override.yaml" -f tests/stack-sandbox.yaml down -v --remove-orphans
 
   workflow-parity:
     # tests/workflow_parity.py: horus workflow against the golden files recorded from the old script.

@@ -135,7 +135,7 @@ var commands = map[string]command{
 			}
 			defer done()
 			return cli.MCP(ctx, args, os.Stderr, cli.Readiness(opts.Ready), func(ctx context.Context) error {
-				return mcpserver.Run(ctx, stackImages(), newSetup(cli.SetupPlace{}, seams{}), nil, opts)
+				return mcpserver.Run(ctx, stackImages(), stackSetup(), nil, opts)
 			})
 		})
 	}},

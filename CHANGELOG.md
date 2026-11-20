@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/hieplam/horus/compare/v0.1.4...v0.1.5) (2026-11-20)
+
+
+### Bug Fixes
+
+* **stack:** install_workflow plans only model files in HORUS_MODELS_DIR, and list_workflows reads the install state there ([#242](https://github.com/hieplam/horus/issues/242)) ([#249](https://github.com/hieplam/horus/issues/249)) ([35e1e46](https://github.com/hieplam/horus/commit/35e1e46c8f87815ad26d94610be27b0d77dcb45f))
+
 ## [0.1.4](https://github.com/hieplam/horus/compare/v0.1.3...v0.1.4) (2026-11-20)
 
 

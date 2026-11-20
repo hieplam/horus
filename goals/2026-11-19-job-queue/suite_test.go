@@ -504,9 +504,12 @@ func TestQueueProgress(t *testing.T) {
 			withPosition++
 		}
 	}
+	if withPosition != 3 {
+		t.Errorf("calls with a position message: %d of 3, want each call: the first message is the place at the insert", withPosition)
+	}
 	t.Logf("call 3: first message %q; %d messages with its place in the queue, %d messages in all, each gap at most 10 s",
 		notes[0].message, positions, len(notes))
-	t.Logf("calls with a position message: %d of 3 (call 1 can start before its first message)", withPosition)
+	t.Logf("calls with a position message: %d of 3", withPosition)
 }
 
 // TestCancelAndDeadline makes calls on the test stack while one job runs on

@@ -714,3 +714,21 @@ func TestWaitReportsEveryPoll(t *testing.T) {
 		}
 	}
 }
+
+// TestSubmitStatus: SubmitStatus gives the place of the job in the queue at
+// its insert, and its progress text.
+func TestSubmitStatus(t *testing.T) {
+	e := newEnv(t, jobs.Config{DefaultRun: 4 * time.Minute})
+	submit(t, e)
+	j, st, err := e.svc.SubmitStatus(context.Background(), request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != jobdata.Queued || st.Position != 2 || st.Total != 2 || !st.Start.Equal(t0.Add(4*time.Minute)) ||
+		st.Message != "waiting in the horus queue, position 2 of 2, start in about 4 min" {
+		t.Errorf("status %+v", st)
+	}
+	if got := get(t, e, j.ID); got.State != jobdata.Queued {
+		t.Errorf("state %s", got.State)
+	}
+}

@@ -42,7 +42,7 @@ type stackEnv struct {
 	progress  chan string
 }
 
-func newStackEnv(t *testing.T, cfg jobs.Config) *stackEnv {
+func newStackEnv(t *testing.T, cfg jobs.Config, wrap ...func(jobs.Store) jobs.Store) *stackEnv {
 	t.Helper()
 	useRepoWorkflows(t)
 	e := &stackEnv{images: &fakeImages{running: true}, store: brokertest.NewStore(), container: filepath.ToSlash(t.TempDir()),
@@ -54,7 +54,11 @@ func newStackEnv(t *testing.T, cfg jobs.Config) *stackEnv {
 	if cfg.Touch == 0 {
 		cfg.Touch = 50 * time.Millisecond
 	}
-	e.svc = jobs.New(e.store, brokertest.NewBroker(), cfg)
+	var store jobs.Store = e.store
+	for _, w := range wrap {
+		store = w(store)
+	}
+	e.svc = jobs.New(store, brokertest.NewBroker(), cfg)
 	q := &Queue{Jobs: e.svc, QueueTimeout: cfg.QueueTimeout,
 		Paths: PathsOf([]settings.SharedDir{{Host: hostShared, Container: e.container}}, "windows")}
 	ready := func(context.Context, ...string) jobdata.Readiness {
@@ -398,4 +402,26 @@ func TestQueueSpeechAndList(t *testing.T) {
 	if v, ok := r["queue"]; !ok || v != nil {
 		t.Errorf("direct path: queue %v", v)
 	}
+}
+
+// TestQueueFirstMessageIsThePlace: a free worker starts the job at once, and
+// the first progress message is still the place of the job at its insert.
+func TestQueueFirstMessageIsThePlace(t *testing.T) {
+	e := newStackEnv(t, jobs.Config{}, func(s jobs.Store) jobs.Store { return slowGet{s} })
+	e.worker(t, nil)
+	if env := e.call(t, context.Background(), map[string]any{"workflow": "it-illustration", "subject": testSubject}); env["ok"] != true {
+		t.Fatalf("%v", env)
+	}
+	if first := <-e.progress; first != "waiting in the horus queue, position 1 of 1, start in less than 1 min" {
+		t.Errorf("first progress %q", first)
+	}
+}
+
+// slowGet is a job store whose Get waits 50 ms: the worker moves a new job
+// to running before the first read of the waiter.
+type slowGet struct{ jobs.Store }
+
+func (s slowGet) Get(ctx context.Context, id string) (jobdata.Job, error) {
+	time.Sleep(50 * time.Millisecond)
+	return s.Store.Get(ctx, id)
 }

@@ -64,8 +64,9 @@ sections "One job, step by step", "Settings" and "MCP contract".
   estimated start uses until a job succeeded.
 - A cancel of the call, or the end of its session, cancels the job: a queued
   job moves to `cancelled`, and the worker stops a running job.
-- The waiter reports its progress at each read of the job store (every 5 s),
-  and writes `waiter_seen_at` every 10 s.
+- The first progress message of a call is the place of its job at the insert
+  (`jobs.Service.SubmitStatus`). Then the waiter reports its progress at each
+  read of the job store (every 5 s), and writes `waiter_seen_at` every 10 s.
 
 ## Consequences
 

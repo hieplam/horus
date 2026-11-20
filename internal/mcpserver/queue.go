@@ -120,7 +120,7 @@ func (q *Queue) generate(ctx context.Context, images Images, c *call) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	j, err := q.Jobs.Submit(ctx, jobdata.Job{
+	j, st, err := q.Jobs.SubmitStatus(ctx, jobdata.Job{
 		Tool: jobdata.ToolImage, Workflow: plan.Workflow, Backend: jobdata.BackendComfyUI,
 		ResourceKey: jobdata.BackendComfyUI + "/" + plan.Workflow, Payload: payload,
 		RequestHash: fp.Hash, IdempotencyKey: fp.Key, Caller: callerOf(c),
@@ -133,7 +133,11 @@ func (q *Queue) generate(ctx context.Context, images Images, c *call) (any, erro
 		return nil, err
 	}
 	logf("INFO", "call generate_image: job %s queued", j.ID)
-	done, err := q.Jobs.Wait(ctx, j.ID, jobs.Report(c.report))
+	report := rising(c.report)
+	// The first message is the place at the insert: a free worker can start
+	// the job before the first read of the waiter.
+	report(ctx, 0, 0, st.Message)
+	done, err := q.Jobs.Wait(ctx, j.ID, jobs.Report(report))
 	if err != nil {
 		if ctx.Err() != nil {
 			// The call ended: the agent cancelled it or left. Cancel the job
@@ -146,6 +150,20 @@ func (q *Queue) generate(ctx context.Context, images Images, c *call) (any, erro
 		return nil, err
 	}
 	return q.result(done, hostOut, t0)
+}
+
+// rising gives the reports of r with progress values that only rise, as MCP
+// needs: a value that is not above the last one becomes the last one plus
+// 0.001.
+func rising(r Reporter) Reporter {
+	last := -1.0
+	return func(ctx context.Context, progress, total float64, message string) {
+		if progress <= last {
+			progress = last + 0.001
+		}
+		last = progress
+		r(ctx, progress, total, message)
+	}
 }
 
 // fingerprint is the recipe of ADR 0027 for the call: the arguments as the

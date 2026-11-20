@@ -33,24 +33,33 @@ func (e *QueueFullError) Error() string {
 // CreatedAt, Deadline and WaiterSeenAt, inserts the job and publishes one
 // message to its work queue. A full queue gives a *QueueFullError, and no job.
 func (s *Service) Submit(ctx context.Context, j jobdata.Job) (jobdata.Job, error) {
+	j, _, err := s.SubmitStatus(ctx, j)
+	return j, err
+}
+
+// SubmitStatus is Submit, and it also gives the place of the job in the
+// queue at its insert, with its estimated start and the progress text. A
+// caller can report it at once: a free worker can move the job to running
+// before the first read of Wait.
+func (s *Service) SubmitStatus(ctx context.Context, j jobdata.Job) (jobdata.Job, Status, error) {
 	now := s.cfg.Now()
 	queued, err := s.store.Queued(ctx)
 	if err != nil {
-		return jobdata.Job{}, err
+		return jobdata.Job{}, Status{}, err
 	}
 	sum, err := s.store.Summary(ctx)
 	if err != nil {
-		return jobdata.Job{}, err
+		return jobdata.Job{}, Status{}, err
 	}
 	run := meanRun(sum, s.cfg.DefaultRun)
 	start := EstimateStart(now, queued+1, s.cfg.Slots, runningStarts(sum), run)
 	deadline := now.Add(s.cfg.QueueTimeout)
 	if c := CheckQueue(queued, s.cfg.QueueMax, start, deadline, run, s.cfg.Slots); c.Full {
-		return jobdata.Job{}, &QueueFullError{QueueCheck: c, Queued: queued, Max: s.cfg.QueueMax, Start: start, Deadline: deadline}
+		return jobdata.Job{}, Status{}, &QueueFullError{QueueCheck: c, Queued: queued, Max: s.cfg.QueueMax, Start: start, Deadline: deadline}
 	}
 	id, err := NewID(now, rand.Reader)
 	if err != nil {
-		return jobdata.Job{}, err
+		return jobdata.Job{}, Status{}, err
 	}
 	j.ID = id
 	j.WorkQueue = WorkQueue(j.Backend)
@@ -60,17 +69,18 @@ func (s *Service) Submit(ctx context.Context, j jobdata.Job) (jobdata.Job, error
 	j.Deadline = deadline
 	j.WaiterSeenAt = now
 	if err := s.store.Insert(ctx, j); err != nil {
-		return jobdata.Job{}, err
+		return jobdata.Job{}, Status{}, err
 	}
 	m := jobdata.Message{V: jobdata.MessageVersion, JobID: j.ID, Tool: j.Tool, Backend: j.Backend}
 	if err := s.broker.Publish(ctx, j.WorkQueue, m); err != nil {
 		// No message: no worker can run the job. End it now.
 		_, _ = s.move(ctx, j.ID, []jobdata.State{jobdata.Queued}, jobdata.Failed, jobdata.Change{At: s.cfg.Now(),
 			Error: &jobdata.JobError{Code: "INTERNAL", Message: "the broker refused the message: " + err.Error()}})
-		return jobdata.Job{}, err
+		return jobdata.Job{}, Status{}, err
 	}
 	s.notify(ctx, j.ID, jobdata.EventType(jobdata.Queued), now)
-	return j, nil
+	pos := queued + 1
+	return j, Status{State: jobdata.Queued, Position: pos, Total: pos, Start: start, Message: QueueText(pos, pos, start.Sub(now))}, nil
 }
 
 // Status is what a waiter tells about a job now.

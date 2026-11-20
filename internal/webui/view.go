@@ -150,6 +150,10 @@ type Settings struct {
 	RunLimit time.Duration
 	// Broker is the name of the broker, for example Postgres.
 	Broker string
+	// Paths are the shared folders of the stack (HORUS_SHARED_DIRS). The
+	// page shows the host path of a PNG whose job row holds a container
+	// path. Without a shared folder, the page shows the path of the row.
+	Paths jobs.Paths
 }
 
 // Backend is the backend of the jobs of generate_image.

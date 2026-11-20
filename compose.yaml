@@ -31,6 +31,9 @@ x-horus: &horus
     HORUS_WORKER_CONCURRENCY: ${HORUS_WORKER_CONCURRENCY:-1}
     HORUS_GENERATE_TIMEOUT: ${HORUS_GENERATE_TIMEOUT:-1800}
     HORUS_JOB_RETENTION_DAYS: ${HORUS_JOB_RETENTION_DAYS:-30}
+    # The port of horus api in the container and on 127.0.0.1 of the host is
+    # the same, so that the Horus UI accepts the Host header of the browser.
+    HORUS_API_PORT: ${HORUS_API_PORT:-8190}
 
 services:
   horus-db:
@@ -71,10 +74,10 @@ services:
   horus-api:
     <<: *horus
     container_name: ${HORUS_STACK:-horus}-api
-    command: ["horus", "api", "-listen", "0.0.0.0:8190"]
+    command: ["horus", "api", "-listen", "0.0.0.0:${HORUS_API_PORT:-8190}"]
     # Only on 127.0.0.1 of the host.
     ports:
-      - "127.0.0.1:${HORUS_API_PORT:-8190}:8190"
+      - "127.0.0.1:${HORUS_API_PORT:-8190}:${HORUS_API_PORT:-8190}"
     depends_on:
       horus-db:
         condition: service_healthy

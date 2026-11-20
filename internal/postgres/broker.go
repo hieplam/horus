@@ -94,6 +94,16 @@ SELECT pg_notify('`+channelMessages+`', $1) FROM m`, queue, string(body))
 	return nil
 }
 
+// Depth gives the count of the visible messages of the queue: the messages
+// that wait for a delivery. A message that a delivery hides does not count.
+func (b *Broker) Depth(ctx context.Context, queue string) (int, error) {
+	var n int
+	if err := b.db.pool.QueryRow(ctx, "SELECT count(*) FROM horus.messages WHERE queue = $1 AND visible_at <= now()", queue).Scan(&n); err != nil {
+		return 0, fmt.Errorf("postgres: the depth of %s: %w", queue, err)
+	}
+	return n, nil
+}
+
 // Notify sends the event to each process that listens now (NOTIFY
 // horus_events). It keeps nothing.
 func (b *Broker) Notify(ctx context.Context, e jobdata.Event) error {

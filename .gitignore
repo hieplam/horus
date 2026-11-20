@@ -14,12 +14,14 @@
 *.part
 *.7z
 
-# Generated images. Only the example images of a workflow are kept.
+# Generated images. Only the example images of a workflow, and the
+# screenshots of a spec next to its reference, are kept.
 *.png
 *.jpg
 *.jpeg
 *.webp
 !workflows/*/examples/*.png
+!docs/specs/*/*.png
 
 # Go build output
 bin/

@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -271,7 +272,7 @@ func TestConcurrencySetting(t *testing.T) {
 // each one is a subtest of the test of each broker.
 var brokerChecks = []string{"order", "at_most_prefetch", "ack_deletes", "again_after_consumer_stops",
 	"two_consumers_never_share", "nack_requeue", "nack_drop", "queues_are_separate", "notify_each_listener",
-	"listen_from_its_start", "long_delivery"}
+	"listen_from_its_start", "long_delivery", "depth"}
 
 func TestBrokerContract(t *testing.T) {
 	if os.Getenv("HORUS_TEST_DATABASE_URL") == "" {
@@ -351,6 +352,59 @@ func TestIdempotencyRecorded(t *testing.T) {
 	t.Fatal("not built: request_hash and idempotency_key in each job row of Postgres, and the end-to-end run: two equal calls make 2 rows with the same key")
 }
 
+// uiLine is the line of the Go test TestHorusUI of cmd/horus for one
+// fixture: the parts of the reference that the page has, and the counts of
+// the page and of the JSON summary that equal the counts of SQL.
+var uiLine = regexp.MustCompile(`ui-matches-mockup: fixture (\w+): (\d+) of (\d+) parts, (\d+) of (\d+) counts equal`)
+
+// uiCounts is the least count of checks of one fixture: a test that checks
+// fewer counts fails the row.
+const uiCounts = 17
+
+// TestUiMatchesMockup runs the Go test TestHorusUI of cmd/horus: horus api
+// on a new test database with each of the two fixtures of
+// internal/webui/uifixture (the example data of the reference
+// docs/specs/2026-11-19-job-queue-ui.html, and other numbers). For both
+// fixtures, the page has the 11 parts of the reference, and each count of the
+// page and of the JSON summary equals the count that SQL reads. A page with
+// the numbers of one fixture fails the other. The screenshots at 1920 x 1080
+// next to the reference are in docs/specs/2026-11-19-job-queue-ui/, and the
+// judgment of each part is in the pull request of task #205.
 func TestUiMatchesMockup(t *testing.T) {
-	t.Fatal("not built: the Horus UI next to docs/specs/2026-11-19-job-queue-ui.html, and the JSON summary against SQL counts")
+	if os.Getenv("HORUS_TEST_DATABASE_URL") == "" {
+		t.Fatal("HORUS_TEST_DATABASE_URL is not set: the Horus UI reads its fixtures from a test Postgres. " +
+			"Start one and set the variable to its URL (docs/mcp.md#the-postgres-tests)")
+	}
+	code, out := run(t, root, "go", "test", "-count=1", "-run", "^TestHorusUI$", "-v", "./cmd/horus")
+	if code != 0 || !passed(out, "TestHorusUI") {
+		t.Fatalf("go test -run TestHorusUI ./cmd/horus: exit code %d:\n%s", code, out)
+	}
+	lines := map[string][]string{}
+	for _, m := range uiLine.FindAllStringSubmatch(out, -1) {
+		lines[m[1]] = m
+	}
+	matched := 0
+	for _, name := range []string{"reference", "other"} {
+		m, ok := lines[name]
+		if !ok {
+			t.Errorf("the test printed no line ui-matches-mockup for the fixture %s:\n%s", name, out)
+			continue
+		}
+		parts, of, equal, counts := atoi(m[2]), atoi(m[3]), atoi(m[4]), atoi(m[5])
+		if parts != 11 || of != 11 {
+			t.Errorf("fixture %s: %d of %d parts, want 11 of 11", name, parts, of)
+		}
+		if equal != counts || counts < uiCounts {
+			t.Errorf("fixture %s: %d of %d counts equal, want all of at least %d", name, equal, counts, uiCounts)
+		}
+		if name == "reference" {
+			matched = parts
+		}
+	}
+	t.Logf("parts that match: %d of 11", matched)
+}
+
+func atoi(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
 }

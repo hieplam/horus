@@ -498,7 +498,7 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | `HORUS_DATABASE_URL` | none | The Postgres database of the job queue: the job store and the broker. [`horus worker`](#the-worker) and `horus api` need it. With it, `horus mcp` runs as in the stack: it serves only when horus is ready. The password can come from `PGPASSWORD`, so the URL needs none. horus never writes the password to a log. |
 | `HORUS_WORKER_CONCURRENCY` | `1` | The slots of `horus worker`: the count of jobs that it runs at the same time. |
 | `HORUS_JOB_RETENTION_DAYS` | `30` | `horus worker` deletes a job and its events this many days after the job ended. |
-| `HORUS_API_PORT` | `8190` | The port of `horus api` on 127.0.0.1. In the stack, `compose.yaml` publishes this port of the host. In the container, `horus api` listens on 8190. |
+| `HORUS_API_PORT` | `8190` | The port of `horus api` on 127.0.0.1: the [Horus UI](#the-horus-ui), `/readyz` and `/livez`. In the stack, `horus api` listens on this port in the container, and `compose.yaml` publishes the same port only on 127.0.0.1 of the host. The Horus UI answers only to a `Host` header with this port. |
 | `HORUS_STACK` | `horus` | The name of the stack in `compose.yaml`: its containers are `<name>-api`, `<name>-worker` and `<name>-db`, its volume `<name>-db-data`, its image `<name>:local`. `horus register -docker` uses it for the name of the container. |
 | `HORUS_DB_PASSWORD` | none | Only for `docker compose`: the password of the database in `horus-db`. `compose.yaml` gives it to the containers as `PGPASSWORD`. |
 
@@ -560,13 +560,13 @@ Terms:
 | `horus-db` | The database answers, and its schema `horus` has the version of the program | `pg_isready` | nothing |
 | `comfyui` | `GET <HORUS_COMFYUI_URL>/system_stats` answers 200 | none: the owner starts ComfyUI on the host | the owner starts it |
 | `horus-worker` | The newest row in `horus.workers` has a heartbeat newer than 15 s, and a worker holds the worker lock | `horus ready -only horus-worker` | `horus-db` is healthy |
-| `horus-api` | `horus api` answers `GET http://127.0.0.1:8190/livez` with 200 | `horus ready`: all 4 checks | `horus-db` and `horus-worker` are healthy |
+| `horus-api` | `horus api` answers `GET http://127.0.0.1:<HORUS_API_PORT>/livez` with 200 | `horus ready`: all 4 checks | `horus-db` and `horus-worker` are healthy |
 
 Docker runs each health check every 5 s, and every 1 s in the first 60 s
 after a start. Each container has `restart: unless-stopped`.
 
 - `horus ready` runs the 4 checks and prints one `ok` or `FAIL` line for each. Its exit code is 0 only when all pass. It needs `HORUS_DATABASE_URL`, so run it in the stack: `docker exec horus-api horus ready`. `-only <dependency>` runs one check.
-- `horus api` is the main process of `horus-api`. It serves `GET /readyz`: the report as JSON, with 200 when horus is ready, else 503. It serves `GET /livez`: 200 while it runs. It writes the report to its log when the readiness changes (`docker logs horus-api`).
+- `horus api` is the main process of `horus-api`. It serves `GET /readyz`: the report as JSON, with 200 when horus is ready, else 503. It serves `GET /livez`: 200 while it runs. It serves [the Horus UI](#the-horus-ui) at `/`. It writes the report to its log when the readiness changes (`docker logs horus-api`).
 - `horus mcp` with `HORUS_DATABASE_URL` runs the 4 checks at its start. In the stack, the agent starts it with `docker exec -i horus-api horus mcp`. When a check fails, `horus mcp` writes the report to the standard error and exits 1, so the session does not start.
 - In an open session, each call runs the 4 checks first. A call while a dependency is down gets `NOT_READY`, with the names of the dependencies that are down in `details.down`. When the dependency is up again, the next call runs. horus needs no action.
 - On the host without `HORUS_DATABASE_URL`, `horus mcp` makes no readiness check (the direct path).
@@ -617,6 +617,66 @@ host at `host.docker.internal`. Run one row:
 ```
 go test -tags goal -count=1 -run TestStackStartsTogether -v ./goals/2026-11-19-job-queue
 ```
+
+## The Horus UI
+
+The Horus UI is a read-only page of `horus api`
+([ADR 0028](adr/0028-the-horus-ui-is-a-read-only-page-of-horus-api.md),
+[ADR 0038](adr/0038-the-horus-ui-renders-on-the-server-and-checks-the-published-port.md)). It
+shows the readiness, the queue, the running jobs, the recent results, the
+worker and the workflows. Open `http://127.0.0.1:8190/` while the stack runs
+(the port is `HORUS_API_PORT`). The reference of the page is
+[`2026-11-19-job-queue-ui.html`](specs/2026-11-19-job-queue-ui.html). The page
+has its 11 parts, with the same `data-part` names:
+
+| Part | What it shows | Where the data comes from |
+|---|---|---|
+| `ready-strip` | `Ready: N of 4`, then `horus-db`, `horus-worker`, `horus-api` and `ComfyUI`, each `up` or `down`. The hover text gives the result of the check. | The readiness report of `horus ready` |
+| `tile-waiting` | The jobs in the state `queued` | The job store |
+| `tile-running` | The jobs in the state `running`, and the slots | The job store, and the slots of the newest worker row (else `HORUS_WORKER_CONCURRENCY`) |
+| `tile-succeeded` | The jobs that ended as `succeeded` since 00:00 | The job store |
+| `tile-failed` | The jobs that ended as `failed` since 00:00 | The job store |
+| `tile-workflows` | The workflows that `list_workflows` shows, and how many are installed | The workflows and their install state, as `list_workflows` gives them |
+| `panel-running` | Each running job: the workflow, the first 8 characters of the job id, the caller, the subject, the step that ComfyUI reports, the run time, the time in the queue, and the time that is left to `HORUS_GENERATE_TIMEOUT` | The job store |
+| `panel-queue` | Each queued job, oldest first: the place, the workflow, the caller, the subject, the time in the queue, and the estimated start, rounded to 10 s | The job store. The estimate uses the mean run time of the last 10 succeeded jobs, as the progress text of a waiting call does. |
+| `panel-recent` | The last 10 ended jobs, newest first: the end time, the workflow, the result (`PNG` with the path, the error code, `cancelled`, `expired` or `abandoned`), the time in the queue and the run time | The job store |
+| `panel-worker` | The state of the worker, the slots, the models in memory, the broker with its count of messages that wait for a delivery, the job store (host and database), ComfyUI (address and version), and the count of jobs of today with the same idempotency key | The worker row, the broker (`Depth`), `HORUS_DATABASE_URL` without its password, `GET /system_stats` of ComfyUI, the job store |
+| `panel-workflows` | Each workflow: its name, its backend (ComfyUI or the speech worker), if it is installed, and the count of its jobs that ended as `succeeded` or `failed` since 00:00 | The workflows, and the job store |
+
+The routes of the page:
+
+| Route | Answer |
+|---|---|
+| `GET /` | The page. `horus api` renders it from the data at each request. |
+| `GET /api/summary` | The same data as JSON: the counts, the lists with the job ids, the readiness report and the errors of the reads. |
+| `GET /api/events` | A stream of Server-Sent Events: one event `job` for each event of the broker (`Listen`), with the JSON of the event. When the broker cannot listen, the stream sends one event `down`, and the browser connects again after 5 s. |
+
+- The page reads the page again at each event of the stream, and every 5 s.
+- The page is read-only: no route changes a job. A `POST` gets 405.
+- The page, the summary and the events refuse a request with 403 when its
+  `Host` header is not `127.0.0.1:<port>` or `localhost:<port>`. So a web page
+  of another domain cannot read the subjects of the jobs through DNS
+  rebinding. `/readyz` and `/livez` answer to any `Host`, for the health
+  checks of the containers.
+- The page needs no token. It never shows the password of
+  `HORUS_DATABASE_URL`.
+- The page is in the program (`go:embed`), with no build step and no file
+  from the internet.
+- When a read fails (the job store, the broker or the workflows), the page
+  shows the cause at the top, and the counts of that read are 0.
+
+`TestHorusUI` of `cmd/horus` is the test of the page on Postgres
+([the Postgres tests](#the-postgres-tests)). It runs `horus api` on a new test
+database with each of two fixtures (`internal/webui/uifixture`): the example
+data of the reference, and other numbers. For each fixture, the page must have
+the 11 parts, and each count of the page and of `/api/summary` must equal the
+count that SQL reads. The goal row `ui-matches-mockup` runs it. With
+`HORUS_UI_SHOTS=<folder>`, the test also takes screenshots at 1920 x 1080 with
+a headless Edge or Chrome (`HORUS_BROWSER` names another browser): one of the
+page of each fixture, and one of the reference. The screenshots of the
+reference data and of the reference are
+[`horus-ui-reference.png`](specs/2026-11-19-job-queue-ui/horus-ui-reference.png)
+and [`reference.png`](specs/2026-11-19-job-queue-ui/reference.png).
 
 ## Test the server
 
@@ -720,8 +780,10 @@ Postgres. These tests read its URL from `HORUS_TEST_DATABASE_URL`:
 - `TestPostgresBroker` and `TestPostgresStore` of `internal/brokertest`;
 - `TestWorkerOnPostgres` of `cmd/horus`: `horus worker` on a new database, with the fake ComfyUI over HTTP;
 - `TestWorkerTakesTheLockAgain` of `cmd/horus`: the test ends the session of the worker lock, then each session of the worker, with `pg_terminate_backend`. A session must hold the worker lock again in 10 s or less.
+- `TestHorusUI` of `cmd/horus`: [the Horus UI](#the-horus-ui) with its two fixtures, against SQL counts.
 
-Without the variable, they skip, and the goal row `broker-contract` fails.
+Without the variable, they skip, and the goal rows `broker-contract` and
+`ui-matches-mockup` fail.
 Start a test Postgres in Docker one time, with a password that you choose and
 a free port:
 

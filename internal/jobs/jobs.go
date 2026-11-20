@@ -43,6 +43,10 @@ type Broker interface {
 	// Listen gives the events that Notify sends after Listen returns. The
 	// channel closes when ctx ends.
 	Listen(ctx context.Context) (<-chan jobdata.Event, error)
+	// Depth gives the count of the messages of the queue that wait for a
+	// delivery. A message that a consumer holds without an ack does not
+	// count. The Horus UI shows it.
+	Depth(ctx context.Context, queue string) (int, error)
 }
 
 // Store keeps the jobs. It is the record of truth.

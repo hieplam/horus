@@ -538,6 +538,12 @@ machine: set it up with the steps above, and start it with
    has no shared folder yet, so the PNG of a `generate_image` call stays in
    the container `horus-api`.
 
+5. Open the Horus UI at `http://127.0.0.1:8190/` (the port is
+   `HORUS_API_PORT`). The read-only page shows the readiness, the queue, the
+   running jobs, the recent results, the worker and the workflows
+   ([the Horus UI](mcp.md#the-horus-ui)). Use the host name `127.0.0.1` or
+   `localhost`: the page refuses another host name.
+
 `docker compose stop` stops the stack, and `docker compose up -d --wait` starts
 it again. The jobs stay in the volume `horus-db-data`. When a dependency is
 down, a new session does not start, and a call gets `NOT_READY`. When the

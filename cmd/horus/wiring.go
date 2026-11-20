@@ -290,6 +290,18 @@ func (q downQueue) Checks(context.Context) []jobdata.CheckResult {
 	return []jobdata.CheckResult{{Dependency: jobdata.DependencyDB, Detail: string(q)}, {Dependency: jobdata.DependencyWorker, Detail: string(q)}}
 }
 
+// Summary, Depth and Listen are the reads of the Horus UI. They fail with the
+// cause.
+func (q downQueue) Summary(context.Context) (jobdata.Summary, error) {
+	return jobdata.Summary{}, errors.New(string(q))
+}
+
+func (q downQueue) Depth(context.Context, string) (int, error) { return 0, errors.New(string(q)) }
+
+func (q downQueue) Listen(context.Context) (<-chan jobdata.Event, error) {
+	return nil, errors.New(string(q))
+}
+
 // localAPI is the address of horus api in this container (or on this
 // machine): http://127.0.0.1:<HORUS_API_PORT>.
 func localAPI() string {
@@ -305,22 +317,45 @@ func localAPI() string {
 const readyEvery = 5 * time.Second
 
 // runAPI is horus api: the HTTP server of horus-api on listen (internal/webui:
-// /readyz and /livez), until ctx ends. It writes one log line when it starts,
-// when the readiness changes, and when it stops.
+// the Horus UI, /readyz and /livez), until ctx ends. It writes one log line
+// when it starts, when the readiness changes, and when it stops.
 func runAPI(ctx context.Context, listen string, out io.Writer) error {
 	if settings.DatabaseURL() == "" {
 		return errors.New("HORUS_DATABASE_URL is not set: horus api serves horus in the stack (docs/setup.md#run-horus-as-a-stack)")
 	}
+	port, err := settings.APIPort()
+	if err != nil {
+		return err
+	}
+	slots, err := settings.WorkerConcurrency()
+	if err != nil {
+		return err
+	}
+	limit, err := settings.GenerateTimeout()
+	if err != nil {
+		return err
+	}
 	stack, done := stackOf(ctx, "")
 	defer done()
-	mux := http.NewServeMux()
-	mux.Handle("/", webui.Handler(func(ctx context.Context) jobdata.Readiness { return stack.Ready(ctx) }))
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	fmt.Fprintf(out, "horus api: serves /readyz and /livez on http://%s\n", ln.Addr())
+	queue, _ := stack.Queue.(webui.Queue)
+	mux := http.NewServeMux()
+	mux.Handle("/", webui.Handler(webui.Config{
+		Ready:        func(ctx context.Context) jobdata.Readiness { return stack.Ready(ctx) },
+		Queue:        queue,
+		Setup:        newSetup(cli.SetupPlace{}, seams{}),
+		ComfyVersion: comfy.New("").Version,
+		Ports:        webui.Ports(port, ln.Addr().String()),
+		Settings: webui.Settings{DatabaseURL: settings.DatabaseURL(), ComfyURL: settings.ComfyURL(), Slots: slots,
+			RunLimit: time.Duration(limit) * time.Second, Broker: "Postgres"},
+	}))
+	// Each request ends when ctx ends, so that a stream of events does not
+	// hold the stop.
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
+	fmt.Fprintf(out, "horus api: serves the Horus UI, /readyz and /livez on http://%s\n", ln.Addr())
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	tick := time.NewTicker(readyEvery)

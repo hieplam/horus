@@ -103,7 +103,7 @@ var commands = map[string]command{
 	"worker": {"run the jobs of the job queue on ComfyUI (needs HORUS_DATABASE_URL)", func(args []string) int {
 		return withStop(func(ctx context.Context) int { return cli.Worker(ctx, args, os.Stdout, os.Stderr, runWorker) })
 	}},
-	"api": {"serve /readyz and /livez of horus in the stack (needs HORUS_DATABASE_URL)", func(args []string) int {
+	"api": {"serve the Horus UI, /readyz and /livez of horus in the stack (needs HORUS_DATABASE_URL)", func(args []string) int {
 		return withStop(func(ctx context.Context) int { return cli.API(ctx, args, os.Stdout, os.Stderr, runAPI) })
 	}},
 	"ready": {"the 4 checks of horus in the stack, one line each; exit 0 when all pass", func(args []string) int {

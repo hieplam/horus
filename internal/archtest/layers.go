@@ -19,7 +19,7 @@ var layers = map[string]string{
 	"cmd/horus":                        wiring,
 	"internal/cli":                     handler,
 	"internal/mcpserver":               handler,
-	"internal/webui":                   handler, // the routes of horus api that are not MCP: /readyz, /livez, the Horus UI
+	"internal/webui":                   handler, // the routes of horus api that are not MCP: /readyz, /livez, the Horus UI, /api/summary, /api/events
 	"internal/worker":                  handler, // the loop of horus worker: it joins jobs and generate
 	"internal/generate":                service,
 	"internal/provision":               service,
@@ -47,6 +47,7 @@ var layers = map[string]string{
 	"internal/backend/comfyclitest":    test,
 	"internal/brokertest":              test, // the contract suites of jobs.Broker and jobs.Store, the in-memory broker and job store
 	"internal/postgres/pgtest":         test, // a new test database for each test
+	"internal/webui/uifixture":         test, // the two fixtures of the Horus UI: the example data of the reference, and other numbers
 	"internal/speechworker/fakeworker": test, // the fake speech worker: a program that the tests build
 	"goals":                            test, // the link check of the goal suites
 }

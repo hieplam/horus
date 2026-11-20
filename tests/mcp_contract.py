@@ -1135,10 +1135,9 @@ STACK_SKIPPED = {
         "the stand-in speech workflow and the fake speech worker are files of the host sandbox. The container has no speech setup (the speech worker is outside the job queue).",
     "style without model files -> WORKFLOW_NOT_INSTALLED":
         "absent-style is a copy in the sandbox of the host. The stack has no such workflow.",
-    "the 2 uninstall checks of the speech workflow":
-        "they are speech setup checks: the stack has no speech workflow. The 9 install and uninstall checks of the image workflows run on the stack.",
-    "the setup checks and the speech setup checks":
-        "they run install_workflow with a fake package manager on the PATH of a host server process.",
+    "the setup checks and the speech setup checks, with the 2 uninstall checks of the speech workflow":
+        "they run install_workflow with a fake package manager on the PATH of a host server process. The stack has no speech "
+        "setup. The 9 install and uninstall checks of the image workflows run on the stack.",
     "the 2 style-neutral checks of each shipped workflow":
         "they read the workflow files of the repo, not an answer of the server. The host run has them.",
     "backend down and autostart off -> BACKEND_UNAVAILABLE":

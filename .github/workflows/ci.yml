@@ -108,9 +108,9 @@ jobs:
           grep -q "contract: 66 of 66 passed" contract.log
 
   stack-contract:
-    # tests/mcp_contract.py over stdio into the stack horus_test (docker exec -i horus_test-api horus mcp), with the
-    # fake ComfyUI of the test on the runner. The job builds the image, starts the 3 containers, runs the test and
-    # stops the stack. docs/mcp.md ("Test the server") tells how the job reaches the fake.
+    # tests/mcp_contract.py over stdio into the stack horus_test (docker exec -i horus_test-api horus mcp), then over
+    # HTTP to /mcp of horus-api, with the fake ComfyUI of the test on the runner. The job builds the image, starts the
+    # 3 containers, runs the two runs and stops the stack. docs/mcp.md ("Test the server") tells how the job reaches the fake.
     name: stack-contract
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -144,6 +144,11 @@ jobs:
           echo "::add-mask::$pw"
           echo "HORUS_DB_PASSWORD=$pw" >> "$GITHUB_ENV"
           export HORUS_DB_PASSWORD="$pw"
+          # A new bearer token of /mcp for each run, the same way.
+          tok="$(openssl rand -hex 32)"
+          echo "::add-mask::$tok"
+          echo "HORUS_API_TOKEN=$tok" >> "$GITHUB_ENV"
+          export HORUS_API_TOKEN="$tok"
           HORUS_SHARED_DIRS="$shared=/shared/ci" bin/horus stack-mounts -o "$RUNNER_TEMP/override.yaml"
           docker compose -p horus_test -f compose.yaml -f "$RUNNER_TEMP/override.yaml" up -d --build
       - name: Contract test over stdio into the stack
@@ -152,6 +157,12 @@ jobs:
           # The test starts its fake ComfyUI, and waits until horus ready exits 0 (the 4 dependencies are up).
           python tests/mcp_contract.py --stack horus_test --port 18188 --listen 0.0.0.0 --shared-dir "$RUNNER_TEMP/shared" | tee stack-contract.log
           grep -q "contract: 26 of 26 passed" stack-contract.log
+      - name: Contract test over HTTP to /mcp of the stack
+        shell: bash
+        run: |
+          # The same checks over Streamable HTTP, with the token of HORUS_API_TOKEN in the environment of the test.
+          python tests/mcp_contract.py --stack horus_test --http http://127.0.0.1:18190/mcp --port 18188 --listen 0.0.0.0 --shared-dir "$RUNNER_TEMP/shared" | tee stack-contract-http.log
+          grep -q "contract: 26 of 26 passed" stack-contract-http.log
       - name: The logs of the stack
         if: failure()
         shell: bash

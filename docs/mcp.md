@@ -283,6 +283,7 @@ horus register
 - `horus register` adds the server `horus` to Claude Code. It runs `claude mcp add --scope user horus -- <path of horus> mcp`. In a clone it also passes `-e HORUS_ROOT=<clone>`. Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
 - `horus register -client codex` adds the server to Codex. It runs `codex mcp get horus`. When that exits 0, it prints a `SKIP` line. Else it runs `codex mcp add horus -- <path of horus> mcp`, with `--env HORUS_ROOT=<clone>` in a clone. `-client claude` is the default. Another client name exits 2 and lists `claude, codex`.
 - `horus register -docker` adds horus in the stack: `claude mcp add --scope user horus -- <path of docker> exec -i horus-api horus mcp`, with no `HORUS_ROOT`. `-stack <name>` names another stack (the container `<name>-api`). `-client codex` works the same way. Remove an older entry first (`claude mcp remove horus`), because register skips a client that already knows a server named horus. See [the stack and its readiness](#the-stack-and-its-readiness).
+- `horus register -http` adds horus in the stack over HTTP: the URL `http://127.0.0.1:<HORUS_API_PORT>/mcp`, with a header that names the variable `HORUS_API_TOKEN` and not the token. `-client codex` works the same way. `-docker` and `-http` together exit 2. See [MCP over HTTP](#mcp-over-http-mcp).
 - `<repo root>` is the absolute path of the horus clone that holds the current folder, or the folder of `-root <repo folder>` (it must have `workflows/`). With no clone and no `-root`, the program has no repo root: `horus register` still works and passes no `HORUS_ROOT`. Use `-horus-path <path>` to register another `horus` program.
 - Another harness (an IDE) needs one stdio server entry: command `horus` (or its full path), argument `mcp`, and `HORUS_ROOT` when it starts outside this repo.
 
@@ -510,7 +511,8 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | `HORUS_DATABASE_URL` | none | The Postgres database of the job queue: the job store and the broker. [`horus worker`](#the-worker) and `horus api` need it. With it, `horus mcp` runs as in the stack: it serves only when horus is ready. The password can come from `PGPASSWORD`, so the URL needs none. horus never writes the password to a log. |
 | `HORUS_WORKER_CONCURRENCY` | `1` | The slots of `horus worker`: the count of jobs that it runs at the same time. |
 | `HORUS_JOB_RETENTION_DAYS` | `30` | `horus worker` deletes a job and its events this many days after the job ended. |
-| `HORUS_API_PORT` | `8190` | The port of `horus api` on 127.0.0.1: the [Horus UI](#the-horus-ui), `/readyz` and `/livez`. In the stack, `horus api` listens on this port in the container, and `compose.yaml` publishes the same port only on 127.0.0.1 of the host. The Horus UI answers only to a `Host` header with this port. |
+| `HORUS_API_PORT` | `8190` | The port of `horus api` on 127.0.0.1: [`/mcp`](#mcp-over-http-mcp), the [Horus UI](#the-horus-ui), `/readyz` and `/livez`. In the stack, `horus api` listens on this port in the container, and `compose.yaml` publishes the same port only on 127.0.0.1 of the host. `/mcp` and the Horus UI answer only to a `Host` header with this port. |
+| `HORUS_API_TOKEN` | none | The bearer token of [`/mcp`](#mcp-over-http-mcp). Put it in the `.env` of the stack: `compose.yaml` gives it only to `horus-api`. An agent over HTTP gets the same value in its environment. Without it, `/mcp` refuses each request. horus never writes it to a log, a URL or a command line. |
 | `HORUS_STACK` | `horus` | The name of the stack in `compose.yaml`: its containers are `<name>-api`, `<name>-worker` and `<name>-db`, its volume `<name>-db-data`, its image `<name>:local`. `horus register -docker` uses it for the name of the container. |
 | `HORUS_DB_PASSWORD` | none | Only for `docker compose`: the password of the database in `horus-db`. `compose.yaml` gives it to the containers as `PGPASSWORD`. |
 | `HORUS_QUEUE_MAX` | `20` | In the stack: the count of queued jobs at which a new call gets `QUEUE_FULL`. |
@@ -583,7 +585,7 @@ Docker runs each health check every 5 s, and every 1 s in the first 60 s
 after a start. Each container has `restart: unless-stopped`.
 
 - `horus ready` runs the 4 checks and prints one `ok` or `FAIL` line for each. Its exit code is 0 only when all pass. It needs `HORUS_DATABASE_URL`, so run it in the stack: `docker exec horus-api horus ready`. `-only <dependency>` runs one check.
-- `horus api` is the main process of `horus-api`. It serves `GET /readyz`: the report as JSON, with 200 when horus is ready, else 503. It serves `GET /livez`: 200 while it runs. It serves [the Horus UI](#the-horus-ui) at `/`. It writes the report to its log when the readiness changes (`docker logs horus-api`).
+- `horus api` is the main process of `horus-api`. It serves [`/mcp`](#mcp-over-http-mcp): the tools over HTTP. It serves `GET /readyz`: the report as JSON, with 200 when horus is ready, else 503. It serves `GET /livez`: 200 while it runs. It serves [the Horus UI](#the-horus-ui) at `/`. It writes the report to its log when the readiness changes (`docker logs horus-api`).
 - `horus mcp` with `HORUS_DATABASE_URL` runs the 4 checks at its start. In the stack, the agent starts it with `docker exec -i horus-api horus mcp`. When a check fails, `horus mcp` writes the report to the standard error and exits 1, so the session does not start.
 - In an open session, each call runs the 4 checks first. A call while a dependency is down gets `NOT_READY`, with the names of the dependencies that are down in `details.down`. When the dependency is up again, the next call runs. horus needs no action.
 - On the host without `HORUS_DATABASE_URL`, `horus mcp` makes no readiness check (the direct path).
@@ -618,12 +620,77 @@ sequenceDiagram
 
 What an agent sees:
 
-| State | Over stdio (`docker exec -i horus-api horus mcp`) |
-|---|---|
-| Docker is down, or `horus-api` is stopped | `docker exec` fails with `container <id> is not running`. The harness shows horus as failed. |
-| A new session while a dependency is down | `horus mcp` writes `horus ready: 3 of 4` and a `FAIL <dependency>: <cause>` line, and exits 1. |
-| A call in an open session while a dependency is down | `NOT_READY`, `action_by` human, with `details.down`. |
-| The dependency is up again | The next session and the next call work. |
+| State | Over stdio (`docker exec -i horus-api horus mcp`) | Over HTTP (`/mcp`) |
+|---|---|---|
+| Docker is down, or `horus-api` is stopped | `docker exec` fails with `container <id> is not running`. The harness shows horus as failed. | The port does not answer. The harness shows horus as failed. |
+| A new session while a dependency is down | `horus mcp` writes `horus ready: 3 of 4` and a `FAIL <dependency>: <cause>` line, and exits 1. | `/mcp` answers 503 with the report as JSON (the body of `/readyz`). |
+| A call in an open session while a dependency is down | `NOT_READY`, `action_by` human, with `details.down`. | The same. |
+| The dependency is up again | The next session and the next call work. | The same. |
+
+### MCP over HTTP (`/mcp`)
+
+`horus api` serves the same 6 tools, the same envelope and the same readiness
+gate at `/mcp`, over the Streamable HTTP transport of MCP
+([ADR 0030](adr/0030-horus-api-serves-mcp-over-stdio-and-http.md),
+[ADR 0040](adr/0040-mcp-over-http-checks-the-host-the-origin-the-token-and-the-readiness.md)).
+An agent harness that cannot start a program can use horus this way.
+
+Terms:
+
+- **Streamable HTTP:** the HTTP transport of MCP. The agent sends each message in a `POST` to one URL. The answer is one JSON object, or a stream of Server-Sent Events with the progress messages and then the result. The header `Mcp-Session-Id` names the session after `initialize`. A `DELETE` ends the session.
+- **Bearer token:** a secret value that the agent sends in the header `Authorization: Bearer <token>`. For `/mcp`, it is `HORUS_API_TOKEN` of the `.env` of the stack.
+- **Origin header:** the header that a web browser adds to a request of a web page: the scheme, the host and the port of the page. An agent harness sends none.
+
+`/mcp` runs 4 checks in front of the tools, in this order. The first check
+that fails gives the answer:
+
+| Order | Check | Answer when it fails |
+|---|---|---|
+| 1 | The `Host` header is `127.0.0.1:<port>` or `localhost:<port>`, for the port of `HORUS_API_PORT` or of `-listen` | 403 |
+| 2 | No `Origin` header, or the origin of horus api itself (`http://127.0.0.1:<port>` or `http://localhost:<port>`) | 403 |
+| 3 | `Authorization: Bearer <token>` with the token of `HORUS_API_TOKEN`. The compare takes the same time for each token. | 401, with `WWW-Authenticate: Bearer` |
+| 4 | Only a request that starts a new session (no `Mcp-Session-Id` header): the 4 dependencies are up | 503, with the readiness report as JSON |
+
+- The checks 1 and 2 stop a web page in a browser: through DNS rebinding, a page of another domain can send a request to 127.0.0.1, but its browser sends the name of that domain in the `Host` header and the origin of the page in the `Origin` header. The Horus UI uses the same check of the `Host` header.
+- Without `HORUS_API_TOKEN` in the stack, `/mcp` refuses each request with 401, and `horus api` writes one log line that says why at its start. Stdio works without the token.
+- `/mcp` removes the header `Authorization` before the tools. horus never writes the token to a log, a URL or a command line.
+- A call in an open session runs the readiness gate of each call, as over stdio.
+- A long call holds its `POST` open: `generate_image` sends a progress message every 5 s until the PNG is on disk. The server has no time limit for an answer.
+- When the agent goes away, its call ends and its job is cancelled, as when a stdio session ends. The agent goes away when it closes the connection of the `POST` of the call, or when it ends the session (`DELETE`).
+- A session has no idle time limit. It ends at its `DELETE`, or when `horus api` stops.
+
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant H as /mcp of horus api
+  participant T as The tools (the same as stdio)
+  A->>H: POST initialize, Host 127.0.0.1:8190, Authorization: Bearer token
+  H->>H: 1 Host, 2 Origin, 3 token, 4 readiness (a new session)
+  H-->>A: 200, Mcp-Session-Id
+  A->>H: POST tools/call generate_image, Mcp-Session-Id
+  H->>H: 1 Host, 2 Origin, 3 token
+  H->>T: the call, with the readiness gate of each call
+  loop every 5 s while the job waits or runs
+    T-->>A: a progress message on the stream of the POST
+  end
+  T-->>A: the envelope with the host path of the PNG
+  A->>H: DELETE, Mcp-Session-Id
+  H-->>A: 204, the session ends
+```
+
+Connect an agent with `horus register -http`
+([setup](setup.md#run-horus-as-a-stack)). The config of the client names the
+variable `HORUS_API_TOKEN`, never the token. The agent reads the variable from
+its own environment when it connects:
+
+| Client | What `horus register -http` runs | How the client sends the token |
+|---|---|---|
+| Claude Code | `claude mcp add --scope user --transport http horus http://127.0.0.1:8190/mcp --header "Authorization: Bearer ${HORUS_API_TOKEN}"` | Claude Code puts the value of the variable in place of `${HORUS_API_TOKEN}` when it connects. |
+| Codex | `codex mcp add horus --url http://127.0.0.1:8190/mcp --bearer-token-env-var HORUS_API_TOKEN` | Codex reads the variable that `bearer_token_env_var` names, and sends `Authorization: Bearer <value>`. |
+
+Another harness needs a Streamable HTTP server entry with the URL and the
+header `Authorization: Bearer <HORUS_API_TOKEN>`. Use the way of that harness
+to read the token from a variable, so that no config file holds the token.
 
 ### `generate_image` in the stack
 
@@ -839,12 +906,21 @@ must be 12, because the check of the time limit needs a short limit.
   only on `127.0.0.1` is not reachable from a container, so use `--listen 0.0.0.0`.
 - The test waits up to `--ready-timeout` seconds (180) until `horus ready`
   exits 0 in `<name>-api`. It can start before the stack is up.
+- `--http <url>` runs the same checks over Streamable HTTP to
+  [`/mcp`](#mcp-over-http-mcp) of the stack, for example
+  `--http http://127.0.0.1:18190/mcp`. It needs `--stack` too, because the
+  checks read the job rows in `<name>-db`. The test reads the token from the
+  environment variable `HORUS_API_TOKEN`, sends it in the header
+  `Authorization`, and never prints it. The run over stdio writes
+  `queue.png` and the run over HTTP writes `queue-http.png`, so the two runs
+  can use one stack, one after the other.
 
 The fake answers with HTTP/1.1, and keeps a connection open for the next
 request. With HTTP/1.0, some requests that a container sends through
 `host.docker.internal` hang until their time limit.
 
-The run on the stack has 26 checks. One check is new: **the stack ran the call**.
+Each run on the stack has 26 checks, over stdio and over HTTP. One check is
+new: **the stack ran the call**.
 The PNG of `generate_image` is at the host path in the shared folder. The job
 row in `horus-db` is `succeeded`, it has the id of a worker, and its
 `backend_job_id` is the id of the job that the fake ComfyUI got. `job_id` is
@@ -864,9 +940,10 @@ The run on the stack leaves out the checks that need the sandbox of the host:
 | `BACKEND_UNAVAILABLE` when ComfyUI is down | The stack has no autostart. The same step checks `NOT_READY` with `details.down` that names `comfyui`. |
 
 The CI job `stack-contract` builds the image, starts the stack `horus_test`,
-runs this test and stops the stack. It runs with `--listen 0.0.0.0`, and it
-makes the shared folder writable for the container user (uid 10001). The goal
-rows `same-contract` and `worker-lost` of
+runs this test over stdio and then over HTTP, and stops the stack. It runs
+with `--listen 0.0.0.0`, and it makes the shared folder writable for the
+container user (uid 10001). It makes a new random `HORUS_API_TOKEN` for each
+run. The goal rows `same-contract` and `worker-lost` of
 `go test -tags goal -v ./goals/2026-11-19-job-queue` start the stack themselves.
 `worker-lost` sends SIGKILL to the worker process while a job runs: a container
 with `--pid=host` runs `kill -9` on the host process id of the worker. Docker

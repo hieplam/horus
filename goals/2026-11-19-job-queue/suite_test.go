@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -280,30 +281,38 @@ func TestReadyWhenFourUp(t *testing.T) {
 		}
 		jobsBefore := fake.jobs.Load()
 		step.stop(t)
-		stdioNamed := false
-		took, why := eventually(10*time.Second, func() string {
-			if !stdioNamed {
-				if why := stdioDown(step.dep, open); why != "" {
-					return why
-				}
-				stdioNamed = true
-			}
-			return httpDown(step.dep, hopen)
-		})
+		// The two ways run at the same time, so that each one has its own
+		// time from the stop.
+		var wg sync.WaitGroup
+		var stdioTook, httpTook time.Duration
+		var stdioWhy, httpWhy string
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			stdioTook, stdioWhy = eventually(10*time.Second, func() string { return stdioDown(step.dep, open) })
+		}()
+		go func() {
+			defer wg.Done()
+			httpTook, httpWhy = eventually(10*time.Second, func() string { return httpDown(step.dep, hopen) })
+		}()
+		wg.Wait()
 		open.close()
 		hopen.close()
-		if why != "" {
-			t.Fatalf("%s is stopped: not named in 10 s: %s", step.dep, why)
+		if stdioWhy != "" {
+			t.Fatalf("%s is stopped: not named over stdio in 10 s: %s", step.dep, stdioWhy)
+		}
+		if httpWhy != "" {
+			t.Fatalf("%s is stopped: not named over HTTP in 10 s: %s", step.dep, httpWhy)
 		}
 		if n := fake.jobs.Load() - jobsBefore; n != 0 {
 			t.Errorf("%s is stopped: %d requests reached ComfyUI while horus was not ready", step.dep, n)
 		}
 		named++
 		namedHTTP++
-		t.Logf("%s stopped: named over stdio and over HTTP in %s", step.dep, took.Round(100*time.Millisecond))
+		t.Logf("%s stopped: named over stdio in %s, over HTTP in %s", step.dep, stdioTook.Round(100*time.Millisecond), httpTook.Round(100*time.Millisecond))
 
 		step.start(t)
-		took, why = eventually(30*time.Second, serves)
+		took, why := eventually(30*time.Second, serves)
 		if why != "" {
 			t.Fatalf("%s started again: horus does not serve again in 30 s: %s", step.dep, why)
 		}

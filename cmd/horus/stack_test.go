@@ -7,7 +7,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -101,8 +103,87 @@ func TestReadinessOnPostgres(t *testing.T) {
 	if r := ready(); r.Ready || !strings.Contains(strings.Join(r.Down, ","), jobdata.DependencyAPI) {
 		t.Errorf("horus api stopped: %+v", r)
 	}
-	if !strings.Contains(alog.String(), "horus api: serves the Horus UI, /readyz and /livez on http://"+addr) || !strings.Contains(alog.String(), "horus api: stopped") {
+	if !strings.Contains(alog.String(), "horus api: serves /mcp, the Horus UI, /readyz and /livez on http://"+addr) || !strings.Contains(alog.String(), "horus api: stopped") {
 		t.Errorf("the log of horus api:\n%s", alog.String())
+	}
+}
+
+// TestAPIServesMCP: horus api serves /mcp with the token of HORUS_API_TOKEN.
+// initialize with the token gets 200 and a session, without it 401. The log
+// says that /mcp needs the token, and never has the token. Without
+// HORUS_API_TOKEN, the log says why /mcp refuses each request.
+func TestAPIServesMCP(t *testing.T) {
+	pgtest.Need(t)
+	url := pgtest.URL(t)
+	imageEnv(t)
+	for _, token := range []string{rand.Text(), ""} {
+		addr := freeAddr(t)
+		t.Setenv("HORUS_DATABASE_URL", url)
+		t.Setenv("HORUS_API_PORT", strings.Split(addr, ":")[1])
+		t.Setenv("HORUS_API_TOKEN", token)
+		settings.Reset()
+		wctx, stopWorker := context.WithCancel(context.Background())
+		workerDone := make(chan error, 1)
+		go func() { workerDone <- runWorker(wctx, io.Discard) }()
+		actx, stopAPI := context.WithCancel(context.Background())
+		var alog lockedBuffer
+		apiDone := make(chan error, 1)
+		go func() { apiDone <- runAPI(actx, addr, &alog) }()
+
+		initialize := func(bearer string) (int, string) {
+			body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
+			req, err := http.NewRequest(http.MethodPost, "http://"+addr+"/mcp", strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json, text/event-stream")
+			if bearer != "" {
+				req.Header.Set("Authorization", "Bearer "+bearer)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return 0, err.Error()
+			}
+			defer resp.Body.Close()
+			b, _ := io.ReadAll(resp.Body)
+			return resp.StatusCode, resp.Header.Get("Mcp-Session-Id") + " " + string(b)
+		}
+		if token != "" {
+			eventually(t, "/mcp answers initialize with 200", 15*time.Second, func() bool {
+				code, _ := initialize(token)
+				return code == http.StatusOK
+			})
+			if code, body := initialize(token); code != http.StatusOK || !strings.Contains(body, `"name":"horus"`) {
+				t.Errorf("initialize with the token: %d %s", code, body)
+			}
+			if code, _ := initialize(""); code != http.StatusUnauthorized {
+				t.Errorf("initialize without the token: %d, want 401", code)
+			}
+		} else {
+			eventually(t, "horus api serves", 15*time.Second, func() bool {
+				code, _ := initialize("")
+				return code != 0
+			})
+			if code, body := initialize(rand.Text()); code != http.StatusUnauthorized || !strings.Contains(body, "HORUS_API_TOKEN is not set") {
+				t.Errorf("initialize without HORUS_API_TOKEN on the server: %d %s", code, body)
+			}
+		}
+		stopAPI()
+		<-apiDone
+		stopWorker()
+		<-workerDone
+		log := alog.String()
+		wantLine := "horus api: /mcp needs the bearer token of HORUS_API_TOKEN"
+		if token == "" {
+			wantLine = "horus api: HORUS_API_TOKEN is not set, so /mcp refuses each request with 401"
+		}
+		if !strings.Contains(log, wantLine) {
+			t.Errorf("the log of horus api has no line %q:\n%s", wantLine, log)
+		}
+		if token != "" && strings.Contains(log, token) {
+			t.Error("the log of horus api has the token")
+		}
 	}
 }
 

@@ -55,7 +55,7 @@ type QueueState struct {
 // state gives the counts of the job queue now. The slots are those of the
 // worker with the newest heartbeat, or 0 without a worker row.
 func (q *Queue) state(ctx context.Context) (*QueueState, error) {
-	sum, err := q.Jobs.Summary(ctx)
+	sum, err := q.Jobs.Summary(ctx, time.Time{})
 	if err != nil {
 		return nil, err
 	}

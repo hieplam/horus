@@ -148,7 +148,7 @@ func (e *stackEnv) start(ctx context.Context, args map[string]any) {
 // onlyJob gives the one job of the job store.
 func (e *stackEnv) onlyJob(t *testing.T) jobdata.Job {
 	t.Helper()
-	sum, err := e.store.Summary(context.Background())
+	sum, err := e.store.Summary(context.Background(), time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,7 +441,7 @@ func (s slowGet) Get(ctx context.Context, id string) (jobdata.Job, error) {
 // jobsOf gives every job of the job store, newest first by the summary lists.
 func (e *stackEnv) jobsOf(t *testing.T) []jobdata.Job {
 	t.Helper()
-	sum, err := e.store.Summary(context.Background())
+	sum, err := e.store.Summary(context.Background(), time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}

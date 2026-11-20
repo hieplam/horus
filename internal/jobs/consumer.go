@@ -236,7 +236,9 @@ func (s *Service) DeleteOld(ctx context.Context, age time.Duration) (int, error)
 
 // Summary gives the counts and the lists of the job store now, with the worker
 // row of the newest heartbeat.
-func (s *Service) Summary(ctx context.Context) (jobdata.Summary, error) { return s.store.Summary(ctx) }
+func (s *Service) Summary(ctx context.Context, today time.Time) (jobdata.Summary, error) {
+	return s.store.Summary(ctx, today)
+}
 
 // Submitted saves the id of the job on its backend, before the worker waits
 // for the job: the event job.submitted. A job that is not running does not

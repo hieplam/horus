@@ -47,7 +47,7 @@ func (s *Service) Checks(ctx context.Context) []jobdata.CheckResult {
 	if err != nil {
 		return []jobdata.CheckResult{db, {Dependency: jobdata.DependencyWorker, Detail: err.Error()}}
 	}
-	sum, err := s.store.Summary(ctx)
+	sum, err := s.store.Summary(ctx, time.Time{})
 	if err != nil {
 		return []jobdata.CheckResult{db, {Dependency: jobdata.DependencyWorker, Detail: err.Error()}}
 	}

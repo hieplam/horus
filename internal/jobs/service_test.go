@@ -171,7 +171,7 @@ func TestSubmitPublishFails(t *testing.T) {
 	if _, err := svc.Submit(context.Background(), request()); err == nil {
 		t.Fatal("no error")
 	}
-	sum, _ := st.Summary(context.Background())
+	sum, _ := st.Summary(context.Background(), time.Time{})
 	if sum.Queued != 0 || len(sum.Recent) != 1 || sum.Recent[0].State != jobdata.Failed || sum.Recent[0].Error.Code != "INTERNAL" {
 		t.Errorf("a job without a message must end: %+v", sum)
 	}

@@ -5,6 +5,7 @@
 //	GET /livez        200 while the process serves: the check of horus-api asks it
 //	GET /             the Horus UI: a read-only page with the 11 parts of docs/specs/2026-11-19-job-queue-ui.html
 //	GET /api/summary  the view of the page as JSON (View)
+//	                  both take ?tz=<IANA time zone>: the time zone of the browser, for the clock times and for "today" (ADR 0043)
 //	GET /api/events   a stream of Server-Sent Events: one event "job" for each event of the broker (Listen)
 //
 // The page, the summary and the events refuse a request whose Host header is
@@ -28,6 +29,7 @@ import (
 	"slices"
 	"strconv"
 	"time"
+	_ "time/tzdata" // the time zones that a browser names, also on a machine without them
 
 	"github.com/hieplam/horus/internal/catalog"
 	"github.com/hieplam/horus/internal/httpguard"
@@ -42,7 +44,7 @@ type ReadyFunc func(ctx context.Context) jobdata.Readiness
 // Queue is what the Horus UI reads from the service of the job queue
 // (internal/jobs).
 type Queue interface {
-	Summary(ctx context.Context) (jobdata.Summary, error)
+	Summary(ctx context.Context, today time.Time) (jobdata.Summary, error)
 	// Depth gives the count of the messages of the work queue of the backend
 	// that wait for a delivery.
 	Depth(ctx context.Context, backend string) (int, error)
@@ -118,7 +120,7 @@ func Handler(c Config) http.Handler {
 	}
 	mux.HandleFunc("GET /{$}", c.guard(func(w http.ResponseWriter, r *http.Request) {
 		var buf bytes.Buffer
-		if err := page.Execute(&buf, c.view(r.Context())); err != nil {
+		if err := page.Execute(&buf, c.view(r)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -126,7 +128,7 @@ func Handler(c Config) http.Handler {
 		_, _ = w.Write(buf.Bytes())
 	}))
 	mux.HandleFunc("GET /api/summary", c.guard(func(w http.ResponseWriter, r *http.Request) {
-		body, err := json.MarshalIndent(c.view(r.Context()), "", " ")
+		body, err := json.MarshalIndent(c.view(r), "", " ")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -158,11 +160,32 @@ func (c Config) guard(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// view runs the reads of one request and builds the view.
-func (c Config) view(ctx context.Context) View {
+// MaxZoneName is the longest name of a time zone that a request can give.
+const MaxZoneName = 64
+
+// ZoneOf gives the time zone of one request. tz is the query parameter tz:
+// the IANA name of the time zone of the browser, for example
+// Asia/Ho_Chi_Minh. Without a name, or with a name that horus does not know,
+// the zone is the zone of the process of horus api (the location of now),
+// and the page names it next to each time.
+func ZoneOf(tz string, now time.Time) Zone {
+	if tz != "" && tz != "Local" && len(tz) <= MaxZoneName {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return Zone{Loc: loc, Name: tz, FromBrowser: true}
+		}
+	}
+	return processZone(now)
+}
+
+// view runs the reads of one request and builds the view. The time zone of
+// the request gives the clock times and the start of "today".
+func (c Config) view(req *http.Request) View {
+	ctx := req.Context()
 	var r Reads
+	r.Zone = ZoneOf(req.URL.Query().Get("tz"), c.Now())
+	now := c.Now().In(r.Zone.Loc)
 	r.Ready = c.Ready(ctx)
-	r.Summary, r.SummaryErr = c.Queue.Summary(ctx)
+	r.Summary, r.SummaryErr = c.Queue.Summary(ctx, midnight(now))
 	r.Depth, r.DepthErr = c.Queue.Depth(ctx, Backend)
 	r.Flows, r.FlowsErr = c.flows(ctx)
 	if c.ComfyVersion != nil && comfyUp(r.Ready) {
@@ -170,7 +193,7 @@ func (c Config) view(ctx context.Context) View {
 			r.ComfyVersion = v
 		}
 	}
-	return Build(r, c.Settings, c.Now())
+	return Build(r, c.Settings, now)
 }
 
 // flows gives the workflows that list_workflows shows, with their install

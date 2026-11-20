@@ -18,6 +18,14 @@ import (
 type View struct {
 	At    time.Time         `json:"at"`
 	Ready jobdata.Readiness `json:"ready"`
+	// Zone is the time zone of the clock times of the page and of "today":
+	// the IANA name that the browser gave (ZoneFrom "browser"), else the
+	// offset of the process of horus api, for example UTC (ZoneFrom
+	// "horus api"). TodayFrom is 00:00 of the day of At in that zone: the
+	// counts of today start there.
+	Zone      string    `json:"zone"`
+	ZoneFrom  string    `json:"zone_from"`
+	TodayFrom time.Time `json:"today_from"`
 	// Pills are the readiness strip: the count, then the 4 dependencies.
 	Pills []Pill `json:"-"`
 
@@ -42,9 +50,54 @@ type View struct {
 	// of a failed read are 0.
 	Errors []string `json:"errors"`
 
-	// The texts of the page.
+	// The texts of the page. DayText ends the hover text of a count of
+	// today: it names the time zone of 00:00.
 	SlotText     string `json:"-"`
 	WorkflowText string `json:"-"`
+	DayText      string `json:"-"`
+}
+
+// Zone is the time zone of one request of the page.
+type Zone struct {
+	Loc *time.Location
+	// Name is the IANA name that the browser gave, else the offset of the
+	// process of horus api: UTC, UTC+7 or UTC-3:30.
+	Name string
+	// FromBrowser tells that the browser gave the zone. Else the page puts
+	// Name next to each clock time, because the person who looks at the page
+	// can be in another zone.
+	FromBrowser bool
+}
+
+// processZone is the zone of the process of horus api: the location of now.
+func processZone(now time.Time) Zone {
+	_, off := now.Zone()
+	name := "UTC"
+	if off != 0 {
+		sign := '+'
+		if off < 0 {
+			sign, off = '-', -off
+		}
+		name = fmt.Sprintf("UTC%c%d", sign, off/3600)
+		if m := off % 3600 / 60; m != 0 {
+			name += fmt.Sprintf(":%02d", m)
+		}
+	}
+	return Zone{Loc: now.Location(), Name: name}
+}
+
+// label is the text after each clock time: nothing in the zone of the
+// browser, else the name of the zone of the process.
+func (z Zone) label() string {
+	if z.FromBrowser {
+		return ""
+	}
+	return z.Name
+}
+
+// midnight is 00:00 of the day of now, in the zone of now.
+func midnight(now time.Time) time.Time {
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 }
 
 // Pill is one pill of the readiness strip.
@@ -84,11 +137,14 @@ type QueueRow struct {
 
 // RecentRow is one ended job.
 type RecentRow struct {
-	ID           string        `json:"id"`
-	State        jobdata.State `json:"state"`
-	Workflow     string        `json:"workflow"`
-	FinishedAt   time.Time     `json:"finished_at"`
-	QueueSeconds int           `json:"queue_seconds"`
+	ID       string        `json:"id"`
+	State    jobdata.State `json:"state"`
+	Workflow string        `json:"workflow"`
+	// Path is the path of the PNG of a succeeded job, on the machine of the
+	// owner: the host path of a container path in a shared folder.
+	Path         string    `json:"path,omitempty"`
+	FinishedAt   time.Time `json:"finished_at"`
+	QueueSeconds int       `json:"queue_seconds"`
 	// RunSeconds is -1 for a job that never started.
 	RunSeconds int `json:"run_seconds"`
 
@@ -112,7 +168,7 @@ type WorkflowRow struct {
 	Kind         string `json:"kind"`
 	InstallState string `json:"install_state"`
 	// Today is the count of its jobs that ended as succeeded or failed since
-	// 00:00.
+	// 00:00 (View.TodayFrom).
 	Today int `json:"today"`
 
 	Backend, Pill, PillClass string `json:"-"`
@@ -134,6 +190,10 @@ type Reads struct {
 	FlowsErr   error
 	// ComfyVersion is the version that ComfyUI reports, or "".
 	ComfyVersion string
+	// Zone is the time zone of the request (ZoneOf). The summary counts
+	// "today" from 00:00 of that zone. Without a location, the zone is the
+	// zone of the process: the location of the time now of Build.
+	Zone Zone
 }
 
 // Settings are the settings that the page shows.
@@ -169,11 +229,23 @@ var pillOrder = []struct{ dep, name string }{
 }
 
 // Build makes the view from the reads at the time now. It is a pure
-// function: the page, the JSON and the tests use it.
+// function: the page, the JSON and the tests use it. Each clock time of the
+// view is in the zone of the reads.
 func Build(r Reads, s Settings, now time.Time) View {
 	red := redactor(s.DatabaseURL)
-	v := View{At: now, Ready: r.Ready, Errors: []string{},
+	zone := r.Zone
+	if zone.Loc == nil {
+		zone = processZone(now)
+	}
+	now = now.In(zone.Loc)
+	label := zone.label()
+	v := View{At: now, Ready: r.Ready, Errors: []string{}, Zone: zone.Name, ZoneFrom: "browser", TodayFrom: midnight(now),
 		RunningJobs: []RunningRow{}, Queue: []QueueRow{}, Recent: []RecentRow{}, Workflows: []WorkflowRow{}}
+	v.DayText = "00:00 of the time zone " + zone.Name + " of this browser"
+	if !zone.FromBrowser {
+		v.ZoneFrom = "horus api"
+		v.DayText = "00:00 " + zone.Name + ", the time zone of horus api: the browser gave no time zone that horus knows"
+	}
 	v.Ready.Checks = append([]jobdata.CheckResult{}, r.Ready.Checks...)
 	for i := range v.Ready.Checks {
 		v.Ready.Checks[i].Detail = red(v.Ready.Checks[i].Detail)
@@ -212,10 +284,10 @@ func Build(r Reads, s Settings, now time.Time) View {
 		v.Queue = append(v.Queue, queueRow(i+1, j, start, now))
 	}
 	for _, j := range sum.Recent {
-		v.Recent = append(v.Recent, recentRow(j, now, red))
+		v.Recent = append(v.Recent, recentRow(j, now, label, s.Paths, red))
 	}
 
-	v.Worker = worker(r, s, sum, red, now)
+	v.Worker = worker(r, s, sum, red, now, label)
 	if r.DepthErr != nil {
 		v.Errors = append(v.Errors, red("the broker: "+r.DepthErr.Error()))
 	}
@@ -335,9 +407,9 @@ func queueRow(pos int, j jobdata.Job, start, now time.Time) QueueRow {
 		Waited: clock(waited), StartIn: clock(in)}
 }
 
-func recentRow(j jobdata.Job, now time.Time, red func(string) string) RecentRow {
+func recentRow(j jobdata.Job, now time.Time, label string, paths jobs.Paths, red func(string) string) RecentRow {
 	r := RecentRow{ID: j.ID, State: j.State, Workflow: j.Workflow, FinishedAt: j.FinishedAt, RunSeconds: -1, Run: "–"}
-	r.Ended = when(j.FinishedAt, now)
+	r.Ended = when(j.FinishedAt, now, label)
 	queued := j.FinishedAt.Sub(j.CreatedAt)
 	if !j.StartedAt.IsZero() {
 		queued = j.StartedAt.Sub(j.CreatedAt)
@@ -353,7 +425,14 @@ func recentRow(j jobdata.Job, now time.Time, red func(string) string) RecentRow 
 			Path string `json:"path"`
 		}
 		_ = json.Unmarshal(j.Result, &res)
-		r.Detail, r.DetailTitle, r.DetailMono = shortPath(res.Path), res.Path, true
+		// In the stack, the job row holds the container path. The owner
+		// opens the file at its host path, as the result of
+		// generate_image gives it.
+		r.Path = res.Path
+		if host, ok := paths.ToHost(res.Path); ok && res.Path != "" {
+			r.Path = host
+		}
+		r.Detail, r.DetailTitle, r.DetailMono = shortPath(r.Path), r.Path, true
 	case jobdata.Failed:
 		r.Pill, r.PillClass = "failed", "bad"
 		if e := j.Error; e != nil {
@@ -377,7 +456,7 @@ func recentRow(j jobdata.Job, now time.Time, red func(string) string) RecentRow 
 	return r
 }
 
-func worker(r Reads, s Settings, sum jobdata.Summary, red func(string) string, now time.Time) WorkerView {
+func worker(r Reads, s Settings, sum jobdata.Summary, red func(string) string, now time.Time, label string) WorkerView {
 	w := WorkerView{Slots: max(s.Slots, 1), Messages: r.Depth}
 	check := jobdata.CheckResult{Dependency: jobdata.DependencyWorker, Detail: "no check result"}
 	for _, c := range r.Ready.Checks {
@@ -396,7 +475,7 @@ func worker(r Reads, s Settings, sum jobdata.Summary, red func(string) string, n
 			w.Slots = row.Slots
 		}
 		if check.Up {
-			w.State = "running since " + when(row.StartedAt, now)
+			w.State = "running since " + when(row.StartedAt, now, label)
 		} else {
 			w.State = "down: " + red(check.Detail)
 		}
@@ -565,14 +644,18 @@ func words(d time.Duration) string {
 	return fmt.Sprintf("%d h %d min", s/3600, s%3600/60)
 }
 
-// when is a time as 15:04 on the day of now, else as Jan 2 15:04.
-func when(t, now time.Time) string {
+// when is a time in the zone of now: as 15:04 on the day of now, else as
+// Jan 2 15:04. A label names the zone after the time: "19:37 UTC".
+func when(t, now time.Time, label string) string {
 	if t.IsZero() {
 		return "–"
 	}
+	if label != "" {
+		label = " " + label
+	}
 	t = t.In(now.Location())
 	if y, m, d := t.Date(); y == now.Year() && m == now.Month() && d == now.Day() {
-		return t.Format("15:04")
+		return t.Format("15:04") + label
 	}
-	return t.Format("Jan 2 15:04")
+	return t.Format("Jan 2 15:04") + label
 }

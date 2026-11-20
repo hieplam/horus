@@ -166,12 +166,15 @@ func (s *Store) Sweep(ctx context.Context) (expired, abandoned int, err error) {
 	return expired, abandoned, nil
 }
 
-// Summary gives the counts and the lists of the Horus UI.
-func (s *Store) Summary(ctx context.Context) (jobdata.Summary, error) {
+// Summary gives the counts and the lists of the Horus UI. "Today" starts at
+// today, or at 00:00 of the day of the clock when today is the zero time.
+func (s *Store) Summary(ctx context.Context, today time.Time) (jobdata.Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.now()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	if today.IsZero() {
+		now := s.now()
+		today = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	}
 	sum := jobdata.Summary{WorkflowToday: map[string]int{}, RunningJobs: []jobdata.Job{}, QueuedJobs: []jobdata.Job{}, Recent: []jobdata.Job{}}
 	keys := map[string]int{}
 	var ended, succeeded []jobdata.Job

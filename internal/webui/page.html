@@ -11,7 +11,21 @@
   same data-part names and the same styles. horus api renders the page from the
   job store, the broker and the readiness report at each request. The script at
   the end reads the page again at each event of /api/events and every 5 s.
+
+  The clock times and "today" are in the time zone of the browser (ADR 0043).
+  The script below puts the name of that zone in the query (?tz=), before the
+  page shows. Without it, horus api uses its own zone and names it next to
+  each time.
 -->
+<script>
+(function () {
+  try {
+    var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    var u = new URL(location.href);
+    if (tz && u.searchParams.get("tz") !== tz) { u.searchParams.set("tz", tz); location.replace(u.href); }
+  } catch (e) {}
+})();
+</script>
 <style>
 :root {
   --bg: #f4f6f9; --surface: #ffffff; --surface-2: #eaeef4; --fg: #16202c; --fg-2: #4a5667; --muted: #7b8698; --line: #d6dce5;
@@ -73,7 +87,7 @@ tr:last-child td { border-bottom: none; }
 </style>
 </head>
 <body>
-<div class="ui" data-at="{{.At.Format "2006-01-02T15:04:05Z07:00"}}">
+<div class="ui" data-at="{{.At.Format "2006-01-02T15:04:05Z07:00"}}" data-zone="{{.Zone}}" data-zone-from="{{.ZoneFrom}}">
   <div class="ui-top">
     <h3>horus on this PC</h3>
     <div class="ready-strip" data-part="ready-strip" title="horus serves only when its 4 dependencies are up">
@@ -88,8 +102,8 @@ tr:last-child td { border-bottom: none; }
   <div class="tiles">
     <div class="tile wait" data-part="tile-waiting" title="Jobs in the state queued, now"><span class="n">{{.Waiting}}</span><span class="l">waiting in the queue</span></div>
     <div class="tile run" data-part="tile-running" title="Jobs in the state running, and the number of slots"><span class="n">{{.Running}} / {{.Slots}}</span><span class="l">running / slots</span></div>
-    <div class="tile ok" data-part="tile-succeeded" title="Jobs that ended with a PNG since 00:00"><span class="n">{{.SucceededToday}}</span><span class="l">succeeded today</span></div>
-    <div class="tile bad" data-part="tile-failed" title="Jobs that ended with an error since 00:00"><span class="n">{{.FailedToday}}</span><span class="l">failed today</span></div>
+    <div class="tile ok" data-part="tile-succeeded" title="Jobs that ended with a PNG since {{.DayText}}"><span class="n">{{.SucceededToday}}</span><span class="l">succeeded today</span></div>
+    <div class="tile bad" data-part="tile-failed" title="Jobs that ended with an error since {{.DayText}}"><span class="n">{{.FailedToday}}</span><span class="l">failed today</span></div>
     <div class="tile wf" data-part="tile-workflows" title="Workflows that list_workflows shows to agents"><span class="n">{{.WorkflowCount}}</span><span class="l">{{.WorkflowText}}</span></div>
   </div>
   <div class="ui-cols">
@@ -152,14 +166,14 @@ tr:last-child td { border-bottom: none; }
           <dt>Broker</dt><dd>{{.Worker.Broker}}</dd>
           <dt>Job store</dt><dd>{{.Worker.JobStore}}</dd>
           <dt>ComfyUI</dt><dd>{{.Worker.ComfyUI}}</dd>
-          <dt>Same key today</dt><dd>{{.Worker.SameKey}}</dd>
+          <dt title="Jobs since {{.DayText}}">Same key today</dt><dd>{{.Worker.SameKey}}</dd>
         </dl>
       </div>
       <div class="ui-panel" data-part="panel-workflows">
         <h4>Workflows <span>what agents see</span></h4>
         <div class="tablewrap">
           <table>
-            <thead><tr><th>Name</th><th>Backend</th><th>Installed</th><th class="num">Today</th></tr></thead>
+            <thead><tr><th>Name</th><th>Backend</th><th>Installed</th><th class="num" title="Jobs that ended with a PNG or with an error since {{.DayText}}">Today</th></tr></thead>
             <tbody>
               {{- range .Workflows}}
               <tr><td>{{.Name}}</td><td>{{.Backend}}</td><td><span class="pill {{.PillClass}}">{{.Pill}}</span></td><td class="num">{{.Today}}</td></tr>

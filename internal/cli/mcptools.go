@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/hieplam/horus/internal/provision"
 	"github.com/hieplam/horus/internal/settings"
@@ -81,6 +82,7 @@ func Register(ctx context.Context, args []string, out, errOut io.Writer, program
 	horus := fs.String("horus-path", "", "path of the horus program to register (default: this program)")
 	docker := fs.Bool("docker", false, "register horus mcp in the stack: docker exec -i <stack>-api horus mcp (no -root, no -horus-path)")
 	stack := fs.String("stack", settings.Stack(), "with -docker: the name of the stack (HORUS_STACK); the container is <stack>-api")
+	overHTTP := fs.Bool("http", false, "register /mcp of horus api in the stack: http://127.0.0.1:<HORUS_API_PORT>/mcp, with the bearer token of the variable "+settings.APITokenVar+" (the config names the variable, not the token)")
 	if code, done := parse(fs, args); done {
 		return code
 	}
@@ -98,6 +100,18 @@ func Register(ctx context.Context, args []string, out, errOut io.Writer, program
 		}
 	}
 	o := provision.RegisterOptions{Client: *client, HorusPath: *horus, Root: root, AskDir: os.TempDir(), Stdout: out, Stderr: errOut}
+	if *docker && *overHTTP {
+		fmt.Fprintln(errOut, "horus register: -docker and -http are two ways in to the stack. Give one of them.")
+		return 2
+	}
+	if *overHTTP {
+		port, err := settings.APIPort()
+		if err != nil {
+			fmt.Fprintln(errOut, "horus register:", err)
+			return 1
+		}
+		o.URL, o.TokenVar, o.Root, o.HorusPath = "http://127.0.0.1:"+strconv.Itoa(port)+"/mcp", settings.APITokenVar, "", ""
+	}
 	if *docker {
 		if *stack == "" {
 			fmt.Fprintln(errOut, "horus register: -stack is empty. Give the name of the stack, for example horus.")
@@ -105,7 +119,7 @@ func Register(ctx context.Context, args []string, out, errOut io.Writer, program
 		}
 		o.Container, o.Root, o.HorusPath = *stack+"-api", "", ""
 	}
-	if o.HorusPath == "" && o.Container == "" {
+	if o.HorusPath == "" && o.Container == "" && o.URL == "" {
 		self, err := os.Executable()
 		if err != nil {
 			fmt.Fprintln(errOut, "horus register:", err)

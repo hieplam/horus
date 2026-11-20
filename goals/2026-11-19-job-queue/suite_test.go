@@ -10,8 +10,10 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,21 +144,25 @@ type oneStop struct {
 
 // TestReadyWhenFourUp stops each of the 4 dependencies in turn, then the
 // whole stack. Each time, over stdio (docker exec -i horus_test-api horus
-// mcp):
+// mcp) and over HTTP (/mcp of horus api on 127.0.0.1:18190, with the token of
+// the test stack):
 //
 //   - a call in a session that is open gets NOT_READY that names the
 //     dependency, and a new session does not start and names it, in 10 s or
-//     less. When horus-api stops, docker exec fails and names its container;
+//     less. Over stdio, the new session exits with the FAIL line of the
+//     dependency. Over HTTP, it gets 503 with the readiness report that names
+//     the dependency. When horus-api stops, docker exec fails and names its
+//     container, and /mcp gives no HTTP answer;
 //   - no request reaches ComfyUI while horus is not ready;
 //   - after the dependency starts again, a new session starts and a call gets
-//     no NOT_READY, in 30 s or less, with no action on horus.
-//
-// The HTTP session of each step (/mcp) comes with task #204.
+//     no NOT_READY, in 30 s or less, over stdio and over HTTP, with no action
+//     on horus.
 func TestReadyWhenFourUp(t *testing.T) {
 	fake := startFake(t)
 	env := newStack(t, fake)
 	upWait(t, env)
 	apiID := containerID(t, apiName)
+	token := tokenOf(t, env)
 	docker := func(args ...string) func(t *testing.T) {
 		return func(t *testing.T) {
 			t.Helper()
@@ -172,46 +178,120 @@ func TestReadyWhenFourUp(t *testing.T) {
 		{"horus-api", docker("stop", apiName), docker("start", apiName)},
 	}
 	call := map[string]any{"workflow": "it-illustration", "subject": "A falcon over a server rack. The picture contains no text."}
-	named := 0
+
+	// stdioDown checks over stdio that dep is named: the call in the open
+	// session, and a new session.
+	stdioDown := func(dep string, open *session) string {
+		if dep != "horus-api" {
+			e, err := open.call("generate_image", call, 15*time.Second)
+			if err != nil {
+				return "the call in the open stdio session: " + err.Error()
+			}
+			if down := downNames(e); !hasAll(down, dep) {
+				return fmt.Sprintf("the call in the open stdio session: %+v, want NOT_READY with %s in details.down", e, dep)
+			}
+		}
+		s, err := openSession(t, 15*time.Second)
+		if err == nil {
+			s.close()
+			return "a new stdio session started"
+		}
+		var no *errNoSession
+		if !errors.As(err, &no) {
+			return "a new stdio session: " + err.Error()
+		}
+		want := "FAIL " + dep
+		if dep == "horus-api" {
+			want = "container " + apiID + " is not running"
+		}
+		if no.exit == 0 || !strings.Contains(no.stderr, want) {
+			return fmt.Sprintf("a new stdio session ended with exit code %d and does not say %q: %s", no.exit, want, no.stderr)
+		}
+		return ""
+	}
+	// httpDown checks the same over HTTP.
+	httpDown := func(dep string, open *httpSession) string {
+		if dep != "horus-api" {
+			e, err := open.call("generate_image", call, 15*time.Second)
+			if err != nil {
+				return "the call in the open HTTP session: " + err.Error()
+			}
+			if down := downNames(e); !hasAll(down, dep) {
+				return fmt.Sprintf("the call in the open HTTP session: %+v, want NOT_READY with %s in details.down", e, dep)
+			}
+		}
+		s, err := openHTTP(token, 15*time.Second)
+		if err == nil {
+			s.close()
+			return "a new HTTP session started"
+		}
+		var no *errNoHTTP
+		if !errors.As(err, &no) {
+			return "a new HTTP session: " + err.Error()
+		}
+		if dep == "horus-api" {
+			if no.status != 0 {
+				return fmt.Sprintf("a new HTTP session while horus-api is stopped: %s, want no HTTP answer", no)
+			}
+			return ""
+		}
+		if !hasAll(downOf(no), dep) {
+			return fmt.Sprintf("a new HTTP session: %s, want 503 with the readiness report that names %s", no, dep)
+		}
+		return ""
+	}
+	// serves checks that a new session starts and list_workflows works, over
+	// stdio and over HTTP.
+	serves := func() string {
+		s, err := openSession(t, 15*time.Second)
+		if err != nil {
+			return "a new stdio session: " + err.Error()
+		}
+		defer s.close()
+		if e, err := s.call("list_workflows", map[string]any{}, 15*time.Second); err != nil || !e.OK {
+			return fmt.Sprintf("list_workflows over stdio: %+v %v", e, err)
+		}
+		h, err := openHTTP(token, 15*time.Second)
+		if err != nil {
+			return "a new HTTP session: " + err.Error()
+		}
+		defer h.close()
+		if e, err := h.call("list_workflows", map[string]any{}, 15*time.Second); err != nil || !e.OK {
+			return fmt.Sprintf("list_workflows over HTTP: %+v %v", e, err)
+		}
+		return ""
+	}
+
+	named, namedHTTP := 0, 0
 	for _, step := range steps {
 		open, err := openSession(t, 60*time.Second)
 		if err != nil {
-			t.Fatalf("%s: before the stop, a session does not start: %v", step.dep, err)
+			t.Fatalf("%s: before the stop, a stdio session does not start: %v", step.dep, err)
 		}
 		if e, err := open.call("list_workflows", map[string]any{}, 30*time.Second); err != nil || !e.OK {
-			t.Fatalf("%s: before the stop, list_workflows: %+v %v", step.dep, e, err)
+			t.Fatalf("%s: before the stop, list_workflows over stdio: %+v %v", step.dep, e, err)
+		}
+		hopen, err := openHTTP(token, 60*time.Second)
+		if err != nil {
+			t.Fatalf("%s: before the stop, an HTTP session does not start: %v", step.dep, err)
+		}
+		if e, err := hopen.call("list_workflows", map[string]any{}, 30*time.Second); err != nil || !e.OK {
+			t.Fatalf("%s: before the stop, list_workflows over HTTP: %+v %v", step.dep, e, err)
 		}
 		jobsBefore := fake.jobs.Load()
 		step.stop(t)
+		stdioNamed := false
 		took, why := eventually(10*time.Second, func() string {
-			if step.dep != "horus-api" {
-				e, err := open.call("generate_image", call, 15*time.Second)
-				if err != nil {
-					return "the call in the open session: " + err.Error()
+			if !stdioNamed {
+				if why := stdioDown(step.dep, open); why != "" {
+					return why
 				}
-				if down := downNames(e); !hasAll(down, step.dep) {
-					return fmt.Sprintf("the call in the open session: %+v, want NOT_READY with %s in details.down", e, step.dep)
-				}
+				stdioNamed = true
 			}
-			s, err := openSession(t, 15*time.Second)
-			if err == nil {
-				s.close()
-				return "a new session started"
-			}
-			var no *errNoSession
-			if !errors.As(err, &no) {
-				return "a new session: " + err.Error()
-			}
-			want := "FAIL " + step.dep
-			if step.dep == "horus-api" {
-				want = "container " + apiID + " is not running"
-			}
-			if no.exit == 0 || !strings.Contains(no.stderr, want) {
-				return fmt.Sprintf("a new session ended with exit code %d and does not say %q: %s", no.exit, want, no.stderr)
-			}
-			return ""
+			return httpDown(step.dep, hopen)
 		})
 		open.close()
+		hopen.close()
 		if why != "" {
 			t.Fatalf("%s is stopped: not named in 10 s: %s", step.dep, why)
 		}
@@ -219,25 +299,15 @@ func TestReadyWhenFourUp(t *testing.T) {
 			t.Errorf("%s is stopped: %d requests reached ComfyUI while horus was not ready", step.dep, n)
 		}
 		named++
-		t.Logf("%s stopped: named in %s", step.dep, took.Round(100*time.Millisecond))
+		namedHTTP++
+		t.Logf("%s stopped: named over stdio and over HTTP in %s", step.dep, took.Round(100*time.Millisecond))
 
 		step.start(t)
-		took, why = eventually(30*time.Second, func() string {
-			s, err := openSession(t, 15*time.Second)
-			if err != nil {
-				return "a new session: " + err.Error()
-			}
-			defer s.close()
-			e, err := s.call("list_workflows", map[string]any{}, 15*time.Second)
-			if err != nil || !e.OK {
-				return fmt.Sprintf("list_workflows: %+v %v", e, err)
-			}
-			return ""
-		})
+		took, why = eventually(30*time.Second, serves)
 		if why != "" {
 			t.Fatalf("%s started again: horus does not serve again in 30 s: %s", step.dep, why)
 		}
-		t.Logf("%s started again: horus serves again in %s", step.dep, took.Round(100*time.Millisecond))
+		t.Logf("%s started again: horus serves again over stdio and over HTTP in %s", step.dep, took.Round(100*time.Millisecond))
 	}
 
 	if code, out := compose(t, env, "stop"); code != 0 {
@@ -247,38 +317,35 @@ func TestReadyWhenFourUp(t *testing.T) {
 		s, err := openSession(t, 15*time.Second)
 		if err == nil {
 			s.close()
-			return "a new session started"
+			return "a new stdio session started"
 		}
 		var no *errNoSession
 		if !errors.As(err, &no) || no.exit == 0 || !strings.Contains(no.stderr, "is not running") {
-			return "a new session: " + err.Error()
+			return "a new stdio session: " + err.Error()
+		}
+		h, err := openHTTP(token, 15*time.Second)
+		if err == nil {
+			h.close()
+			return "a new HTTP session started"
+		}
+		var noHTTP *errNoHTTP
+		if !errors.As(err, &noHTTP) || noHTTP.status != 0 {
+			return fmt.Sprintf("a new HTTP session: %v, want no HTTP answer", err)
 		}
 		return ""
 	})
 	if why != "" {
 		t.Fatalf("the whole stack is stopped: %s", why)
 	}
-	t.Logf("the whole stack stopped: no session in %s", took.Round(100*time.Millisecond))
+	t.Logf("the whole stack stopped: no session over stdio or over HTTP in %s", took.Round(100*time.Millisecond))
 	start := time.Now()
 	upWait(t, env)
-	_, why = eventually(30*time.Second, func() string {
-		s, err := openSession(t, 15*time.Second)
-		if err != nil {
-			return "a new session: " + err.Error()
-		}
-		defer s.close()
-		if e, err := s.call("list_workflows", map[string]any{}, 15*time.Second); err != nil || !e.OK {
-			return fmt.Sprintf("list_workflows: %+v %v", e, err)
-		}
-		return ""
-	})
+	_, why = eventually(30*time.Second, serves)
 	if back := time.Since(start); why != "" || back > 30*time.Second {
 		t.Fatalf("the whole stack started again: horus does not serve again in 30 s (%s): %s", back.Round(time.Second), why)
 	}
-	t.Logf("the whole stack started again: horus serves again in %s", time.Since(start).Round(100*time.Millisecond))
-	t.Logf("dependencies whose stop horus finds over stdio: %d of 4", named)
-
-	t.Fatal("not built: /mcp: the HTTP session of each step (task #204, MCP over HTTP)")
+	t.Logf("the whole stack started again: horus serves again over stdio and over HTTP in %s", time.Since(start).Round(100*time.Millisecond))
+	t.Logf("dependencies whose stop horus finds: %d of 4 over stdio, %d of 4 over HTTP", named, namedHTTP)
 }
 
 // TestOutPathMapping runs two calls on the test stack. A call with a host
@@ -401,8 +468,66 @@ func TestDuplicateDelivery(t *testing.T) {
 	t.Logf("jobs with exactly one submit: %s of %s", m[5], m[4])
 }
 
+// TestHttpGuard sends 5 requests to /mcp of the test stack (POST initialize,
+// as a new agent session does). Each of the first 4 has exactly one fault: no
+// token, a wrong token, a wrong Host header, a foreign Origin header. They get
+// 401, 401, 403 and 403. The 5th request has no fault: it gets 200 with the
+// answer of horus to initialize. The tokens are random values of this run.
 func TestHttpGuard(t *testing.T) {
-	t.Fatal("not built: /mcp with the bearer token and the checks of the Host and Origin headers")
+	fake := startFake(t)
+	env := newStack(t, fake)
+	upWait(t, env)
+	token := tokenOf(t, env)
+	cases := []struct {
+		fault string
+		edit  func(r *http.Request)
+		want  int
+	}{
+		{"no token", func(r *http.Request) { r.Header.Del("Authorization") }, http.StatusUnauthorized},
+		{"a wrong token", func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+randomHex(t)) }, http.StatusUnauthorized},
+		{"a wrong Host header", func(r *http.Request) { r.Host = "horus.example.com:" + testAPIPort }, http.StatusForbidden},
+		{"a foreign Origin header", func(r *http.Request) { r.Header.Set("Origin", "http://horus.example.com") }, http.StatusForbidden},
+		{"no fault", nil, http.StatusOK},
+	}
+	var got []string
+	refused := 0
+	for _, c := range cases {
+		req, err := mcpRequest(token, "", initMessage(), c.edit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+		if err != nil {
+			t.Fatalf("%s: no HTTP answer: %v", c.fault, err)
+		}
+		var server string
+		if resp.StatusCode == http.StatusOK {
+			raw, err := rpcAnswer(resp, 1)
+			var init struct {
+				ServerInfo struct {
+					Name string `json:"name"`
+				} `json:"serverInfo"`
+			}
+			if err == nil {
+				_ = json.Unmarshal(raw, &init)
+			}
+			server = init.ServerInfo.Name
+		}
+		resp.Body.Close()
+		got = append(got, strconv.Itoa(resp.StatusCode))
+		switch {
+		case resp.StatusCode != c.want:
+			t.Errorf("%s: HTTP %d, want %d", c.fault, resp.StatusCode, c.want)
+		case c.want == http.StatusUnauthorized && !strings.HasPrefix(resp.Header.Get("WWW-Authenticate"), "Bearer"):
+			t.Errorf("%s: 401 without WWW-Authenticate: Bearer", c.fault)
+		case c.want == http.StatusOK && server != "horus":
+			t.Errorf("%s: 200, but the answer to initialize names the server %q, want horus", c.fault, server)
+		case c.want != http.StatusOK:
+			refused++
+		}
+		t.Logf("%s: HTTP %d", c.fault, resp.StatusCode)
+	}
+	t.Logf("the 5 requests: %s; bad requests refused: %d of 4", strings.Join(got, ", "), refused)
 }
 
 // queueText is the progress text of a queued job.

@@ -13,6 +13,16 @@
 // container horus-api: "claude mcp add --scope user horus -- <path of docker>
 // exec -i horus-api horus mcp", with no HORUS_ROOT (spec
 // docs/specs/2026-11-19-job-queue.md, "Two ways in").
+//
+// Over HTTP (horus register -http), the client connects to /mcp of horus api
+// in the stack, with the bearer token of the variable HORUS_API_TOKEN. The
+// config of the client names the variable, never the token (ADR 0040):
+//
+//	claude mcp add --scope user --transport http horus <url> --header "Authorization: Bearer ${HORUS_API_TOKEN}"
+//	codex mcp add horus --url <url> --bearer-token-env-var HORUS_API_TOKEN
+//
+// Claude Code reads the variable of its own environment in the header when it
+// connects, and Codex reads the variable that bearer_token_env_var names.
 package provision
 
 import (
@@ -52,6 +62,15 @@ type RegisterOptions struct {
 	Container string
 	// Docker is the path of the docker program. Empty: find it on the PATH.
 	Docker string
+	// URL is the address of /mcp of horus api, for example
+	// http://127.0.0.1:8190/mcp. Not empty: the client connects over HTTP
+	// with the bearer token of the variable TokenVar, and Register uses
+	// neither HorusPath, Root nor Container.
+	URL string
+	// TokenVar is the name of the variable of the bearer token
+	// (HORUS_API_TOKEN). Register writes the name into the config of the
+	// client, never the value.
+	TokenVar string
 	// AskDir is the folder where "<client> mcp get" runs.
 	AskDir string
 	// Stdout gets the result line and the output of "mcp add";
@@ -64,6 +83,9 @@ type clientInfo struct {
 	name, title, envFlag, session string
 	// addArgs is the "mcp add" argument list, up to the "--" and the command.
 	addArgs func(root string) []string
+	// httpArgs is the "mcp add" argument list of a server over HTTP at url,
+	// with the bearer token of the variable tokenVar.
+	httpArgs func(url, tokenVar string) []string
 }
 
 func clientOf(name string) (clientInfo, error) {
@@ -76,6 +98,10 @@ func clientOf(name string) (clientInfo, error) {
 					a = append(a, "-e", "HORUS_ROOT="+root)
 				}
 				return a
+			},
+			httpArgs: func(url, tokenVar string) []string {
+				return []string{"mcp", "add", "--scope", "user", "--transport", "http", "horus", url,
+					"--header", "Authorization: Bearer ${" + tokenVar + "}"}
 			}}, nil
 	case ClientCodex:
 		return clientInfo{name: "codex", title: "Codex", session: "Codex session",
@@ -85,6 +111,9 @@ func clientOf(name string) (clientInfo, error) {
 					a = append(a, "--env", "HORUS_ROOT="+root)
 				}
 				return a
+			},
+			httpArgs: func(url, tokenVar string) []string {
+				return []string{"mcp", "add", "horus", "--url", url, "--bearer-token-env-var", tokenVar}
 			}}, nil
 	}
 	return clientInfo{}, fmt.Errorf("unknown client %q. The clients are: %s.", name, ClientNames)
@@ -98,6 +127,12 @@ func Register(ctx context.Context, programs Programs, o RegisterOptions) error {
 		return err
 	}
 	command := []string{o.HorusPath, "mcp"}
+	if o.URL != "" {
+		if o.TokenVar == "" {
+			return fmt.Errorf("the name of the variable of the bearer token is empty (a bug of the caller)")
+		}
+		o.Root, o.Container = "", ""
+	}
 	if o.Container != "" {
 		o.Root = ""
 		if o.Docker == "" {
@@ -133,6 +168,9 @@ func Register(ctx context.Context, programs Programs, o RegisterOptions) error {
 		return ctx.Err()
 	}
 	args := append(append(c.addArgs(o.Root), "--"), command...)
+	if o.URL != "" {
+		args = c.httpArgs(o.URL, o.TokenVar)
+	}
 	code, err = programs.Run(ctx, platform.Command{Path: o.Program, Args: args, Stdout: o.Stdout, Stderr: o.Stderr})
 	if err != nil {
 		return fmt.Errorf("%s mcp add failed: %w", c.name, err)
@@ -143,6 +181,11 @@ func Register(ctx context.Context, programs Programs, o RegisterOptions) error {
 	via := ""
 	if o.Container != "" {
 		via = " The server is horus mcp in the container " + o.Container + " (docker exec -i " + o.Container + " horus mcp)."
+	}
+	if o.URL != "" {
+		via = " The server is /mcp of horus api at " + o.URL + ", with the bearer token of the variable " + o.TokenVar +
+			". The config names the variable, not the token: set " + o.TokenVar + " in the environment of " + c.title +
+			" to the value in the .env of the stack."
 	}
 	if c.name == "claude" {
 		fmt.Fprintln(out, "OK: registered for Claude Code in user scope."+via+" Start a new Claude Code session to see the tools.")

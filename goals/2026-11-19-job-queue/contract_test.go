@@ -1,13 +1,15 @@
 //go:build goal
 
-// The parts of the oracles of the rows same-contract and worker-lost (task
-// #203): the contract test tests/mcp_contract.py on the host and on the test
-// stack, and a worker that Docker kills while it runs a job.
+// The parts of the oracles of the rows same-contract and worker-lost (tasks
+// #203 and #204): the contract test tests/mcp_contract.py on the host, over
+// stdio into the test stack and over HTTP to /mcp of the test stack, and a
+// worker that Docker kills while it runs a job.
 package goal
 
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -40,30 +42,46 @@ func hostContract(t *testing.T) (int, string) {
 	return run(t, root, pythonOf(t), filepath.Join("tests", "mcp_contract.py"), "--server-cmd", buildHorus(t), "mcp")
 }
 
-// stackContract runs tests/mcp_contract.py over stdio into a new test stack
-// (--stack horus_test) and gives its exit code and output. The test stack
-// has HORUS_GENERATE_TIMEOUT 12, as the checks of the time limit need. The
-// contract test starts its fake ComfyUI on a free port at once, and waits
-// until horus ready exits 0, so it runs while the stack starts.
-func stackContract(t *testing.T) (int, string) {
+// contractRun is the exit code and the output of one run of the contract
+// test.
+type contractRun struct {
+	code int
+	out  string
+}
+
+// stackContracts runs tests/mcp_contract.py two times on one new test stack:
+// over stdio (--stack horus_test), then over HTTP (--http, with the token of
+// the stack in the environment of the test, never on its command line). The
+// test stack has HORUS_GENERATE_TIMEOUT 12, as the checks of the time limit
+// need. The contract test starts its fake ComfyUI on a free port at once, and
+// waits until horus ready exits 0, so the first run starts while the stack
+// starts. Each run writes its own PNG file in the shared folder.
+func stackContracts(t *testing.T) (stdio, overHTTP contractRun) {
 	t.Helper()
 	py := pythonOf(t)
 	port := freePort(t)
 	st := newQueueStack(t, port, "HORUS_GENERATE_TIMEOUT=12")
-	cmd := &background{cmd: exec.Command(py, filepath.Join("tests", "mcp_contract.py"), "--stack", testStack, "--port", strconv.Itoa(port),
-		"--shared-dir", st.shared)}
-	cmd.cmd.Dir = root
-	done := cmd.start(t)
-	upWait(t, st.env)
-	select {
-	case code := <-done:
-		return code, cmd.output()
-	case <-time.After(10 * time.Minute):
-		cmd.kill()
-		<-done
-		t.Fatalf("tests/mcp_contract.py --stack did not end in 10 minutes:\n%s", cmd.output())
-		return 0, ""
+	args := []string{filepath.Join("tests", "mcp_contract.py"), "--stack", testStack, "--port", strconv.Itoa(port), "--shared-dir", st.shared}
+	one := func(env []string, args []string, meanwhile func()) contractRun {
+		cmd := &background{cmd: exec.Command(py, args...)}
+		cmd.cmd.Dir, cmd.cmd.Env = root, env
+		done := cmd.start(t)
+		if meanwhile != nil {
+			meanwhile()
+		}
+		select {
+		case code := <-done:
+			return contractRun{code, cmd.output()}
+		case <-time.After(10 * time.Minute):
+			cmd.kill()
+			<-done
+			t.Fatalf("tests/mcp_contract.py %v did not end in 10 minutes:\n%s", args[1:], cmd.output())
+			return contractRun{}
+		}
 	}
+	stdio = one(nil, args, func() { upWait(t, st.env) })
+	overHTTP = one(append(os.Environ(), "HORUS_API_TOKEN="+tokenOf(t, st.env)), append(args, "--http", httpURL), nil)
+	return stdio, overHTTP
 }
 
 // background is a program that runs while the test does something else.
@@ -99,11 +117,12 @@ func (b *background) output() string { return b.out.String() }
 
 func (b *background) kill() { _ = b.cmd.Process.Kill() }
 
-// TestSameContract runs the contract test on the host and over stdio into the
-// test stack. Each run passes all its checks. The stack run has the check
-// that the stack ran the call: the PNG in the shared folder and the job row of
-// the worker. The same first check runs in both: the server is horus and has
-// the same 6 tools. The run over HTTP comes with task #204.
+// TestSameContract runs the contract test on the host, over stdio into the
+// test stack, and over HTTP to /mcp of the test stack. Each run passes all its
+// checks. The two runs on the stack have the same checks, and the check that
+// the stack ran the call: the PNG in the shared folder and the job row of the
+// worker. The same first check runs in all three: the server is horus and has
+// the same 6 tools.
 func TestSameContract(t *testing.T) {
 	code, out := hostContract(t)
 	hostPassed, hostTotal := contractCounts(t, "on the host", out)
@@ -112,19 +131,27 @@ func TestSameContract(t *testing.T) {
 	}
 	t.Logf("the host run: %d of %d checks pass", hostPassed, hostTotal)
 
-	code, out = stackContract(t)
-	stackPassed, stackTotal := contractCounts(t, "over stdio into the stack", out)
-	if code != 0 || stackPassed != stackTotal || stackTotal == 0 {
-		t.Fatalf("the contract test over stdio into the stack: exit code %d, %d of %d checks pass:\n%s", code, stackPassed, stackTotal, out)
-	}
-	for _, line := range []string{"PASS  tools/list has exactly the 6 tools", "PASS  the stack ran the call: "} {
-		if !strings.Contains(out, line) {
-			t.Errorf("the contract test over stdio into the stack has no line %q:\n%s", line, out)
+	stdio, overHTTP := stackContracts(t)
+	totals := map[string]int{}
+	for _, r := range []struct {
+		way string
+		run contractRun
+	}{{"over stdio into the stack", stdio}, {"over HTTP to /mcp of the stack", overHTTP}} {
+		passedChecks, total := contractCounts(t, r.way, r.run.out)
+		if r.run.code != 0 || passedChecks != total || total == 0 {
+			t.Fatalf("the contract test %s: exit code %d, %d of %d checks pass:\n%s", r.way, r.run.code, passedChecks, total, r.run.out)
 		}
+		for _, line := range []string{"PASS  tools/list has exactly the 6 tools", "PASS  the stack ran the call: "} {
+			if !strings.Contains(r.run.out, line) {
+				t.Errorf("the contract test %s has no line %q:\n%s", r.way, line, r.run.out)
+			}
+		}
+		totals[r.way] = total
+		t.Logf("the run %s: %d of %d checks pass", r.way, passedChecks, total)
 	}
-	t.Logf("the stdio run on the stack: %d of %d checks pass", stackPassed, stackTotal)
-
-	t.Fatal("not built: /mcp: the HTTP run of tests/mcp_contract.py (task #204, MCP over HTTP)")
+	if a, b := totals["over stdio into the stack"], totals["over HTTP to /mcp of the stack"]; a != b {
+		t.Errorf("the two runs on the stack have %d and %d checks, want the same checks", a, b)
+	}
 }
 
 // TestWorkerLost kills the process of horus-worker with SIGKILL while it runs

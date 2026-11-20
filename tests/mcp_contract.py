@@ -2,6 +2,7 @@
 """Contract test of the horus MCP server. No GPU, no network, no real model files.
 
     python tests/mcp_contract.py [--server-cmd <exe> ...] [--report <file>]      (Python 3.12 with mcp==2.3.0, and Go)
+    python tests/mcp_contract.py --stack <name> --port <port> --shared-dir <folder> [--http <url>]
 
 The test starts the server over stdio, like an agent harness does, and talks to
 it with the official MCP client. A fake ComfyUI (a small HTTP server in this
@@ -19,6 +20,11 @@ Exit code 0 only when all checks pass. The default server command is
 `horus mcp`, with `horus` found on the PATH. The list of error codes comes from
 `<server program> errors -json`. --report writes each check, and the answers of
 the server to the speech checks, as JSON (the goal suite reads it).
+
+--stack runs the checks of the stack over stdio into the stack (`docker exec -i
+<name>-api horus mcp`). With --http <url> too, the same checks go over
+Streamable HTTP to /mcp of horus api at <url>, with the bearer token of the
+environment variable HORUS_API_TOKEN. The test never prints the token.
 """
 
 from __future__ import annotations
@@ -40,8 +46,10 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import httpx2
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamable_http_client
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = json.loads((ROOT / "tests" / "fixtures" / "object_info.json").read_text(encoding="utf-8"))
@@ -296,7 +304,7 @@ async def run(server_cmd: list[str], sandbox: dict[str, str], port: int, tmp: Pa
     }
     params = StdioServerParameters(command=server_cmd[0], args=server_cmd[1:], env=env)
     with open(tmp / "server.stderr.log", "w", encoding="utf-8") as errlog:
-        await session_checks(params, errlog, sandbox, tmp, c)
+        await session_checks(lambda: stdio_client(params, errlog=errlog), sandbox, tmp, c)
     await speech_worker_checks(server_cmd, env, tmp, c)
     await setup_checks(server_cmd, env, tmp, c)
     await speech_setup_checks(server_cmd, env, sandbox, tmp, c)
@@ -347,13 +355,20 @@ def wait_ready(stack: str, within: float) -> None:
         time.sleep(1)
 
 
-async def run_stack(stack: str, shared: Path, tmp: Path, c: Checks) -> None:
-    """The contract checks over stdio into the stack: the server is `horus mcp` in the container <stack>-api. The fake
-    ComfyUI of this process is the ComfyUI of the stack. The checks that need the sandbox of the host (STACK_SKIPPED)
-    are left out."""
-    params = StdioServerParameters(command="docker", args=["exec", "-i", f"{stack}-api", "horus", "mcp"])
-    with open(tmp / "server.stderr.log", "w", encoding="utf-8") as errlog:
-        await session_checks(params, errlog, {}, tmp, c, stack=stack, shared=shared)
+async def run_stack(stack: str, shared: Path, tmp: Path, c: Checks, http_url: str = "") -> None:
+    """The contract checks over stdio into the stack: the server is `horus mcp` in the container <stack>-api. With
+    http_url, the same checks go over Streamable HTTP to /mcp of horus api, with the bearer token of HORUS_API_TOKEN.
+    The fake ComfyUI of this process is the ComfyUI of the stack. The checks that need the sandbox of the host
+    (STACK_SKIPPED) are left out."""
+    if http_url:
+        # The read time limit is longer than the gap between two progress messages of a long call (5 s).
+        headers = {"Authorization": "Bearer " + os.environ.get("HORUS_API_TOKEN", "")}
+        async with httpx2.AsyncClient(headers=headers, timeout=httpx2.Timeout(30, read=300)) as client:
+            await session_checks(lambda: streamable_http_client(http_url, http_client=client), {}, tmp, c, stack=stack, shared=shared)
+    else:
+        params = StdioServerParameters(command="docker", args=["exec", "-i", f"{stack}-api", "horus", "mcp"])
+        with open(tmp / "server.stderr.log", "w", encoding="utf-8") as errlog:
+            await session_checks(lambda: stdio_client(params, errlog=errlog), {}, tmp, c, stack=stack, shared=shared)
     code_table_checks(["docker", "exec", f"{stack}-api", "horus", "errors", "-json"], c)
 
 
@@ -378,10 +393,11 @@ def neutral_checks(c: Checks) -> None:
         c.check(f"{d.name}: the graph holds no style words", not words, str(words))
 
 
-async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: Checks, stack: str = "", shared: Path | None = None) -> None:
-    """The checks of one MCP session. With stack (the compose project name), the server is `horus mcp` in the container
-    <stack>-api and the checks that need the sandbox of the host are left out (see STACK_SKIPPED)."""
-    async with stdio_client(params, errlog=errlog) as (read, write):
+async def session_checks(connect, sandbox: dict[str, str], tmp: Path, c: Checks, stack: str = "", shared: Path | None = None) -> None:
+    """The checks of one MCP session. connect() gives the transport (stdio or Streamable HTTP). With stack (the compose
+    project name), the server is horus in the stack and the checks that need the sandbox of the host are left out (see
+    STACK_SKIPPED)."""
+    async with connect() as (read, write):
         async with ClientSession(read, write) as s:
             init = await s.initialize()
             c.check("server identifies as horus and has instructions",
@@ -463,7 +479,8 @@ async def session_checks(params, errlog, sandbox: dict[str, str], tmp: Path, c: 
             async def on_progress(p, total, message):
                 progress.append(message or "")
 
-            out = (shared if stack else tmp / "images") / "queue.png"
+            # Each run on the stack writes its own file, so that the stdio run and the HTTP run can share one stack.
+            out = (shared if stack else tmp / "images") / ("queue-http.png" if HTTP_RUN else "queue.png")
             res = env_of(await s.call_tool("generate_image", {"workflow": "it-illustration", "subject": SUBJECT,
                                                              "out_path": str(out), "seed": 7}, progress_callback=on_progress))
             r = res.get("result") or {}
@@ -1010,6 +1027,8 @@ def speech_record_of(path: Path) -> list[str]:
 
 
 HTTPD: Server
+# True in the run over Streamable HTTP (--http).
+HTTP_RUN = False
 # The count of checks of the run on the stack (the checks of the host run, less STACK_SKIPPED, and the stack check).
 STACK_TOTAL = 26
 
@@ -1034,7 +1053,7 @@ STACK_SKIPPED = {
 
 
 def main() -> int:
-    global HTTPD
+    global HTTPD, HTTP_RUN
     ap = argparse.ArgumentParser()
     ap.add_argument("--server-cmd", nargs="+", default=["horus", "mcp"])
     ap.add_argument("--report", type=Path, help="write each check and the answers of the speech checks to this JSON file")
@@ -1045,9 +1064,17 @@ def main() -> int:
                     help="the address of the fake ComfyUI. Docker Desktop reaches 127.0.0.1 of the host at host.docker.internal. "
                          "Docker on Linux needs 0.0.0.0")
     ap.add_argument("--ready-timeout", type=float, default=180, help="stack: the most seconds to wait until horus ready exits 0")
+    ap.add_argument("--http", default="", metavar="URL",
+                    help="stack: run over Streamable HTTP to /mcp at URL (http://127.0.0.1:<HORUS_API_PORT>/mcp), with the bearer token "
+                         "of the environment variable HORUS_API_TOKEN. Needs --stack")
     a = ap.parse_args()
     if a.stack and not a.shared_dir:
         ap.error("--stack needs --shared-dir")
+    if a.http and not a.stack:
+        ap.error("--http needs --stack: the checks read the job rows in <stack>-db")
+    if a.http and not os.environ.get("HORUS_API_TOKEN"):
+        ap.error("--http needs the environment variable HORUS_API_TOKEN: the token of the .env of the stack")
+    HTTP_RUN = bool(a.http)
     sys.path.insert(0, str(ROOT))
     c = Checks()
     HTTPD = Server((a.listen, a.port), Handler)
@@ -1057,12 +1084,13 @@ def main() -> int:
         try:
             if a.stack:
                 wait_ready(a.stack, a.ready_timeout)
-                asyncio.run(run_stack(a.stack, a.shared_dir.resolve(), tmp, c))
+                asyncio.run(run_stack(a.stack, a.shared_dir.resolve(), tmp, c, a.http))
             else:
                 sandbox = make_sandbox(tmp, with_speech=True)
                 asyncio.run(run(a.server_cmd, sandbox, HTTPD.server_address[1], tmp, c))
         except Exception as exc:  # the server did not start or the session broke
-            c.check("the server starts and answers over stdio", False, f"{type(exc).__name__}: {exc}")
+            way = "over HTTP" if a.http else "over stdio"
+            c.check(f"the server starts and answers {way}", False, f"{type(exc).__name__}: {exc}")
             log = tmp / "server.stderr.log"
             if log.is_file():
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])

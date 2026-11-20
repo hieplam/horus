@@ -102,9 +102,32 @@ func (f *fakeComfy) start(t *testing.T) {
 }
 
 // stackEnv is the environment of docker compose for the test stack. The
-// password of the database is new for each run, and it goes only into the
-// environment, never onto a command line.
+// password of the database and the bearer token of /mcp (HORUS_API_TOKEN) are
+// new for each run, and they go only into the environment, never onto a
+// command line or into a log.
 func stackEnv(t *testing.T, f *fakeComfy) []string { return stackEnvFiles(t, f.port) }
+
+// randomHex gives 16 random bytes as hex.
+func randomHex(t *testing.T) string {
+	t.Helper()
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	return hex.EncodeToString(b)
+}
+
+// tokenOf gives HORUS_API_TOKEN of the environment env of a test stack.
+func tokenOf(t *testing.T, env []string) string {
+	t.Helper()
+	for i := len(env) - 1; i >= 0; i-- {
+		if v, ok := strings.CutPrefix(env[i], "HORUS_API_TOKEN="); ok && v != "" {
+			return v
+		}
+	}
+	t.Fatal("the environment of the test stack has no HORUS_API_TOKEN")
+	return ""
+}
 
 // stackEnvFiles is stackEnv for a fake ComfyUI on port, with the compose
 // files compose.yaml and then each of files. COMPOSE_FILE names the files, so
@@ -112,17 +135,14 @@ func stackEnv(t *testing.T, f *fakeComfy) []string { return stackEnvFiles(t, f.p
 // repo root.
 func stackEnvFiles(t *testing.T, port int, files ...string) []string {
 	t.Helper()
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		t.Fatal(err)
-	}
 	compose, err := filepath.Abs(filepath.Join(root, "compose.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	sep := string(os.PathListSeparator)
 	return append(os.Environ(), "HORUS_STACK="+testStack, "HORUS_API_PORT="+testAPIPort,
-		"HORUS_COMFYUI_URL=http://host.docker.internal:"+strconv.Itoa(port), "HORUS_DB_PASSWORD="+hex.EncodeToString(b),
+		"HORUS_COMFYUI_URL=http://host.docker.internal:"+strconv.Itoa(port), "HORUS_DB_PASSWORD="+randomHex(t),
+		"HORUS_API_TOKEN="+randomHex(t),
 		"COMPOSE_FILE="+strings.Join(append([]string{compose}, files...), sep), "COMPOSE_PATH_SEPARATOR="+sep)
 }
 

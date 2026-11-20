@@ -143,6 +143,7 @@ jobs:
           pw="$(openssl rand -hex 16)"
           echo "::add-mask::$pw"
           echo "HORUS_DB_PASSWORD=$pw" >> "$GITHUB_ENV"
+          export HORUS_DB_PASSWORD="$pw"
           HORUS_SHARED_DIRS="$shared=/shared/ci" bin/horus stack-mounts -o "$RUNNER_TEMP/override.yaml"
           docker compose -p horus_test -f compose.yaml -f "$RUNNER_TEMP/override.yaml" up -d --build
       - name: Contract test over stdio into the stack

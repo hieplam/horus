@@ -3,6 +3,7 @@ module github.com/hieplam/horus
 go 1.27.3
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 )

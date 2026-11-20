@@ -75,3 +75,4 @@ record. You do not need to remember it:
 | [0041](0041-install-workflow-in-the-stack-changes-only-the-models-folder.md) | In the stack, the model tools read and change only the models folder of `HORUS_MODELS_DIR`, and `horus stack-mounts` mounts it into `horus-api` | Accepted |
 | [0042](0042-the-health-check-of-horus-db-asks-over-tcp.md) | The health check of `horus-db` asks over TCP, and horus waits for no database at its start | Accepted |
 | [0043](0043-the-horus-ui-shows-the-times-of-the-browser-and-host-paths.md) | The Horus UI shows the clock times of the time zone of the browser, counts today from its 00:00, and shows host paths | Accepted |
+| [0044](0044-horus-reads-the-step-of-a-job-from-the-websocket-of-comfyui.md) | Read the step of a running job from the WebSocket of ComfyUI, and write it to the job row | Accepted |

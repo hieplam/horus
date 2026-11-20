@@ -1,10 +1,15 @@
 // Package comfytest is a fake ComfyUI for the Go tests, on an ephemeral port.
 // It answers like the fake ComfyUI of tests/mcp_contract.py.
+//
+// As ComfyUI 0.44.0, it gives the step of a job only on its WebSocket
+// /ws?clientId=<id>, and only to the client id of the job: no REST route has
+// a step or a total. A test sends a step with Step.
 package comfytest
 
 import (
 	"bytes"
 	"compress/zlib"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -16,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/coder/websocket"
 )
 
 // Modes of a job.
@@ -38,6 +45,8 @@ type Job struct {
 	Mode  string
 	Graph map[string]any
 	Polls int
+	// ClientID is the client_id of the POST /prompt of the job.
+	ClientID string
 }
 
 // Fake is the state of the fake server.
@@ -53,7 +62,9 @@ type Fake struct {
 	deleted    []string
 	frees      int
 	down       bool
-	refused    int // the POST /prompt requests while down
+	refused    int                        // the POST /prompt requests while down
+	sockets    map[string]*websocket.Conn // the open WebSockets, by client id
+	noSockets  bool                       // GET /ws answers 404
 }
 
 // New starts a fake ComfyUI that serves objectInfo (a path) at /object_info.
@@ -64,10 +75,123 @@ func New(t *testing.T, objectInfo string) *Fake {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &Fake{mode: OK, info: info, jobs: map[string]*Job{}}
+	f := &Fake{mode: OK, info: info, jobs: map[string]*Job{}, sockets: map[string]*websocket.Conn{}}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Server.Close)
+	// Close waits for each request, and a WebSocket is a request that does
+	// not end: close the sockets first.
+	t.Cleanup(f.DropSockets)
 	return f
+}
+
+// RefuseSockets makes GET /ws answer 404, as a server without a WebSocket.
+func (f *Fake) RefuseSockets() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.noSockets = true
+}
+
+// DropSockets closes each open WebSocket, as a ComfyUI whose connection
+// fails while a job runs.
+func (f *Fake) DropSockets() {
+	f.mu.Lock()
+	open := f.sockets
+	f.sockets = map[string]*websocket.Conn{}
+	f.mu.Unlock()
+	for _, c := range open {
+		_ = c.CloseNow()
+	}
+}
+
+// Sockets is the count of the open WebSockets.
+func (f *Fake) Sockets() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.sockets)
+}
+
+// SamplerNode gives the id of the KSampler node in the graph of the job, or
+// "" when the graph has none.
+func (f *Fake) SamplerNode(id string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	job, ok := f.jobs[id]
+	if !ok {
+		return ""
+	}
+	for node, v := range job.Graph {
+		if n, _ := v.(map[string]any); n["class_type"] == "KSampler" {
+			return node
+		}
+	}
+	return ""
+}
+
+// Step reports step value of max for the KSampler node of the job, exactly
+// as ComfyUI 0.44.0 does: one "progress" message on the WebSocket of the
+// client id of the job. It gives false when that WebSocket is not open, and
+// then nobody gets the step.
+func (f *Fake) Step(id string, value, max int) bool {
+	return f.Send(id, map[string]any{"type": "progress",
+		"data": map[string]any{"value": value, "max": max, "prompt_id": id, "node": f.SamplerNode(id)}})
+}
+
+// End reports the end of the job on its WebSocket: "execution_success".
+func (f *Fake) End(id string) bool {
+	return f.Send(id, map[string]any{"type": "execution_success", "data": map[string]any{"prompt_id": id, "timestamp": 4500}})
+}
+
+// Send sends one JSON message on the WebSocket of the client id of the job.
+// It gives false when that WebSocket is not open.
+func (f *Fake) Send(id string, message any) bool {
+	f.mu.Lock()
+	var conn *websocket.Conn
+	if job, ok := f.jobs[id]; ok {
+		conn = f.sockets[job.ClientID]
+	}
+	f.mu.Unlock()
+	if conn == nil {
+		return false
+	}
+	raw, err := json.Marshal(message)
+	if err != nil {
+		return false
+	}
+	return conn.Write(context.Background(), websocket.MessageText, raw) == nil
+}
+
+// socket serves GET /ws?clientId=<id>: it keeps the WebSocket of the client
+// id until it closes. As ComfyUI, it sends one "status" message first.
+func (f *Fake) socket(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	refuse := f.noSockets
+	f.mu.Unlock()
+	if refuse {
+		send(w, 404, map[string]any{"error": "not found"})
+		return
+	}
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	sid := r.URL.Query().Get("clientId")
+	f.mu.Lock()
+	f.sockets[sid] = conn
+	f.mu.Unlock()
+	status, _ := json.Marshal(map[string]any{"type": "status",
+		"data": map[string]any{"status": map[string]any{"exec_info": map[string]any{"queue_remaining": 0}}, "sid": sid}})
+	_ = conn.Write(context.Background(), websocket.MessageText, status)
+	for {
+		if _, _, err := conn.Read(context.Background()); err != nil {
+			break
+		}
+	}
+	_ = conn.CloseNow()
+	f.mu.Lock()
+	if f.sockets[sid] == conn {
+		delete(f.sockets, sid)
+	}
+	f.mu.Unlock()
 }
 
 // URL is the address of the server.
@@ -120,11 +244,14 @@ func (f *Fake) Deleted() []string {
 
 // SetDown makes the fake stop answering (true) or answer again (false).
 // While it is down, it closes each connection without an answer, as a
-// ComfyUI that does not run.
+// ComfyUI that does not run. It also closes each open WebSocket.
 func (f *Fake) SetDown(down bool) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.down = down
+	f.mu.Unlock()
+	if down {
+		f.DropSockets()
+	}
 }
 
 // RefusedPrompts is the count of POST /prompt that came while the fake was
@@ -190,6 +317,8 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodGet {
 		switch {
+		case p == "/ws":
+			f.socket(w, r)
 		case p == "/system_stats":
 			send(w, 200, map[string]any{"system": map[string]any{"comfyui_version": "fake"}})
 		case p == "/object_info":
@@ -240,7 +369,8 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		id := fmt.Sprintf("job-%d", len(f.order)+1)
 		g, _ := body["prompt"].(map[string]any)
-		f.jobs[id] = &Job{Mode: f.mode, Graph: g}
+		client, _ := body["client_id"].(string)
+		f.jobs[id] = &Job{Mode: f.mode, Graph: g, ClientID: client}
 		f.order = append(f.order, id)
 		send(w, 200, map[string]any{"prompt_id": id, "number": len(f.order), "node_errors": map[string]any{}})
 	case "/interrupt":

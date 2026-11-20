@@ -42,6 +42,10 @@ type fakeComfy struct {
 	order   []string
 	cancels []string
 	frees   int
+	// steps holds the step that the server reports for a job. asked holds
+	// the node ids of the calls of Step.
+	steps map[string][2]float64
+	asked []string
 }
 
 func newFake(t *testing.T, objectInfo string) *fakeComfy {
@@ -115,6 +119,34 @@ func (f *fakeComfy) IsUp(ctx context.Context) (bool, error) {
 }
 
 func (f *fakeComfy) Address() string { return "http://fake" }
+
+// SetStep makes the server report step value of total for the job. total 0:
+// the server reports no step, or the adapter lost the steps.
+func (f *fakeComfy) SetStep(id string, value, total float64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.steps == nil {
+		f.steps = map[string][2]float64{}
+	}
+	f.steps[id] = [2]float64{value, total}
+}
+
+// Asked gives the node ids of the calls of Step, without repeats.
+func (f *fakeComfy) Asked() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.asked...)
+}
+
+func (f *fakeComfy) Step(id, node string) (value, total float64, ok bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !contains(f.asked, node) {
+		f.asked = append(f.asked, node)
+	}
+	s := f.steps[id]
+	return s[0], s[1], s[1] > 0
+}
 
 // SetUp makes the server answer again.
 func (f *fakeComfy) SetUp() {

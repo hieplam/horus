@@ -203,10 +203,11 @@ sequenceDiagram
     B->>C: start the process and wait until it answers
   end
   G->>C: ask GET /object_info: do you list the model files of this workflow?
-  G->>C: send the graph with POST /prompt
+  G->>C: open the WebSocket /ws of the job, then send the graph with POST /prompt
   loop every 2 s until the job ends
     G->>C: ask GET /history/<id>: done yet?
-    S-->>A: send a progress message every 10 s
+    C-->>G: on the WebSocket: the step of the sampler node
+    S-->>A: send a progress message every 10 s, and at each new step
   end
   alt the job ends with an image
     G->>C: fetch the image with GET /view
@@ -224,6 +225,24 @@ picture needs the model files to be installed already. If ComfyUI does not list
 them, the call returns `WORKFLOW_NOT_INSTALLED`, which tells the agent to run
 `install_workflow` first. The backend starts ComfyUI so that it keeps running
 after `horus mcp` ends. `horus stop-comfyui` stops it.
+
+#### The step of a running job
+
+While ComfyUI runs the sampler node of the graph (`KSampler`), the progress
+text of `generate_image` names the step: `rendering, step 9 of 15, 42 s`.
+Before the first step (ComfyUI loads the models) and after the last one, the
+text has no step: `rendering, 42 s`.
+
+- ComfyUI gives the step of a node only on its WebSocket `/ws?clientId=<id>`,
+  in the messages of the type `progress`, and only to the client id of the
+  job. No REST route gives it
+  ([ADR 0044](adr/0044-horus-reads-the-step-of-a-job-from-the-websocket-of-comfyui.md)).
+- horus opens one WebSocket for each job, before it sends the graph. It closes
+  the WebSocket when the job ends.
+- When ComfyUI refuses the WebSocket, or when the WebSocket ends while the job
+  runs, the job runs on and the text has no step. horus does not open the
+  WebSocket of a job again.
+- A workflow without a `KSampler` node has no step.
 
 ### 4. The agent makes speech (`generate_speech`)
 
@@ -550,6 +569,7 @@ Terms:
 | Gate | No delivery starts while ComfyUI does not answer at `HORUS_COMFYUI_URL`, or while the worker does not hold the worker lock. The queued jobs keep their place. The worker asks ComfyUI again every 2 s. It never starts ComfyUI. |
 | Idempotent consumer | A delivery runs only when the job store moves its job from `queued` to `running`. Else the worker sends the ack and does nothing. A second delivery of a job that runs on a worker that is gone ends the job with the error `WORKER_LOST`. |
 | Run | The worker saves `backend_job_id` (the id of the job in ComfyUI) before it waits. It writes the PNG as `<file>.part`, then renames it. `HORUS_GENERATE_TIMEOUT` counts from the start of the run. |
+| Progress | The worker writes the progress of a running job to its job row every 10 s, and at each new [step of the sampler node](#the-step-of-a-running-job) that ComfyUI reports. With a step, the row holds the step and the total (`"value": 9, "total": 15`) and the text `rendering, step 9 of 15, 42 s`. Without a step, the total is 0. |
 | Heartbeat | Every 5 s, the worker checks its worker lock. Then the row of the worker in `horus.workers` gets a new `heartbeat_at`. A worker without the lock writes no heartbeat. |
 | Worker lock | Only one worker runs. A second `horus worker` prints the first one and exits with 1. The lock is a session lock in Postgres, so a restart of `horus-db` releases it. The worker finds this at its next heartbeat. Then it starts no new delivery, and it takes the lock again on a new session every 2 s. When another worker took the lock first, the worker stops its jobs and exits with 1. |
 | Sweep | Every 30 s, and at each delivery: a queued job after its deadline becomes `expired`, and a queued job with no waiter for 60 s becomes `abandoned`. |
@@ -734,7 +754,7 @@ sequenceDiagram
     P-->>A: progress: waiting in the horus queue, position 2 of 3, start in about 4 min
   end
   W->>S: move queued to running (only if queued)
-  W->>C: POST /prompt, then GET /history until the job ends
+  W->>C: open the WebSocket /ws of the job, POST /prompt, then GET /history until the job ends
   W->>W: write the PNG at the container path
   W->>S: move running to succeeded, with the result
   P->>S: read the result
@@ -744,7 +764,7 @@ sequenceDiagram
 - **The shared folders.** `HORUS_SHARED_DIRS` holds pairs `<host folder>=<container folder>`, with `;` between two pairs. Each container folder is one folder under `/shared/`. Without the setting, the one pair is the output folder of horus on the host and `/shared/outputs`. `horus stack-mounts`, in the clone, writes `compose.override.yaml` next to `compose.yaml`: one mount of each pair into `horus-api` and `horus-worker`, and the settings `HORUS_SHARED_DIRS`, `HORUS_OUTPUT_DIR` and `HORUS_HOST_OS` of the two containers. `docker compose up -d` reads that file ([ADR 0039](adr/0039-generate-image-in-the-stack-uses-shared-folders-of-host-paths.md)). After a change of `HORUS_SHARED_DIRS`, run `horus stack-mounts` again, then `docker compose up -d`.
 - **The paths.** The API process changes the host path of `out_path` to its container path, and the job row holds the container path. The result gives the host path. A call without `out_path` writes its PNG into the first shared folder. An `out_path` outside the shared folders gets `INVALID_ARGUMENT`, and `details.shared_dirs` lists the host folders. A stack without a shared folder gets `BACKEND_NOT_INSTALLED`, and `next_step` names `horus stack-mounts`.
 - **The queue.** A call gets `QUEUE_FULL` at once when `HORUS_QUEUE_MAX` jobs wait, or when the estimated start of its job is after the deadline. A job waits up to `HORUS_QUEUE_TIMEOUT`. A job after its deadline never starts, and its call gets `GENERATION_TIMEOUT` with `details.phase` `queued`. `HORUS_GENERATE_TIMEOUT` counts from the start of the run: then `details.phase` is `running`.
-- **Progress.** While the job waits, the progress text is `waiting in the horus queue, position P of T, start in about M min`. While it runs, the text is the text of the run (`rendering, 42 s`). The first message is the place of the job at its insert, also when a free worker starts the job at once. Then the API process sends one message every 5 s.
+- **Progress.** While the job waits, the progress text is `waiting in the horus queue, position P of T, start in about M min`. While it runs, the text is the text of the run: `rendering, step 9 of 15, 42 s` with the [step of the sampler node](#the-step-of-a-running-job) that ComfyUI reports, else `rendering, 42 s`. The first message is the place of the job at its insert, also when a free worker starts the job at once. Then the API process sends one message every 5 s.
 - **Cancel.** A cancel of the call, or the end of the session (the agent leaves), cancels the job. A queued job moves to `cancelled` at once and never reaches ComfyUI. The worker stops a running job, and ComfyUI gets the cancel of the job.
 - **The key.** Each job row holds `request_hash` (the request fingerprint) and `idempotency_key` of recipe version 1 ([ADR 0027](adr/0027-the-idempotency-key-and-the-idempotent-consumer.md)). The dedupe is off: two equal calls make two jobs.
 - **The agent and the models.** Each job row holds two more fields that the Horus UI shows. `caller` is the title of the MCP client (else its name), then ` · folder ` and the last element of the first root of the client (`roots/list`), for example `Claude Code · folder horus`. A client that gives no root, that does not answer `roots/list` in 0.5 s, or that is on the protocol version 2026-07-28 (a server cannot send `roots/list` in a request there), gives the name only. The API process asks one time for each session. A client without a name gives an empty `caller`. `resource_key` is the SHA-256 of the sorted SHA-256 values of the model files of the workflow (`models.json`), as 64 hex characters. Two workflows with the same model files have the same key. A workflow without a model file has the SHA-256 of `workflow:<name>`. The worker writes `loaded_resource_key` in its row of `horus.workers` when a job reaches ComfyUI, and at once when the run ends: it is the `resource_key` of that job, the models that ComfyUI holds in memory. It is empty until the first job.
@@ -828,7 +848,7 @@ has its 11 parts, with the same `data-part` names:
 | `tile-succeeded` | The jobs that ended as `succeeded` since [00:00 of today](#the-times-of-the-horus-ui) | The job store |
 | `tile-failed` | The jobs that ended as `failed` since 00:00 of today | The job store |
 | `tile-workflows` | The workflows that `list_workflows` shows, and how many are installed | The workflows and their install state, as `list_workflows` gives them |
-| `panel-running` | Each running job: the workflow, the first 8 characters of the job id, the caller, the subject, the step that ComfyUI reports, the run time, the time in the queue, and the time that is left to `HORUS_GENERATE_TIMEOUT` | The job store |
+| `panel-running` | Each running job: the workflow, the first 8 characters of the job id, the caller, the subject, the step that ComfyUI reports (`step 9 of 15`) with a bar of that part, the run time, the time in the queue, and the time that is left to `HORUS_GENERATE_TIMEOUT`. The bar counts the [steps of the sampler node](#the-step-of-a-running-job). While ComfyUI reports no step (it loads the models, or horus cannot read the steps of the job), the bar is empty, the line shows the text of the run (`rendering, 42 s`), and the hover text of the bar says so. | The job store: the worker writes the step and the total to the job row |
 | `panel-queue` | Each queued job, oldest first: the place, the workflow, the caller, the subject, the time in the queue, and the estimated start, rounded to 10 s | The job store. The estimate uses the mean run time of the last 10 succeeded jobs, as the progress text of a waiting call does. |
 | `panel-recent` | The last 10 ended jobs, newest first: the end time, the workflow, the result (`PNG` with the path, the error code, `cancelled`, `expired` or `abandoned`), the time in the queue and the run time. The path of a PNG is its path on this machine, the path that the result of `generate_image` gives: the last 3 parts in the cell, and the whole path in the hover text. | The job store. In the stack, the job row holds the container path, and the page changes it to the host path with the pairs of `HORUS_SHARED_DIRS`. A path in no shared folder stays as it is. |
 | `panel-worker` | The state of the worker, the slots, the models in memory, the broker with its count of messages that wait for a delivery, the job store (host and database), ComfyUI (address and version), and the count of jobs of today with the same idempotency key. The state gives the start time of the worker. | The worker row, the broker (`Depth`), `HORUS_DATABASE_URL` without its password, `GET /system_stats` of ComfyUI, the job store |
@@ -880,7 +900,12 @@ clock of `horus api`:
 database with each of two fixtures (`internal/webui/uifixture`): the example
 data of the reference, and other numbers. For each fixture, the page must have
 the 11 parts, and each count of the page and of `/api/summary` must equal the
-count that SQL reads. The goal row `ui-matches-mockup` runs it. With
+count that SQL reads. `TestRunningStep` of `cmd/horus` is the test of the
+step of a running job: `horus worker` and `horus api` on a new test database,
+and a fake ComfyUI that reports a step only on its WebSocket, as ComfyUI does.
+It reads `/api/summary` and the page two times, and the step and the bar of
+the second read must be larger. The goal row `ui-matches-mockup` runs both
+tests. With
 `HORUS_UI_SHOTS=<folder>`, the test also takes screenshots at 1920 x 1080 with
 a headless Edge or Chrome (`HORUS_BROWSER` names another browser): one of the
 page of each fixture, and one of the reference. The screenshots of the

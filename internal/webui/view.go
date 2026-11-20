@@ -363,6 +363,15 @@ func plan(j jobdata.Job) generate.Plan {
 	return p
 }
 
+// noStepTitle is the hover text of the bar of a running job without a step.
+// The bar counts the steps of the sampler node, so it is empty while ComfyUI
+// loads the models, and for a job whose steps horus cannot read.
+const noStepTitle = "The bar shows the step of the sampler that ComfyUI reports. ComfyUI reports no step of this job now."
+
+// runningRow is the row of one running job. A progress with a total above 0
+// holds the step of the sampler node that ComfyUI reports: the worker wrote
+// it. Then the row shows "step 9 of 15" and a bar of that part. Else the row
+// shows the text of the run and an empty bar.
 func runningRow(j jobdata.Job, limit time.Duration, now time.Time) RunningRow {
 	r := RunningRow{ID: j.ID, Workflow: j.Workflow, Caller: j.Caller, Subject: plan(j).Subject}
 	ran := nonNegative(now.Sub(j.StartedAt))
@@ -388,7 +397,7 @@ func runningRow(j jobdata.Job, limit time.Duration, now time.Time) RunningRow {
 		}
 	}
 	if r.BarTitle == "" {
-		r.BarTitle = "ComfyUI reports no step yet"
+		r.BarTitle = noStepTitle
 	}
 	r.Line = fmt.Sprintf("%s · running %s · waited %s", step, words(ran), words(waited))
 	if left := limit - ran; limit > 0 && left > 0 {

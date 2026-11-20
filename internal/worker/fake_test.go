@@ -46,6 +46,9 @@ type fakeComfy struct {
 	cancels []string
 	refused int // the submits while down
 	most    int // the most jobs held at one time
+	// step and steps: the step of the sampler node that the fake reports for
+	// each job. steps 0: no step.
+	step, steps float64
 }
 
 func newFake(t *testing.T) *fakeComfy {
@@ -160,6 +163,19 @@ func (f *fakeComfy) IsUp(context.Context) (bool, error) {
 }
 
 func (f *fakeComfy) Address() string { return "http://fake" }
+
+// setStep makes the fake report step value of total for each job.
+func (f *fakeComfy) setStep(value, total float64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.step, f.steps = value, total
+}
+
+func (f *fakeComfy) Step(string, string) (value, total float64, ok bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.step, f.steps, f.steps > 0
+}
 
 func (f *fakeComfy) ObjectInfo(context.Context) (graph.ObjectInfo, error) {
 	f.mu.Lock()

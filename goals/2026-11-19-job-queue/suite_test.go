@@ -1302,6 +1302,12 @@ var uiLine = regexp.MustCompile(`ui-matches-mockup: fixture (\w+): (\d+) of (\d+
 // fewer counts fails the row.
 const uiCounts = 22
 
+// uiStepLine is the line of the Go test TestRunningStep of cmd/horus: two
+// reads of the panel "Running" while one job runs on a fake ComfyUI that
+// reports a step only on its WebSocket, as ComfyUI does. Each read has the
+// step and the total of /api/summary and the width of the bar of the page.
+var uiStepLine = regexp.MustCompile(`ui-running-step: read 1: step (\d+) of (\d+), bar (\d+)%; read 2: step (\d+) of (\d+), bar (\d+)%`)
+
 // TestUiMatchesMockup runs the Go test TestHorusUI of cmd/horus: horus api
 // on a new test database with each of the two fixtures of
 // internal/webui/uifixture (the example data of the reference
@@ -1315,14 +1321,22 @@ const uiCounts = 22
 // from its 00:00 (5 of the checks of each fixture). The screenshots at 1920 x 1080
 // next to the reference are in docs/specs/2026-11-19-job-queue-ui/, and the
 // judgment of each part is in the pull request of task #205.
+//
+// The fixtures write the step of a running job to the job row themselves. So
+// the row also runs TestRunningStep of cmd/horus: a real worker runs one job
+// on a fake ComfyUI that reports step 3 of 15 and then step 9 of 15 on its
+// WebSocket. The panel "Running" must show a step above 0 and below the
+// total at the first read, with a bar of that part, and a larger step and a
+// wider bar at the second read. A worker that writes no step, and a bar with
+// a constant width, fail the row.
 func TestUiMatchesMockup(t *testing.T) {
 	if os.Getenv("HORUS_TEST_DATABASE_URL") == "" {
 		t.Fatal("HORUS_TEST_DATABASE_URL is not set: the Horus UI reads its fixtures from a test Postgres. " +
 			"Start one and set the variable to its URL (docs/mcp.md#the-postgres-tests)")
 	}
-	code, out := run(t, root, "go", "test", "-count=1", "-run", "^TestHorusUI$", "-v", "./cmd/horus")
-	if code != 0 || !passed(out, "TestHorusUI") {
-		t.Fatalf("go test -run TestHorusUI ./cmd/horus: exit code %d:\n%s", code, out)
+	code, out := run(t, root, "go", "test", "-count=1", "-run", "^(TestHorusUI|TestRunningStep)$", "-v", "./cmd/horus")
+	if code != 0 || !passed(out, "TestHorusUI") || !passed(out, "TestRunningStep") {
+		t.Fatalf("go test -run TestHorusUI and TestRunningStep ./cmd/horus: exit code %d:\n%s", code, out)
 	}
 	lines := map[string][]string{}
 	for _, m := range uiLine.FindAllStringSubmatch(out, -1) {
@@ -1346,7 +1360,22 @@ func TestUiMatchesMockup(t *testing.T) {
 			matched = parts
 		}
 	}
-	t.Logf("parts that match: %d of 11", matched)
+	step := uiStepLine.FindStringSubmatch(out)
+	if step == nil {
+		t.Fatalf("the test printed no line ui-running-step with two reads of the panel Running:\n%s", out)
+	}
+	step1, total1, bar1 := atoi(step[1]), atoi(step[2]), atoi(step[3])
+	step2, total2, bar2 := atoi(step[4]), atoi(step[5]), atoi(step[6])
+	if step1 <= 0 || step1 >= total1 || bar1 <= 0 || bar1 >= 100 {
+		t.Errorf("the first read of the panel Running: step %d of %d, bar %d%%; want a step above 0 and below the total, and a bar above 0%% and below 100%%",
+			step1, total1, bar1)
+	}
+	if step2 <= step1 || step2 > total2 || bar2 <= bar1 || bar2 > 100 {
+		t.Errorf("the second read of the panel Running: step %d of %d, bar %d%%; want a larger step and a wider bar than the first read (step %d, bar %d%%)",
+			step2, total2, bar2, step1, bar1)
+	}
+	t.Logf("parts that match: %d of 11; the panel Running: step %d of %d (bar %d%%), then step %d of %d (bar %d%%)",
+		matched, step1, total1, bar1, step2, total2, bar2)
 }
 
 func atoi(s string) int {

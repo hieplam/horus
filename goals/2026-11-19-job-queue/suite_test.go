@@ -63,6 +63,12 @@ func passed(out, name string) bool {
 func TestPeakTimeouts(t *testing.T) {
 	res, log := twelveCalls(t)
 	t.Logf("the peak run:\n%s", log)
+	if !slices.Equal(res.Left, []int{3, 6}) {
+		t.Fatalf("the agents that left: %v, want [3 6]: a run with no leave proves nothing about the leave", res.Left)
+	}
+	if res.JobsInComfyUI != 10 {
+		t.Fatalf("jobs that reached ComfyUI: %d, want 10 (the 10 calls that stay, no job of an agent that left)", res.JobsInComfyUI)
+	}
 	if res.PNG != 10 || res.GenerationTimeout != 0 || res.GPUForNobody != 0 {
 		t.Fatalf("png %d of 10, GENERATION_TIMEOUT %d, GPU seconds for nobody %.1f; want 10, 0 and 0",
 			res.PNG, res.GenerationTimeout, res.GPUForNobody)
@@ -289,11 +295,11 @@ func TestReadyWhenFourUp(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			stdioTook, stdioWhy = eventually(10*time.Second, func() string { return stdioDown(step.dep, open) })
+			stdioTook, stdioWhy = eventuallyBy(10*time.Second, func() string { return stdioDown(step.dep, open) })
 		}()
 		go func() {
 			defer wg.Done()
-			httpTook, httpWhy = eventually(10*time.Second, func() string { return httpDown(step.dep, hopen) })
+			httpTook, httpWhy = eventuallyBy(10*time.Second, func() string { return httpDown(step.dep, hopen) })
 		}()
 		wg.Wait()
 		open.close()
@@ -312,7 +318,7 @@ func TestReadyWhenFourUp(t *testing.T) {
 		t.Logf("%s stopped: named over stdio in %s, over HTTP in %s", step.dep, stdioTook.Round(100*time.Millisecond), httpTook.Round(100*time.Millisecond))
 
 		step.start(t)
-		took, why := eventually(30*time.Second, serves)
+		took, why := eventuallyBy(30*time.Second, serves)
 		if why != "" {
 			t.Fatalf("%s started again: horus does not serve again in 30 s: %s", step.dep, why)
 		}
@@ -322,7 +328,7 @@ func TestReadyWhenFourUp(t *testing.T) {
 	if code, out := compose(t, env, "stop"); code != 0 {
 		t.Fatalf("docker compose -p %s stop: exit code %d\n%s", testStack, code, out)
 	}
-	took, why := eventually(10*time.Second, func() string {
+	took, why := eventuallyBy(10*time.Second, func() string {
 		s, err := openSession(t, 15*time.Second)
 		if err == nil {
 			s.close()
@@ -349,7 +355,7 @@ func TestReadyWhenFourUp(t *testing.T) {
 	t.Logf("the whole stack stopped: no session over stdio or over HTTP in %s", took.Round(100*time.Millisecond))
 	start := time.Now()
 	upWait(t, env)
-	_, why = eventually(30*time.Second, serves)
+	_, why = eventuallyBy(30*time.Second, serves)
 	if back := time.Since(start); why != "" || back > 30*time.Second {
 		t.Fatalf("the whole stack started again: horus does not serve again in 30 s (%s): %s", back.Round(time.Second), why)
 	}
@@ -592,6 +598,7 @@ func TestQueueProgress(t *testing.T) {
 	}
 	start := time.Now()
 	e3, err := sessions[2].callToken("generate_image", args(3), "p3", 180*time.Second)
+	answered := time.Now()
 	if err != nil || !e3.OK {
 		t.Fatalf("call 3: %+v %v", e3, err)
 	}
@@ -600,6 +607,7 @@ func TestQueueProgress(t *testing.T) {
 		notes = append(notes, <-sessions[2].progress)
 	}
 	positions := 0
+	lastPos := 0 // the position of the last queue message: it never rises
 	last := start
 	for _, n := range notes {
 		if gap := n.at.Sub(last); gap > 10*time.Second {
@@ -608,9 +616,24 @@ func TestQueueProgress(t *testing.T) {
 		last = n.at
 		if m := queueText.FindStringSubmatch(n.message); m != nil {
 			positions++
-			if pos, _ := strconv.Atoi(m[1]); pos < 1 || pos > 2 {
-				t.Errorf("call 3: %q, want position 2 of 2 or less", n.message)
+			pos, _ := strconv.Atoi(m[1])
+			total, _ := strconv.Atoi(m[2])
+			if pos < 1 || pos > total || total > 2 {
+				t.Errorf("call 3: %q, want a position from 1 to its total, and a total of 2 or less", n.message)
 			}
+			if lastPos != 0 && pos > lastPos {
+				t.Errorf("call 3: %q after position %d, want a position that never rises", n.message, lastPos)
+			}
+			lastPos = pos
+		}
+	}
+	if len(notes) > 0 {
+		if gap := answered.Sub(last); gap > 10*time.Second {
+			t.Errorf("call 3: %s from the last progress message to its answer, want at most 10 s", gap.Round(10*time.Millisecond))
+		}
+		// Call 1 runs and call 2 waits before call 3: its place is 2 of 2.
+		if m := queueText.FindStringSubmatch(notes[0].message); m == nil || m[1] != "2" || m[2] != "2" {
+			t.Fatalf("call 3: first message %q, want position 2 of 2: call 1 runs and call 2 waits before it", notes[0].message)
 		}
 	}
 	if positions < 2 || len(notes) == 0 || !queueText.MatchString(notes[0].message) {

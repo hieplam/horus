@@ -45,6 +45,9 @@ that the tool measured; the tool does not multiply them by --scale.
   max_jobs_in_comfyui      the most jobs that the fake held at one time,
                            running and waiting
   max_running              the most jobs that ran at the same time
+  left                     the numbers of the calls whose agent left, sorted
+  jobs_in_comfyui          the POST /prompt requests that the fake got: the
+                           jobs that reached ComfyUI
 
 The details go to stderr and to --log (one line for each request of the fake).
 The exit code is 0 when the run ended, whatever the numbers. Python 3.12 with
@@ -414,6 +417,8 @@ async def run(a, fake: FakeComfy, port: int, tmp: Path) -> dict:
         "gpu_seconds_for_nobody": round(fake.seconds_for_nobody(left_at), 1),
         "max_jobs_in_comfyui": fake.max_held,
         "max_running": fake.max_running,
+        "left": sorted(left_at),
+        "jobs_in_comfyui": fake.posts_prompt,
     }
 
 

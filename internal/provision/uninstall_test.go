@@ -113,8 +113,9 @@ func mkfile(t *testing.T, p string, data []byte) {
 
 // newUnSandbox makes the sandbox and points every setting of horus into it:
 // the home folder (USERPROFILE, HOME), HORUS_HOME, HORUS_ROOT, LOCALAPPDATA,
-// APPDATA, CODEX_HOME and the PATH. HORUS_MODELS_DIR, HORUS_TEXT_ENCODER_DIR
-// and HORUS_COMFYUI_DIR are empty.
+// APPDATA, CODEX_HOME and the PATH. HORUS_MODELS_DIR, HORUS_TEXT_ENCODER_DIR,
+// HORUS_COMFYUI_DIR and HORUS_SPEECH_DIR are empty, so the speech folder is
+// <user folder>/speech.
 func newUnSandbox(t *testing.T, o sandboxOptions) *unSandbox {
 	t.Helper()
 	root, err := filepath.Abs(t.TempDir())
@@ -133,7 +134,7 @@ func newUnSandbox(t *testing.T, o sandboxOptions) *unSandbox {
 		"USERPROFILE": s.home, "HOME": s.home, "HORUS_HOME": s.user, "HORUS_ROOT": filepath.Join(root, "repo"),
 		"LOCALAPPDATA": filepath.Join(s.home, "AppData", "Local"), "APPDATA": filepath.Join(s.home, "AppData", "Roaming"),
 		"CODEX_HOME": filepath.Join(s.home, ".codex"), "PATH": bin,
-		"HORUS_MODELS_DIR": "", "HORUS_TEXT_ENCODER_DIR": "", "HORUS_COMFYUI_DIR": "",
+		"HORUS_MODELS_DIR": "", "HORUS_TEXT_ENCODER_DIR": "", "HORUS_COMFYUI_DIR": "", "HORUS_SPEECH_DIR": "",
 	} {
 		t.Setenv(k, v)
 	}

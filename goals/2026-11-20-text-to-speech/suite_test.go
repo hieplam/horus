@@ -86,13 +86,17 @@ func TestSpeechHidden(t *testing.T) {
 
 // installKeys are the keys of the contract checks of the speech install: the
 // plan, no change before both consents, the steps in order, generate_speech
-// after the install, and a second install with no step.
-var installKeys = []string{"speech-setup:plan", "speech-setup:no-change", "speech-setup:steps", "speech-setup:works", "speech-setup:again"}
+// after the install, and a second install with no step. Then the uninstall:
+// the plan of uninstall_workflow, and the confirmed uninstall_workflow.
+var installKeys = []string{"speech-setup:plan", "speech-setup:no-change", "speech-setup:steps", "speech-setup:works", "speech-setup:again",
+	"speech-uninstall:plan", "speech-uninstall:deleted"}
 
-// TestSpeechInstall has the install half of the row: the contract checks of
-// the speech install (fake package manager, fake Python, no network), and a
-// plan that this suite gets from the built server in a sandbox home folder.
-// The uninstall half is not built yet.
+// TestSpeechInstall is the row speech-install. Each run: the contract checks
+// of the speech install and uninstall (fake package manager, fake Python, no
+// network), and a plan that this suite gets from the built server in a
+// sandbox home folder. With HORUS_SPEECH_REAL=1 it also runs the oracle of the
+// row end to end, with the real models (realInstall). Without it, the row
+// calls t.Skip and says what it needs.
 func TestSpeechInstall(t *testing.T) {
 	run := contract(t)
 	passed := 0
@@ -140,8 +144,246 @@ func TestSpeechInstall(t *testing.T) {
 	if after := files(t, dir); !slices.Equal(after, before) {
 		t.Errorf("install_workflow without the consents changed the sandbox:\nbefore %v\nafter  %v", before, after)
 	}
-	t.Logf("contract checks of the speech install: %d of %d; plan of the built server: %v", passed, len(installKeys), kinds)
-	t.Fatal("not built: uninstall_workflow and horus uninstall -yes of a speech workflow in a sandbox home folder (issue #189)")
+	t.Logf("contract checks of the speech install and uninstall: %d of %d; plan of the built server: %v", passed, len(installKeys), kinds)
+	if os.Getenv("HORUS_SPEECH_REAL") != "1" {
+		t.Skip("the end-to-end run of the row needs HORUS_SPEECH_REAL=1 and -timeout 30m: the real install of vi-speech in a sandbox " +
+			"home folder (Python 3.12 and FFmpeg on this machine, 1.1 GB of downloads, 2 GB of disk and 2 GB of memory, about 5 minutes)")
+	}
+	realInstall(t, run.exe)
+}
+
+// realInstall is the oracle of the row speech-install, with the real models:
+// in a sandbox home folder that it makes, install_workflow of vi-speech with
+// both consents, one speech file, uninstall_workflow, then horus uninstall
+// -yes. After it, the speech folder holds 0 files: no venv, no model file, no
+// worker file and no install record. Python 3.12 and FFmpeg stay.
+//
+// Each folder of horus is in the sandbox: the home folder, the user folder,
+// the speech folder, the ComfyUI folder, the model folders, the repo root
+// (so no .env of this machine counts), and the config folders of Claude Code
+// and Codex. The test runs a copy of the built program in the sandbox,
+// because horus uninstall -yes removes its own program file. It refuses to
+// run when a folder that the program names is not in the sandbox.
+func realInstall(t *testing.T, built string) {
+	box, err := filepath.Abs(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(box, "home")
+	user := filepath.Join(home, "horus")
+	speech := filepath.Join(user, "speech")
+	flows := filepath.Join(box, "workflows")
+	env := []string{"HORUS_ROOT=" + box, "HORUS_HOME=" + user, "HORUS_SPEECH_DIR=" + speech,
+		"HORUS_COMFYUI_DIR=" + filepath.Join(home, "ComfyUI_windows_portable"), "HORUS_COMFYUI_URL=http://127.0.0.1:9",
+		"HORUS_MODELS_DIR=" + filepath.Join(box, "models"), "HORUS_TEXT_ENCODER_DIR=" + filepath.Join(box, "models", "text_encoders"),
+		"HORUS_WORKFLOWS_DIR=" + flows, "HORUS_OUTPUT_DIR=" + filepath.Join(box, "out"), "HORUS_AUTOSTART=0",
+		"HOME=" + home, "USERPROFILE=" + home, "CODEX_HOME=" + filepath.Join(home, ".codex"), "CLAUDE_CONFIG_DIR=" + filepath.Join(home, ".claude")}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		if strings.HasSuffix(k, "_DIR") || strings.HasSuffix(k, "HOME") || k == "HORUS_ROOT" || k == "USERPROFILE" {
+			if !inBox(box, v) {
+				t.Fatalf("the setting %s=%s is not in the sandbox %s", k, v, box)
+			}
+		}
+	}
+	t.Logf("sandbox %s: the settings %v", box, env)
+	if err := copyTree(filepath.Join(root, "workflows", "vi-speech"), filepath.Join(flows, "vi-speech")); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(box, "bin", filepath.Base(built))
+	if err := copyTree(built, exe); err != nil {
+		t.Fatal(err)
+	}
+	horus := func(args ...string) (int, string) {
+		t.Helper()
+		out, err := command(box, env, exe, args...).CombinedOutput()
+		var exit *exec.ExitError
+		if err != nil && !errors.As(err, &exit) {
+			t.Fatalf("horus %v did not run: %v", args, err)
+		}
+		code := 0
+		if exit != nil {
+			code = exit.ExitCode()
+		}
+		return code, string(out)
+	}
+
+	// The folders that the program resolves: each path of the plan of horus
+	// setup is in the sandbox, except the system packages that it found.
+	_, plan := horus("setup", "vi-speech")
+	venv := filepath.Join(speech, "venv")
+	if !strings.Contains(plan, "speech venv in "+venv) {
+		t.Fatalf("the plan of horus setup does not name the speech venv %s:\n%s", venv, plan)
+	}
+	// An absolute path starts with a drive or a slash. A PRESENT path is the
+	// rest of its line, because it can have a space.
+	abs := regexp.MustCompile(`(?:[A-Za-z]:\\|/)[^\s,]+`)
+	step := regexp.MustCompile(`^\d+\. `)
+	var system []string // the system packages that the plan found: Python 3.12, ffmpeg, ffprobe
+	for _, ln := range strings.Split(plan, "\n") {
+		ln = strings.TrimSpace(ln)
+		switch {
+		case strings.HasPrefix(ln, "PRESENT"):
+			if i := abs.FindStringIndex(ln); i != nil && !inBox(box, ln[i[0]:]) {
+				system = append(system, ln[i[0]:])
+			}
+		case strings.HasPrefix(ln, "MISSING"), step.MatchString(ln) && !strings.Contains(ln, "system package"):
+			for _, p := range abs.FindAllString(ln, -1) {
+				if !inBox(box, p) {
+					t.Fatalf("the plan of horus setup names %s, outside the sandbox %s:\n%s", p, box, plan)
+				}
+			}
+		}
+	}
+	t.Logf("system packages that the plan found: %v", system)
+
+	srv := startServer(t, exe, env)
+	tool := func(name string, args map[string]any) map[string]any {
+		t.Helper()
+		var res struct {
+			Structured map[string]any `json:"structuredContent"`
+		}
+		if err := json.Unmarshal(srv.call(t, "tools/call", map[string]any{"name": name, "arguments": args}), &res); err != nil {
+			t.Fatal(err)
+		}
+		return res.Structured
+	}
+	code := func(answer map[string]any) string {
+		e, _ := answer["error"].(map[string]any)
+		c, _ := e["code"].(string)
+		return c
+	}
+
+	// Before both consents: 0 changes on disk.
+	before := files(t, box)
+	if c := code(tool("install_workflow", map[string]any{"workflow": "vi-speech"})); c != "SETUP_CONFIRMATION_REQUIRED" {
+		t.Fatalf("install_workflow without the consents: %s, want SETUP_CONFIRMATION_REQUIRED", c)
+	}
+	if after := files(t, box); !slices.Equal(after, before) {
+		t.Fatalf("install_workflow without the consents changed the sandbox:\nbefore %v\nafter  %v", before, after)
+	}
+	start := time.Now()
+	inst := tool("install_workflow", map[string]any{"workflow": "vi-speech", "accept_setup": true, "accept_license": true})
+	if inst["ok"] != true {
+		t.Fatalf("install_workflow with both consents: %v", inst)
+	}
+	installed := files(t, speech)
+	t.Logf("install_workflow with both consents: ok in %.0f s; files of the speech setup: %d", time.Since(start).Seconds(), len(installed))
+
+	wav := filepath.Join(box, "out", "install.wav")
+	spoken := tool("generate_speech", map[string]any{"workflow": "vi-speech", "text": "Xin chào, đây là bài kiểm tra cài đặt.", "out_path": wav})
+	r, _ := spoken["result"].(map[string]any)
+	if fi, err := os.Stat(wav); spoken["ok"] != true || err != nil || fi.Size() == 0 || r["transcript"] == "" {
+		t.Fatalf("generate_speech after the install: %v (file: %v)", spoken, err)
+	}
+	t.Logf("generate_speech: %v bytes, transcript %q", r["bytes"], r["transcript"])
+
+	models, err := os.ReadFile(filepath.Join(flows, "vi-speech", "models.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list struct {
+		Files []any `json:"files"`
+	}
+	if err := json.Unmarshal(models, &list); err != nil {
+		t.Fatal(err)
+	}
+	// states counts the files of an answer of uninstall_workflow by their state.
+	states := func(answer map[string]any) map[string]int {
+		holder, _ := answer["result"].(map[string]any)
+		if e, ok := answer["error"].(map[string]any); ok {
+			holder, _ = e["details"].(map[string]any)
+		}
+		out := map[string]int{}
+		rows, _ := holder["files"].([]any)
+		for _, row := range rows {
+			m, _ := row.(map[string]any)
+			s, _ := m["state"].(string)
+			out[s]++
+		}
+		return out
+	}
+	planned := tool("uninstall_workflow", map[string]any{"workflow": "vi-speech"})
+	if s := states(planned); code(planned) != "CONFIRMATION_REQUIRED" || s["would_delete"] != len(list.Files) {
+		t.Fatalf("uninstall_workflow without confirm: %s %v, want CONFIRMATION_REQUIRED with %d files to delete", code(planned), s, len(list.Files))
+	}
+	gone := tool("uninstall_workflow", map[string]any{"workflow": "vi-speech", "confirm": true})
+	if s := states(gone); gone["ok"] != true || s["deleted"] != len(list.Files) {
+		t.Fatalf("uninstall_workflow with confirm: %v", gone)
+	}
+	if c := code(tool("generate_speech", map[string]any{"workflow": "vi-speech", "text": "Xin chào."})); c != "WORKFLOW_NOT_INSTALLED" {
+		t.Errorf("generate_speech after uninstall_workflow: %s, want WORKFLOW_NOT_INSTALLED", c)
+	}
+	srv.stop()
+	t.Logf("uninstall_workflow deleted %d model files; files of the speech setup left: %d", len(list.Files), len(files(t, speech)))
+
+	// horus uninstall: every path of its plan is in the sandbox, then -yes.
+	c, out := horus("uninstall")
+	if c != 0 {
+		t.Fatalf("horus uninstall: exit %d:\n%s", c, out)
+	}
+	for _, ln := range strings.Split(out, "\n") {
+		for _, word := range []string{"REMOVE  ", "KEEP    "} {
+			if p, ok := strings.CutPrefix(ln, word); ok {
+				if i := strings.Index(p, "  ("); i < 0 || !inBox(box, p[:i]) {
+					t.Fatalf("the plan of horus uninstall names a path outside the sandbox %s, so the test does not run -yes:\n%s", box, ln)
+				}
+			}
+		}
+	}
+	for _, w := range []string{"REMOVE  " + venv + "  (the speech venv", "REMOVE  " + filepath.Join(speech, "worker.py") + "  (the file of the speech worker"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("the plan of horus uninstall lacks %q:\n%s", w, out)
+		}
+	}
+	c, out = horus("uninstall", "-yes")
+	if c != 0 {
+		t.Fatalf("horus uninstall -yes: exit %d:\n%s", c, out)
+	}
+	left := files(t, speech)
+	if len(left) != 0 {
+		t.Errorf("files of the speech setup in the sandbox after the uninstall: %d, want 0: %v", len(left), left)
+	}
+	if _, err := os.Lstat(speech); !os.IsNotExist(err) {
+		t.Errorf("the speech folder %s is still there: %v", speech, err)
+	}
+	for _, p := range system {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("the system package file %s is gone: %v", p, err)
+		}
+	}
+	if _, err := os.Stat(wav); err != nil {
+		t.Errorf("the speech file of the user is gone: %v", err)
+	}
+	t.Logf("files of the speech setup in the sandbox: %d after the install, %d after the uninstall", len(installed), len(left))
+}
+
+// inBox reports if the path p is the folder box or a path in it.
+func inBox(box, p string) bool {
+	rel, err := filepath.Rel(box, p)
+	return err == nil && filepath.IsAbs(p) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// copyTree copies the file or the folder src to dst.
+func copyTree(src, dst string) error {
+	return filepath.Walk(src, func(p string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		to := filepath.Join(dst, rel)
+		if fi.IsDir() {
+			return os.MkdirAll(to, 0o755)
+		}
+		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+			return err
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(to, data, fi.Mode().Perm()|0o200)
+	})
 }
 
 // files gives each file under root, and its size.
@@ -704,6 +946,7 @@ type server struct {
 	in   io.WriteCloser
 	out  *bufio.Reader
 	next int
+	stop func() // ends the server and waits until it ended; the end of the test calls it too
 }
 
 // startServer starts `<exe> mcp` and does the MCP initialize. The end of the
@@ -722,18 +965,22 @@ func startServer(t *testing.T, exe string, env []string) *server {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start %s mcp: %v", exe, err)
 	}
-	t.Cleanup(func() {
-		in.Close()
-		done := make(chan struct{})
-		go func() { cmd.Wait(); close(done) }()
-		select {
-		case <-done:
-		case <-time.After(10 * time.Second):
-			cmd.Process.Kill()
-			<-done
-		}
-	})
-	s := &server{in: in, out: bufio.NewReader(out)}
+	var ended sync.Once
+	stop := func() {
+		ended.Do(func() {
+			in.Close()
+			done := make(chan struct{})
+			go func() { cmd.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				cmd.Process.Kill()
+				<-done
+			}
+		})
+	}
+	t.Cleanup(stop)
+	s := &server{in: in, out: bufio.NewReader(out), stop: stop}
 	s.call(t, "initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
 		"clientInfo": map[string]any{"name": "goal-suite", "version": "0"}})
 	s.send(t, map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})

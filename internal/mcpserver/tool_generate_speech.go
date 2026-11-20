@@ -15,6 +15,9 @@ import (
 type Speech interface {
 	// Speak makes one speech file.
 	Speak(ctx context.Context, r speak.Request, o speak.Options) (*speak.Result, error)
+	// StopWorkers ends each speech worker of this server. uninstall_workflow
+	// calls it before it deletes the model files of a speech workflow.
+	StopWorkers()
 }
 
 // SpeechResult is the result of generate_speech, in the key order that the tool shows.

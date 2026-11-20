@@ -178,7 +178,12 @@ sequenceDiagram
 - A machine where each part is there gets no setup step: the tool answers `already_installed`.
 
 `uninstall_workflow` works the same way: the provision service refuses a file
-that another workflow lists, then the model files adapter deletes the files.
+that another workflow of the same kind lists, then the model files adapter
+deletes the files. The files of a speech workflow are in the speech folder. Before
+it deletes them, the server ends its speech worker, because Windows does not
+delete a file that a process holds open. The next `generate_speech` starts a new
+speech worker. `uninstall_workflow` deletes only model files: the speech venv and
+`worker.py` stay until `horus uninstall -yes`.
 
 ### 3. The agent makes a picture (`generate_image`)
 
@@ -301,7 +306,7 @@ it starts ComfyUI, and `horus stop-comfyui` reads it.
 | `list_workflows` | Lists the workflows: name, `kind` (`image` or `speech`), summary, `good_for`, `not_good_for`, default size, measured time, `install_state`. | No |
 | `describe_workflow(workflow)` | One workflow in full, with its `kind`. An image workflow shows size limits and how to write the subject (rules and examples). A speech workflow shows `text` (limits), `voices`, `default_voice`, `tags` and `formats`, and no graph. Both show the license and the state of each model file. | No |
 | `install_workflow(workflow, accept_license=false, accept_setup=false)` | Downloads and verifies the model files. Without `accept_license=true` it returns `LICENSE_CONFIRMATION_REQUIRED` with the license and the size. When the machine needs a setup step (ComfyUI for an image workflow; Python 3.12, FFmpeg or the speech venv for a speech workflow), it first runs the setup plan: without `accept_setup=true` it returns `SETUP_CONFIRMATION_REQUIRED` with the steps. | Yes: downloads GB, installs ComfyUI, a venv and a system package |
-| `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another workflow lists is kept unless `remove_shared=true`. | Yes: deletes files |
+| `uninstall_workflow(workflow, confirm=false, remove_shared=false)` | Deletes the model files of an image workflow or a speech workflow. Without `confirm=true` it returns `CONFIRMATION_REQUIRED` with the plan. A file that another workflow of the same kind lists is kept unless `remove_shared=true`. | Yes: deletes files |
 | `generate_image(workflow, subject, out_path?, seed?, width?, height?, overwrite=false)` | Makes one PNG and waits until it is on disk. Returns the absolute path and the seed. | Writes one PNG |
 | `generate_speech(workflow, text, voice?, out_path?, overwrite=false)` | Makes one audio file and waits until it is on disk. Returns the absolute path and the transcript. | Writes one audio file |
 
@@ -657,7 +662,10 @@ the downloader refuses at once, so the download step runs and no byte leaves
 the machine. Then the test puts the stand-in model file where a download puts
 it. These checks prove the steps of a speech workflow in order, no change on
 disk before both consents, a `generate_speech` call after the install, and a
-second install with no step.
+second install with no step. Then `uninstall_workflow` of the speech workflow
+names the model file in the speech folder, deletes it after `confirm=true`, and
+ends the speech worker: the next `generate_speech` answers
+`WORKFLOW_NOT_INSTALLED`, and with the file back it starts a new speech worker.
 
 The speech checks use the fake speech worker
 (`internal/speechworker/fakeworker`). The test builds it with `go build` as the

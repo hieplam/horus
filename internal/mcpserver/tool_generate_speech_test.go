@@ -24,6 +24,13 @@ type fakeSpeech struct {
 	reqs   []speak.Request
 	result *speak.Result
 	err    error
+	stops  int // the calls of StopWorkers
+}
+
+func (f *fakeSpeech) StopWorkers() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stops++
 }
 
 func (f *fakeSpeech) Speak(ctx context.Context, r speak.Request, o speak.Options) (*speak.Result, error) {

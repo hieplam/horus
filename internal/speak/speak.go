@@ -167,6 +167,22 @@ func (s *Service) Close() error {
 	return nil
 }
 
+// StopWorkers ends each speech worker that the service started, and waits
+// until each one ended. The next call starts a new worker. uninstall_workflow
+// calls it before it deletes the model files of a speech workflow: Windows
+// does not delete a file that a process holds open, and a worker must not
+// keep the models of deleted files. A call that runs in a worker that stops
+// answers GENERATION_FAILED.
+func (s *Service) StopWorkers() {
+	s.mu.Lock()
+	workers := s.workers
+	s.workers = map[speechsetup.Place]Worker{}
+	s.mu.Unlock()
+	for _, w := range workers {
+		_ = w.Close()
+	}
+}
+
 // worker gives the worker of the place p, and makes it at the first call.
 func (s *Service) worker(p speechsetup.Place) (Worker, error) {
 	s.mu.Lock()

@@ -356,6 +356,51 @@ func TestUninstallPlanAndRemoveOnTheService(t *testing.T) {
 	}
 }
 
+// TestUninstallOfASpeechWorkflowStopsTheSpeechWorkerFirst: the plan names
+// the model file in the speech folder and stops nothing. A confirmed remove
+// ends the speech worker of the server before it deletes the file, and frees
+// no memory of the image backend.
+func TestUninstallOfASpeechWorkflowStopsTheSpeechWorkerFirst(t *testing.T) {
+	models := setupSandbox(t)
+	flows := os.Getenv("HORUS_WORKFLOWS_DIR")
+	data := []byte("stand-in speech model")
+	sum := sha256.Sum256(data)
+	manifest, err := os.ReadFile(filepath.Join("..", "catalog", "testdata", "stand-in-speech", "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, _ := json.Marshal(map[string]any{"repo": "x/speech", "license": "Apache-2.0", "files": []any{map[string]any{
+		"role": "speech", "repo_path": "model.bin", "folder": "tts", "bytes": len(data), "sha256": hex.EncodeToString(sum[:])}}})
+	speechDir := filepath.Join(t.TempDir(), "speech")
+	model := filepath.Join(speechDir, "models", "tts", "model.bin")
+	for p, b := range map[string][]byte{filepath.Join(flows, "stand-in-speech", "manifest.json"): manifest,
+		filepath.Join(flows, "stand-in-speech", "models.json"): list, model: data} {
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HORUS_SPEECH_DIR", speechDir)
+	settings.Reset()
+
+	images, speech := &fakeImages{}, &fakeSpeech{}
+	cs := connect(t, New(images, provision.New(diskFiles{models}, nil, downComfy{}, diskFiles{models}, ""), speech), nil)
+	env := envelopeOf(t, callTool(t, cs, "uninstall_workflow", map[string]any{"workflow": "stand-in-speech"}))
+	e, _ := env["error"].(map[string]any)
+	d, _ := e["details"].(map[string]any)
+	files, _ := d["files"].([]any)
+	if e["code"] != "CONFIRMATION_REQUIRED" || len(files) != 1 || files[0].(map[string]any)["path"] != model || speech.stops != 0 {
+		t.Fatalf("plan: %v, %d stops", env, speech.stops)
+	}
+	env = envelopeOf(t, callTool(t, cs, "uninstall_workflow", map[string]any{"workflow": "stand-in-speech", "confirm": true}))
+	if env["ok"] != true || speech.stops != 1 || images.frees() != 0 {
+		t.Fatalf("remove: %v, %d stops, %d frees", env, speech.stops, images.frees())
+	}
+	if _, err := os.Stat(model); !os.IsNotExist(err) {
+		t.Errorf("%s is still there", model)
+	}
+}
+
 // stateSetup is a setup service with present of the 3 files of
 // it-illustration on disk, for list_workflows and describe_workflow.
 type stateSetup struct{ present int }

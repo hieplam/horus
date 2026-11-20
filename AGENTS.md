@@ -22,7 +22,8 @@ kinds of work:
 | `/mcp` shows `comfy-mcp` or `horus` as failed | Its program is not installed, or `horus` is not on the PATH. `.mcp.json` starts both servers through `horus` (`horus comfy-mcp` and `horus mcp`) on Windows and macOS. Run `horus doctor`, then the command that its FAIL line names (for `horus`: the install line of [step 0 of setup](docs/setup.md#step-0-install-the-horus-program), or `go install ./cmd/horus` in a clone, [how](docs/setup.md#build-horus)). Then ask the user to restart `claude`. |
 | Install the horus program on a new machine | The install line of the [README](README.md#install-horus): `install.ps1` on Windows, `install.sh` on macOS. It checks the SHA-256 of the release asset. `horus version` prints the version. |
 | Set up one workflow on a machine | `horus setup <workflow>` prints the plan and changes nothing. `horus setup <workflow> -yes` runs the plan: ComfyUI first, then the model files. A plan can start with a system package step (7-Zip with `winget`, Python 3.12 with `brew`): it runs only with `-with-packages`. A speech workflow has no ComfyUI step: Python 3.12, FFmpeg, the speech venv, then the model files ([how](docs/setup.md#set-up-a-speech-workflow)). The older names (`check-setup`, `install-comfyui`, `workflow install`) still work. Use `doctor` and `setup`. |
-| Add horus to Claude Code or Codex | `horus register` (Claude Code) or `horus register -client codex`. |
+| Add horus to Claude Code or Codex | `horus register` (Claude Code) or `horus register -client codex`. For the stack: `horus register -docker`. |
+| Run horus as a Docker stack, or check its readiness | [`docs/setup.md`](docs/setup.md#run-horus-as-a-stack), then [the stack and its readiness](docs/mcp.md#the-stack-and-its-readiness). `docker exec horus-api horus ready` prints the 4 checks. A test stack uses `HORUS_STACK=horus_test` and `docker compose -p horus_test`, never the stack `horus`. |
 | Remove what horus installed | `horus uninstall` prints the plan and changes nothing. `horus uninstall -yes` deletes the model files, and a ComfyUI folder or a venv only when horus installed it (the file `horus-install.json`). It keeps `.env` and `outputs/`. **Never run `-yes` on a machine with data that you must keep, and never with the real home folder in a test: use a sandbox.** |
 | Stop the ComfyUI that horus started | `horus stop-comfyui`. It refuses a ComfyUI that a person started. |
 | Make an image with an existing workflow | The horus MCP server: `list_workflows`, `describe_workflow`, `generate_image` ([`docs/mcp.md`](docs/mcp.md)). `workflows/<name>/README.md` shows how to write the subject. |
@@ -104,6 +105,7 @@ different VAE decodes to coloured noise." Bad: "Configure the VAE."
 ```
 README.md                         entry point for people: the install line, setup, uninstall
 install.ps1, install.sh           the install scripts (the install line downloads them from main)
+compose.yaml, docker/, .dockerignore    the stack: horus-db, horus-worker and horus-api, their health checks and their start order; docker/horus.Dockerfile is the image of horus
 release-please-config.json        the release tool; .github/workflows/release.yml builds and uploads the 3 release assets
 AGENTS.md                         this file
 .claude/settings.json, .claude/hooks/    the Claude Code hooks: one refuses an edit of a frozen goal suite, one checks docs/adr after each Write or Edit
@@ -116,7 +118,8 @@ goals/<spec stem>/                the goal suite of one spec: one test function 
 goals/link_test.go                the link check: each suite has a spec, each goal row has a function
 cmd/horus/                        wiring: main.go (the command table) and wiring.go (creates the adapters and gives them to the services)
 internal/cli/                     handler: one file for each command group (flags in, text out)
-internal/mcpserver/               handler: the 6 MCP tools, the envelope, the progress notifications
+internal/mcpserver/               handler: the 6 MCP tools, the envelope, the progress notifications, the readiness of the stack (the 4 checks) and the NOT_READY gate
+internal/webui/                   handler: the HTTP routes of horus api that are not MCP: /readyz and /livez
 internal/worker/                  handler: the loop of horus worker: the slots, the gate of ComfyUI, the heartbeat, the worker lock, the sweep, the deletion of old jobs
 internal/generate/                service: make one image
 internal/speak/                   service: make one speech file (the checks of generate_speech, the speech worker of horus mcp)
@@ -150,7 +153,10 @@ exit 0. This repo is public. Also run `gofmt -l .` (it must print nothing) and
 needs `tests/mcp_contract.py` to end with all checks passed. A change to
 `internal/postgres`, `internal/brokertest`, `internal/jobs` or `internal/worker` also needs
 `go test ./internal/postgres/... ./internal/brokertest/... ./cmd/horus` with
-`HORUS_TEST_DATABASE_URL` set ([how](docs/mcp.md#the-postgres-tests)). The test tools need
+`HORUS_TEST_DATABASE_URL` set ([how](docs/mcp.md#the-postgres-tests)). A change to
+`compose.yaml`, `docker/` or the readiness also needs
+`go test -tags goal -count=1 -run "TestStackStartsTogether|TestReadyWhenFourUp" -v ./goals/2026-11-19-job-queue`
+with Docker Desktop running ([how](docs/mcp.md#the-stack-and-its-readiness)). The test tools need
 Python 3.12 with `pip install -r tests/requirements.txt` ([how](docs/mcp.md#test-the-server)).
 
 ## Feature work: one place for each record

@@ -19,6 +19,7 @@ import (
 type fakePrograms struct {
 	claude string
 	codex  string
+	docker string
 	runs   []platform.Command
 }
 
@@ -28,6 +29,9 @@ func (f *fakePrograms) LookPath(name string) (string, error) {
 	}
 	if name == "codex" && f.codex != "" {
 		return f.codex, nil
+	}
+	if name == "docker" && f.docker != "" {
+		return f.docker, nil
 	}
 	return "", errors.New("not found")
 }

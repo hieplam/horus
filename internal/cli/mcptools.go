@@ -79,6 +79,8 @@ func Register(ctx context.Context, args []string, out, errOut io.Writer, program
 	client := fs.String("client", provision.ClientClaude, "the client to register the server for: "+provision.ClientNames)
 	rootFlag := fs.String("root", "", "the horus repo folder (with workflows/) to pass as HORUS_ROOT (default: the repo found from the current folder; none when there is no repo)")
 	horus := fs.String("horus-path", "", "path of the horus program to register (default: this program)")
+	docker := fs.Bool("docker", false, "register horus mcp in the stack: docker exec -i <stack>-api horus mcp (no -root, no -horus-path)")
+	stack := fs.String("stack", settings.Stack(), "with -docker: the name of the stack (HORUS_STACK); the container is <stack>-api")
 	if code, done := parse(fs, args); done {
 		return code
 	}
@@ -96,7 +98,14 @@ func Register(ctx context.Context, args []string, out, errOut io.Writer, program
 		}
 	}
 	o := provision.RegisterOptions{Client: *client, HorusPath: *horus, Root: root, AskDir: os.TempDir(), Stdout: out, Stderr: errOut}
-	if o.HorusPath == "" {
+	if *docker {
+		if *stack == "" {
+			fmt.Fprintln(errOut, "horus register: -stack is empty. Give the name of the stack, for example horus.")
+			return 2
+		}
+		o.Container, o.Root, o.HorusPath = *stack+"-api", "", ""
+	}
+	if o.HorusPath == "" && o.Container == "" {
 		self, err := os.Executable()
 		if err != nil {
 			fmt.Fprintln(errOut, "horus register:", err)

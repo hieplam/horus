@@ -34,8 +34,9 @@ func readGolden(t *testing.T) []goldenRow {
 
 // newCodes are the codes that horus added after the Python version, each
 // with the code that comes before it in the table. The golden file does not
-// change (spec docs/specs/2026-11-15-release-install.md, "Setup through MCP").
-var newCodes = map[string]string{"SETUP_CONFIRMATION_REQUIRED": "LICENSE_CONFIRMATION_REQUIRED"}
+// change (spec docs/specs/2026-11-15-release-install.md, "Setup through MCP";
+// spec docs/specs/2026-11-19-job-queue.md, "MCP contract").
+var newCodes = map[string]string{"SETUP_CONFIRMATION_REQUIRED": "LICENSE_CONFIRMATION_REQUIRED", "NOT_READY": "CANCELLED"}
 
 // oldCodes is the table without the new codes, in table order.
 func oldCodes() []Spec {
@@ -126,8 +127,12 @@ func TestTableJSON(t *testing.T) {
 	if err := json.Unmarshal(TableJSON(), &table); err != nil {
 		t.Fatal(err)
 	}
-	if len(table) != 22 {
-		t.Fatalf("%d codes, want 22", len(table))
+	if len(table) != 23 {
+		t.Fatalf("%d codes, want 23", len(table))
+	}
+	if s := table["NOT_READY"]; s.Retryable == nil || !*s.Retryable || s.ActionBy != "human" ||
+		!strings.Contains(s.NextStep, "details.down") {
+		t.Errorf("NOT_READY: %+v", s)
 	}
 	if s := table["SETUP_CONFIRMATION_REQUIRED"]; s.Retryable == nil || *s.Retryable || s.ActionBy != "human" ||
 		!strings.Contains(s.NextStep, "accept_setup=true") {

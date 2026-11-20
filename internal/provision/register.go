@@ -8,6 +8,11 @@
 // "<client> mcp get horus" from a folder outside the repo, so the entry of
 // .mcp.json does not count. When the client already knows the server, it skips
 // the add. Running it again is safe.
+//
+// With the stack (horus register -docker), the client starts horus mcp in the
+// container horus-api: "claude mcp add --scope user horus -- <path of docker>
+// exec -i horus-api horus mcp", with no HORUS_ROOT (spec
+// docs/specs/2026-11-19-job-queue.md, "Two ways in").
 package provision
 
 import (
@@ -41,6 +46,12 @@ type RegisterOptions struct {
 	// Register passes it to the server as HORUS_ROOT. Empty means there is no
 	// repo root, and Register passes no HORUS_ROOT.
 	Root string
+	// Container is the name of the container horus-api of the stack. Not
+	// empty: the client starts "docker exec -i <Container> horus mcp", and
+	// Register uses neither HorusPath nor Root.
+	Container string
+	// Docker is the path of the docker program. Empty: find it on the PATH.
+	Docker string
 	// AskDir is the folder where "<client> mcp get" runs.
 	AskDir string
 	// Stdout gets the result line and the output of "mcp add";
@@ -86,6 +97,18 @@ func Register(ctx context.Context, programs Programs, o RegisterOptions) error {
 	if err != nil {
 		return err
 	}
+	command := []string{o.HorusPath, "mcp"}
+	if o.Container != "" {
+		o.Root = ""
+		if o.Docker == "" {
+			p, err := programs.LookPath("docker")
+			if err != nil {
+				return fmt.Errorf("The docker command was not found. Install Docker, start the stack (docs/setup.md#run-horus-as-a-stack), then run horus register -docker again.")
+			}
+			o.Docker = p
+		}
+		command = []string{o.Docker, "exec", "-i", o.Container, "horus", "mcp"}
+	}
 	if o.Root != "" {
 		if err := checkRoot(o.Root); err != nil {
 			return err
@@ -109,7 +132,7 @@ func Register(ctx context.Context, programs Programs, o RegisterOptions) error {
 	} else if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	args := append(c.addArgs(o.Root), "--", o.HorusPath, "mcp")
+	args := append(append(c.addArgs(o.Root), "--"), command...)
 	code, err = programs.Run(ctx, platform.Command{Path: o.Program, Args: args, Stdout: o.Stdout, Stderr: o.Stderr})
 	if err != nil {
 		return fmt.Errorf("%s mcp add failed: %w", c.name, err)
@@ -117,10 +140,14 @@ func Register(ctx context.Context, programs Programs, o RegisterOptions) error {
 	if code != 0 {
 		return fmt.Errorf("%s mcp add failed (exit code %d).", c.name, code)
 	}
+	via := ""
+	if o.Container != "" {
+		via = " The server is horus mcp in the container " + o.Container + " (docker exec -i " + o.Container + " horus mcp)."
+	}
 	if c.name == "claude" {
-		fmt.Fprintln(out, "OK: registered for Claude Code in user scope. Start a new Claude Code session to see the tools.")
+		fmt.Fprintln(out, "OK: registered for Claude Code in user scope."+via+" Start a new Claude Code session to see the tools.")
 	} else {
-		fmt.Fprintln(out, "OK: registered for Codex. Start a new Codex session to see the tools.")
+		fmt.Fprintln(out, "OK: registered for Codex."+via+" Start a new Codex session to see the tools.")
 	}
 	return nil
 }

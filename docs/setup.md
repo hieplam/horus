@@ -480,6 +480,68 @@ horus uninstall -yes
 `horus uninstall -models` limits the command to the model files. `horus uninstall -mcp`
 limits it to the registration of Claude Code and Codex.
 
+## Run horus as a stack
+
+horus can also run as a Docker stack of 3 containers next to the ComfyUI of
+this machine: `horus-db` (Postgres), `horus-worker` and `horus-api`. horus then
+serves only when its 4 dependencies are up: the 3 containers and ComfyUI. The
+rules: [the stack and its readiness](mcp.md#the-stack-and-its-readiness).
+
+You need a clone of this repo (the stack builds the image of horus from it)
+and Docker (Docker Desktop on Windows and macOS). ComfyUI stays on this
+machine: set it up with the steps above, and start it with
+`horus start-comfyui`. The stack never starts ComfyUI.
+
+1. Put a database password in `.env` at the repo root. Choose a long random
+   value. Git ignores `.env`.
+
+   ```
+   HORUS_DB_PASSWORD=<a long random value>
+   ```
+
+   `docker compose` reads `.env` too. `.env.example` lists the other settings
+   of the stack: `HORUS_STACK` and `HORUS_API_PORT`. Keep no
+   `HORUS_COMFYUI_URL` line in `.env`: the containers reach ComfyUI at
+   `http://host.docker.internal:8188`.
+
+2. Start the stack from the repo root. The first start builds the image
+   `horus:local`.
+
+   ```
+   docker compose up -d --wait
+   ```
+
+   It starts `horus-db`, then `horus-worker`, then `horus-api`, and returns
+   when the 3 containers are healthy. `horus-api` is healthy only when ComfyUI
+   answers.
+
+3. Check the readiness. Each of the 4 lines must say `ok`.
+
+   ```
+   docker exec horus-api horus ready
+   ```
+
+   A `FAIL` line names the dependency that is down and why. Start it, and run
+   the command again.
+
+4. Give the stack to your agent. Remove an older entry first, because
+   `horus register` skips a client that already knows a server named `horus`.
+
+   ```
+   claude mcp remove horus
+   horus register -docker
+   ```
+
+   The agent then starts `docker exec -i horus-api horus mcp`.
+   `horus register -docker -client codex` does the same for Codex. The stack
+   has no shared folder yet, so the PNG of a `generate_image` call stays in
+   the container `horus-api`.
+
+`docker compose stop` stops the stack, and `docker compose up -d --wait` starts
+it again. The jobs stay in the volume `horus-db-data`. When a dependency is
+down, a new session does not start, and a call gets `NOT_READY`. When the
+dependency is up again, horus serves again with no action on horus.
+
 ## For developers: work in a clone
 
 Use this path only when you change the code of horus, or when you build a new

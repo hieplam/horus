@@ -150,6 +150,7 @@ type Service struct {
 	store  Store
 	broker Broker
 	cfg    Config
+	health Health // the readiness checks of the database (ready.go); nil without WithHealth
 }
 
 // New makes the service. cmd/horus gives it the adapters of internal/postgres.

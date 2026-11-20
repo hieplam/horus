@@ -5,8 +5,12 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/hieplam/horus/internal/backend"
@@ -16,7 +20,9 @@ import (
 	"github.com/hieplam/horus/internal/doctor"
 	"github.com/hieplam/horus/internal/download"
 	"github.com/hieplam/horus/internal/generate"
+	"github.com/hieplam/horus/internal/jobdata"
 	"github.com/hieplam/horus/internal/jobs"
+	"github.com/hieplam/horus/internal/mcpserver"
 	"github.com/hieplam/horus/internal/modelfiles"
 	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/postgres"
@@ -26,6 +32,7 @@ import (
 	"github.com/hieplam/horus/internal/speechsetup"
 	"github.com/hieplam/horus/internal/speechworker"
 	"github.com/hieplam/horus/internal/version"
+	"github.com/hieplam/horus/internal/webui"
 	"github.com/hieplam/horus/internal/worker"
 )
 
@@ -251,4 +258,92 @@ type noStart struct{}
 
 func (noStart) Start(context.Context, io.Writer) error {
 	return errors.New("horus worker never starts ComfyUI: the owner starts it")
+}
+
+// stackOf gives the parts of the readiness of horus in the stack, and the
+// function that closes its database pool. The checks of horus-db and
+// horus-worker use the database of HORUS_DATABASE_URL, and the pool opens no
+// connection before the first check, so a process that starts while horus-db
+// is down reports it. The check of ComfyUI asks HORUS_COMFYUI_URL. apiURL is
+// the address of horus api to check, or "" in the process of horus api.
+func stackOf(ctx context.Context, apiURL string) (mcpserver.Stack, func()) {
+	stack := mcpserver.Stack{Images: generate.New(comfy.New(""), noStart{}), APIURL: apiURL}
+	url := settings.DatabaseURL()
+	if url == "" {
+		stack.Queue = downQueue("HORUS_DATABASE_URL is not set: horus ready runs in the stack, for example docker exec horus-api horus ready")
+		return stack, func() {}
+	}
+	db, err := postgres.Open(ctx, url)
+	if err != nil {
+		stack.Queue = downQueue(err.Error())
+		return stack, func() {}
+	}
+	stack.Queue = jobs.New(postgres.NewStore(db), postgres.NewBroker(db, postgres.BrokerOptions{}), jobs.Config{}).WithHealth(db)
+	return stack, db.Close
+}
+
+// downQueue is the job queue when the database cannot be used: the checks of
+// horus-db and horus-worker fail with the cause.
+type downQueue string
+
+func (q downQueue) Checks(context.Context) []jobdata.CheckResult {
+	return []jobdata.CheckResult{{Dependency: jobdata.DependencyDB, Detail: string(q)}, {Dependency: jobdata.DependencyWorker, Detail: string(q)}}
+}
+
+// localAPI is the address of horus api in this container (or on this
+// machine): http://127.0.0.1:<HORUS_API_PORT>.
+func localAPI() string {
+	port, err := settings.APIPort()
+	if err != nil {
+		port = 8190
+	}
+	return "http://127.0.0.1:" + strconv.Itoa(port)
+}
+
+// readyEvery is how often horus api runs the 4 checks to log a change of
+// the readiness.
+const readyEvery = 5 * time.Second
+
+// runAPI is horus api: the HTTP server of horus-api on listen (internal/webui:
+// /readyz and /livez), until ctx ends. It writes one log line when it starts,
+// when the readiness changes, and when it stops.
+func runAPI(ctx context.Context, listen string, out io.Writer) error {
+	if settings.DatabaseURL() == "" {
+		return errors.New("HORUS_DATABASE_URL is not set: horus api serves horus in the stack (docs/setup.md#run-horus-as-a-stack)")
+	}
+	stack, done := stackOf(ctx, "")
+	defer done()
+	mux := http.NewServeMux()
+	mux.Handle("/", webui.Handler(func(ctx context.Context) jobdata.Readiness { return stack.Ready(ctx) }))
+	ln, err := net.Listen("tcp", listen)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	fmt.Fprintf(out, "horus api: serves /readyz and /livez on http://%s\n", ln.Addr())
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ln) }()
+	tick := time.NewTicker(readyEvery)
+	defer tick.Stop()
+	last := ""
+	for {
+		select {
+		case err := <-errc:
+			return err
+		case <-tick.C:
+			r := stack.Ready(ctx)
+			if now := fmt.Sprintf("%d of %d, down: %v", r.Up, len(r.Checks), r.Down); now != last {
+				fmt.Fprintf(out, "horus api: %s", r.Text())
+				last = now
+			}
+			continue
+		case <-ctx.Done():
+		}
+		break
+	}
+	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = srv.Shutdown(sctx)
+	fmt.Fprintln(out, "horus api: stopped")
+	return err
 }

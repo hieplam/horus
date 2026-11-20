@@ -1,0 +1,94 @@
+# The stack of horus: 3 containers next to the ComfyUI of the host (ADR 0029,
+# docs/setup.md#run-horus-as-a-stack).
+#
+#   docker compose up -d --wait     start horus-db, then horus-worker, then horus-api
+#   docker exec horus-api horus ready
+#
+# The settings come from the .env of the repo root (see .env.example).
+# HORUS_STACK names the stack, its containers, its volume and its image, so a
+# test stack (HORUS_STACK=horus_test, docker compose -p horus_test) never
+# touches the stack horus.
+
+name: ${HORUS_STACK:-horus}
+
+x-horus: &horus
+  build:
+    context: .
+    dockerfile: docker/horus.Dockerfile
+  image: ${HORUS_STACK:-horus}:local
+  restart: unless-stopped
+  # Docker Desktop knows host.docker.internal. On Linux, this line adds it.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  environment: &env
+    # The password is in PGPASSWORD, never in the URL. HORUS_DB_PASSWORD
+    # must be set in the .env: horus-db refuses an empty password.
+    HORUS_DATABASE_URL: postgres://horus@horus-db:5432/horus?sslmode=disable
+    PGPASSWORD: ${HORUS_DB_PASSWORD}
+    # The ComfyUI of the host, as a container sees it.
+    HORUS_COMFYUI_URL: ${HORUS_COMFYUI_URL:-http://host.docker.internal:8188}
+    HORUS_AUTOSTART: "0"
+    HORUS_WORKER_CONCURRENCY: ${HORUS_WORKER_CONCURRENCY:-1}
+    HORUS_GENERATE_TIMEOUT: ${HORUS_GENERATE_TIMEOUT:-1800}
+    HORUS_JOB_RETENTION_DAYS: ${HORUS_JOB_RETENTION_DAYS:-30}
+
+services:
+  horus-db:
+    image: postgres:18.6
+    container_name: ${HORUS_STACK:-horus}-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: horus
+      POSTGRES_DB: horus
+      POSTGRES_PASSWORD: ${HORUS_DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "horus", "-d", "horus"]
+      interval: 5s
+      timeout: 4s
+      retries: 3
+      start_period: 60s
+      start_interval: 1s
+
+  horus-worker:
+    <<: *horus
+    container_name: ${HORUS_STACK:-horus}-worker
+    command: ["horus", "worker"]
+    depends_on:
+      horus-db:
+        condition: service_healthy
+    # Its row in horus.workers has a heartbeat newer than 15 s, and it holds
+    # the worker lock.
+    healthcheck:
+      test: ["CMD", "horus", "ready", "-only", "horus-worker"]
+      interval: 5s
+      timeout: 4s
+      retries: 3
+      start_period: 60s
+      start_interval: 1s
+
+  horus-api:
+    <<: *horus
+    container_name: ${HORUS_STACK:-horus}-api
+    command: ["horus", "api", "-listen", "0.0.0.0:8190"]
+    # Only on 127.0.0.1 of the host.
+    ports:
+      - "127.0.0.1:${HORUS_API_PORT:-8190}:8190"
+    depends_on:
+      horus-db:
+        condition: service_healthy
+      horus-worker:
+        condition: service_healthy
+    # The 4 checks: horus-db, ComfyUI, horus-worker and horus-api.
+    healthcheck:
+      test: ["CMD", "horus", "ready"]
+      interval: 5s
+      timeout: 4s
+      retries: 3
+      start_period: 60s
+      start_interval: 1s
+
+volumes:
+  db-data:
+    name: ${HORUS_STACK:-horus}-db-data

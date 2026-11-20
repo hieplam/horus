@@ -248,3 +248,19 @@ func WorkerConcurrency() (int, error) { return positive("HORUS_WORKER_CONCURRENC
 // JobRetentionDays is HORUS_JOB_RETENTION_DAYS: the age in days at which the
 // worker deletes an ended job and its events. Default 30.
 func JobRetentionDays() (int, error) { return positive("HORUS_JOB_RETENTION_DAYS", "30") }
+
+// APIPort is HORUS_API_PORT: the port of horus api (/mcp, the Horus UI and
+// /readyz), on 127.0.0.1. Default 8190. In the stack, horus api listens on
+// 8190 in its container, and compose.yaml publishes HORUS_API_PORT of the
+// host on 127.0.0.1.
+func APIPort() (int, error) {
+	n, err := positive("HORUS_API_PORT", "8190")
+	if err == nil && n > 65535 {
+		return 0, fmt.Errorf("HORUS_API_PORT must be a port from 1 to 65535: %d", n)
+	}
+	return n, err
+}
+
+// Stack is HORUS_STACK: the name of the Docker stack. The names of its
+// containers are <stack>-api, <stack>-worker and <stack>-db. Default horus.
+func Stack() string { return strings.TrimSpace(Get("HORUS_STACK", "horus")) }

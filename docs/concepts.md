@@ -203,3 +203,19 @@ prompt. Use `list_workflow_slots` and `set_workflow_slot`.
 
 **If wrong.** A wrong address changes nothing or fails. Addresses differ for each
 workflow, so list them each time.
+
+## Stack and readiness
+
+**Stack.** horus in Docker: the 3 containers of `compose.yaml` next to the
+ComfyUI of the host. `horus-db` is the Postgres database of the jobs,
+`horus-worker` runs the jobs on ComfyUI, and `horus-api` takes the calls of
+the agents. `docker compose up -d --wait` starts them in that order.
+
+**Readiness.** horus in the stack serves only when its 4 dependencies are up:
+the 3 containers and ComfyUI. `docker exec horus-api horus ready` prints one
+`ok` or `FAIL` line for each. See
+[the stack and its readiness](mcp.md#the-stack-and-its-readiness).
+
+**If wrong.** When a dependency is down, an agent cannot start a session, and
+a call gets `NOT_READY` with the name of the dependency. When it is up again,
+horus serves again.

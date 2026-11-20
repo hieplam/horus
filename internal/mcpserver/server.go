@@ -1,4 +1,5 @@
-// Package mcpserver is the horus MCP server (stdio).
+// Package mcpserver is the horus MCP server (stdio), and the readiness of
+// horus in the stack (ready.go).
 //
 // Tools (one file each, tool_<name>.go):
 //
@@ -93,8 +94,18 @@ func (t tool) definition() *mcp.Tool {
 	}
 }
 
-func (t tool) handler() mcp.ToolHandler {
+// handler is the handler of the tool. With ready (horus mcp in the stack),
+// each call first runs the 4 checks of the readiness, and a call while a
+// dependency is down gets NOT_READY. nil ready: the direct path, no gate.
+func (t tool) handler(ready ReadyFunc) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if ready != nil {
+			if r := ready(ctx); !r.Ready {
+				e := notReady(r)
+				logf("INFO", "call %s failed: %s", t.name, e)
+				return failResult(e), nil
+			}
+		}
 		a, problems := parseArgs(req.Params.Arguments, t.args)
 		if len(problems) > 0 {
 			logf("WARNING", "Tool '%s' rejected arguments", t.name)
@@ -121,15 +132,23 @@ func pyNone(v any) any {
 // the image backend, through images. They set up the model files of a
 // workflow through setup. They make speech through speech.
 func New(images Images, setup Setup, speech Speech) *mcp.Server {
+	return NewWithReady(images, setup, speech, nil)
+}
+
+// NewWithReady is New with the readiness gate of the stack: each call first
+// runs ready, and a call while a dependency is down gets NOT_READY. nil
+// ready: no gate (the direct path).
+func NewWithReady(images Images, setup Setup, speech Speech, ready ReadyFunc) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "horus", Version: version.Version}, &mcp.ServerOptions{Instructions: serverInstructions})
 	for _, t := range tools(images, setup, speech) {
-		s.AddTool(t.definition(), t.handler())
+		s.AddTool(t.definition(), t.handler(ready))
 	}
 	return s
 }
 
 // Run serves the tools over stdio until the client closes the connection.
-func Run(ctx context.Context, images Images, setup Setup, speech Speech) error {
+// ready is the readiness gate of the stack, or nil on the direct path.
+func Run(ctx context.Context, images Images, setup Setup, speech Speech, ready ReadyFunc) error {
 	if path := settings.Get("HORUS_LOG_FILE", ""); path != "" {
 		if f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
 			defer f.Close()
@@ -138,7 +157,7 @@ func Run(ctx context.Context, images Images, setup Setup, speech Speech) error {
 			logf("WARNING", "cannot open HORUS_LOG_FILE: %v", err)
 		}
 	}
-	return New(images, setup, speech).Run(ctx, &mcp.StdioTransport{})
+	return NewWithReady(images, setup, speech, ready).Run(ctx, &mcp.StdioTransport{})
 }
 
 type teeWriter struct {

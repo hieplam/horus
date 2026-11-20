@@ -14,10 +14,11 @@ var portMap = []string{"mcp", "workflow", "download-model", "check-setup", "inst
 	"install-comfy-mcp", "sync-workflows", "new-workflow", "register", "run-illustration", "errors",
 	"stop-comfyui",    // stop-comfyui: new in Phase 2 (task T7)
 	"doctor", "setup", // new in Phase 2 (task T8)
-	"comfy-mcp", // new in Phase 3 (task T5)
-	"version",   // new in Phase 4 (task T1)
-	"uninstall", // new in Phase 4 (task T7)
-	"worker"}    // new in the job queue (epic #180, task T4)
+	"comfy-mcp",    // new in Phase 3 (task T5)
+	"version",      // new in Phase 4 (task T1)
+	"uninstall",    // new in Phase 4 (task T7)
+	"worker",       // new in the job queue (epic #180, task T4)
+	"api", "ready"} // new in the job queue (epic #180, task T5)
 
 func TestEveryPortMapRowHasACommand(t *testing.T) {
 	for _, name := range portMap {

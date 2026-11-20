@@ -19,6 +19,7 @@ var layers = map[string]string{
 	"cmd/horus":                        wiring,
 	"internal/cli":                     handler,
 	"internal/mcpserver":               handler,
+	"internal/webui":                   handler, // the routes of horus api that are not MCP: /readyz, /livez, the Horus UI
 	"internal/worker":                  handler, // the loop of horus worker: it joins jobs and generate
 	"internal/generate":                service,
 	"internal/provision":               service,

@@ -73,15 +73,21 @@ func (r Readiness) Text() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "horus ready: %d of %d\n", r.Up, len(r.Checks))
 	for _, c := range r.Checks {
-		word := "ok  "
-		if !c.Up {
-			word = "FAIL"
-		}
-		line := word + " " + c.Dependency
-		if c.Detail != "" {
-			line += ": " + c.Detail
-		}
-		b.WriteString(line + "\n")
+		b.WriteString(c.Line() + "\n")
 	}
 	return b.String()
+}
+
+// Line is the result as one line of the report: "ok   <dependency>: <detail>"
+// or "FAIL <dependency>: <detail>".
+func (c CheckResult) Line() string {
+	word := "ok  "
+	if !c.Up {
+		word = "FAIL"
+	}
+	line := word + " " + c.Dependency
+	if c.Detail != "" {
+		line += ": " + c.Detail
+	}
+	return line
 }

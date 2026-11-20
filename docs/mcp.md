@@ -277,6 +277,7 @@ horus register
 - The same `.mcp.json` starts the comfy MCP server as `horus comfy-mcp`, on Windows and on macOS. `horus comfy-mcp` runs the program `comfy-mcp` of the venv of `horus install-comfy-mcp` (`<home>/.venvs/comfy-mcp`), else the `comfy-mcp` of the PATH, over the same standard input and output. It sets `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`, and `COMFY_BIN` to the `comfy` next to comfy-mcp when that program exists and `COMFY_BIN` is not set. Its exit code is the exit code of comfy-mcp. When it finds no comfy-mcp, it writes `comfy-mcp was not found in ... Fix: horus install-comfy-mcp` to the standard error and exits 1.
 - `horus register` adds the server `horus` to Claude Code. It runs `claude mcp add --scope user horus -- <path of horus> mcp`. In a clone it also passes `-e HORUS_ROOT=<clone>`. Then agents in every folder of this PC see the tools. Start a new Claude Code session after it.
 - `horus register -client codex` adds the server to Codex. It runs `codex mcp get horus`. When that exits 0, it prints a `SKIP` line. Else it runs `codex mcp add horus -- <path of horus> mcp`, with `--env HORUS_ROOT=<clone>` in a clone. `-client claude` is the default. Another client name exits 2 and lists `claude, codex`.
+- `horus register -docker` adds horus in the stack: `claude mcp add --scope user horus -- <path of docker> exec -i horus-api horus mcp`, with no `HORUS_ROOT`. `-stack <name>` names another stack (the container `<name>-api`). `-client codex` works the same way. Remove an older entry first (`claude mcp remove horus`), because register skips a client that already knows a server named horus. See [the stack and its readiness](#the-stack-and-its-readiness).
 - `<repo root>` is the absolute path of the horus clone that holds the current folder, or the folder of `-root <repo folder>` (it must have `workflows/`). With no clone and no `-root`, the program has no repo root: `horus register` still works and passes no `HORUS_ROOT`. Use `-horus-path <path>` to register another `horus` program.
 - Another harness (an IDE) needs one stdio server entry: command `horus` (or its full path), argument `mcp`, and `HORUS_ROOT` when it starts outside this repo.
 
@@ -383,7 +384,7 @@ A caller decides from three fields:
 
 ## Error codes
 
-The single source is the Go package `internal/herr`. It has 22 codes. `horus errors` prints the table, and `horus errors -json` prints it as JSON. The contract test reads `horus errors -json` and fails when this table misses a code.
+The single source is the Go package `internal/herr`. It has 23 codes. `horus errors` prints the table, and `horus errors -json` prints it as JSON. The contract test reads `horus errors -json` and fails when this table misses a code.
 
 | Code | Retryable | Action by | Next step |
 |---|---|---|---|
@@ -408,6 +409,7 @@ The single source is the Go package `internal/herr`. It has 22 codes. `horus err
 | `GENERATION_FAILED` | yes | retry | Call again with the same arguments. If it fails twice, report `details.backend_message` to the user. Some causes are not retryable; then `retryable` is `false` and `next_step` says why. For speech, the speech worker stopped or answered with an error: report `details.worker_message`. The next call starts a new speech worker. |
 | `GENERATION_TIMEOUT` | yes | retry | The job ran longer than `HORUS_GENERATE_TIMEOUT` (default 1800 s). horus removed it from the ComfyUI queue, or stopped the speech worker. Call again later. |
 | `CANCELLED` | yes | retry | Someone cancelled the job in ComfyUI. Call again if the image is still needed. |
+| `NOT_READY` | yes | human | horus runs in the stack, and a dependency of horus is down: `details.down` names it, and `details.checks` gives each of the 4 checks. Tell the user. The user starts it, then the caller calls again. See [the stack and its readiness](#the-stack-and-its-readiness). |
 | `INTERNAL` | no | human | A defect in horus or in a workflow. Report `details` to the user. |
 
 ## Long calls
@@ -483,9 +485,12 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | `HORUS_SPEECH_DIR` | `<user folder>/speech` | The speech folder: the speech venv (`venv/`), the model files of the speech workflows (`models/`) and the file of the speech worker (`worker.py`). |
 | `HORUS_WORKFLOWS_DIR` | `workflows` in this repo, else the copy of the built-in workflows | Another workflows folder (tests use it). It replaces the built-in workflows. `horus workflow`, `horus setup` and `horus doctor -workflow` also use it. |
 | `HORUS_LOG_FILE` | none | Also write the server log to this file. Each call logs its tool name and its `progressToken`. |
-| `HORUS_DATABASE_URL` | none | The Postgres database of the job queue: the job store and the broker. [`horus worker`](#the-worker) needs it. horus never writes its password part to a log. |
+| `HORUS_DATABASE_URL` | none | The Postgres database of the job queue: the job store and the broker. [`horus worker`](#the-worker) and `horus api` need it. With it, `horus mcp` runs as in the stack: it serves only when horus is ready. The password can come from `PGPASSWORD`, so the URL needs none. horus never writes the password to a log. |
 | `HORUS_WORKER_CONCURRENCY` | `1` | The slots of `horus worker`: the count of jobs that it runs at the same time. |
 | `HORUS_JOB_RETENTION_DAYS` | `30` | `horus worker` deletes a job and its events this many days after the job ended. |
+| `HORUS_API_PORT` | `8190` | The port of `horus api` on 127.0.0.1. In the stack, `compose.yaml` publishes this port of the host. In the container, `horus api` listens on 8190. |
+| `HORUS_STACK` | `horus` | The name of the stack in `compose.yaml`: its containers are `<name>-api`, `<name>-worker` and `<name>-db`, its volume `<name>-db-data`, its image `<name>:local`. `horus register -docker` uses it for the name of the container. |
+| `HORUS_DB_PASSWORD` | none | Only for `docker compose`: the password of the database in `horus-db`. `compose.yaml` gives it to the containers as `PGPASSWORD`. |
 
 Only the code of `internal/download` reads `HF_TOKEN`, and `go test ./internal/archtest`
 enforces that. It reads the environment variable first, then the line in the `.env` file of the
@@ -526,6 +531,82 @@ its standard output. Ctrl+C, or the signal SIGTERM of `docker stop`, stops it.
 A job that runs at the stop gets no ack, and the worker removes the job from
 ComfyUI. The broker then gives the message again, and the next worker ends the
 job with `WORKER_LOST`.
+
+## The stack and its readiness
+
+horus can run as a Docker stack next to the ComfyUI of the host (the spec
+[`2026-11-19-job-queue.md`](specs/2026-11-19-job-queue.md),
+[ADR 0029](adr/0029-horus-runs-as-a-stack-of-three-containers.md)).
+[`setup.md`](setup.md#run-horus-as-a-stack) tells how to start it.
+
+Terms:
+
+- **Stack:** the 3 containers of `compose.yaml`: `horus-db` (Postgres 18.6), `horus-worker` (`horus worker`) and `horus-api` (`horus api`). The names start with `HORUS_STACK` (default `horus`).
+- **Dependency:** one of the 4 parts that horus needs: the 3 containers and ComfyUI.
+- **Ready:** the checks of the 4 dependencies pass.
+
+| Dependency | Check (2 s at most) | Health check of the container | Starts after |
+|---|---|---|---|
+| `horus-db` | The database answers, and its schema `horus` has the version of the program | `pg_isready` | nothing |
+| `comfyui` | `GET <HORUS_COMFYUI_URL>/system_stats` answers 200 | none: the owner starts ComfyUI on the host | the owner starts it |
+| `horus-worker` | The newest row in `horus.workers` has a heartbeat newer than 15 s, and a worker holds the worker lock | `horus ready -only horus-worker` | `horus-db` is healthy |
+| `horus-api` | `horus api` answers `GET http://127.0.0.1:8190/livez` with 200 | `horus ready`: all 4 checks | `horus-db` and `horus-worker` are healthy |
+
+Docker runs each health check every 5 s, and every 1 s in the first 60 s
+after a start. Each container has `restart: unless-stopped`.
+
+- `horus ready` runs the 4 checks and prints one `ok` or `FAIL` line for each. Its exit code is 0 only when all pass. It needs `HORUS_DATABASE_URL`, so run it in the stack: `docker exec horus-api horus ready`. `-only <dependency>` runs one check.
+- `horus api` is the main process of `horus-api`. It serves `GET /readyz`: the report as JSON, with 200 when horus is ready, else 503. It serves `GET /livez`: 200 while it runs. It writes the report to its log when the readiness changes (`docker logs horus-api`).
+- `horus mcp` with `HORUS_DATABASE_URL` runs the 4 checks at its start. In the stack, the agent starts it with `docker exec -i horus-api horus mcp`. When a check fails, `horus mcp` writes the report to the standard error and exits 1, so the session does not start.
+- In an open session, each call runs the 4 checks first. A call while a dependency is down gets `NOT_READY`, with the names of the dependencies that are down in `details.down`. When the dependency is up again, the next call runs. horus needs no action.
+- On the host without `HORUS_DATABASE_URL`, `horus mcp` makes no readiness check (the direct path).
+- The stack has no shared folder yet, so the PNG of a `generate_image` call stays in the container `horus-api`.
+
+```mermaid
+sequenceDiagram
+  participant O as Owner
+  participant D as Docker Compose
+  participant DB as horus-db
+  participant W as horus-worker
+  participant API as horus-api
+  participant C as ComfyUI (host)
+  participant A as Agent
+  O->>C: start ComfyUI
+  O->>D: docker compose up -d --wait
+  D->>DB: start
+  D->>W: start, after horus-db is healthy (pg_isready)
+  W->>DB: apply the schema, take the worker lock, heartbeat every 5 s
+  D->>API: start, after horus-worker is healthy (horus ready -only horus-worker)
+  API->>C: GET /system_stats
+  API->>API: horus ready: 4 of 4, so horus-api is healthy
+  A->>API: docker exec -i horus-api horus mcp
+  API->>API: the 4 checks pass, so the session starts
+  Note over C: ComfyUI stops
+  A->>API: a call
+  API-->>A: NOT_READY, details.down = [comfyui]
+  O->>C: start ComfyUI again
+  A->>API: the next call
+  API->>API: 4 of 4, so the call runs
+```
+
+What an agent sees:
+
+| State | Over stdio (`docker exec -i horus-api horus mcp`) |
+|---|---|
+| Docker is down, or `horus-api` is stopped | `docker exec` fails with `container <id> is not running`. The harness shows horus as failed. |
+| A new session while a dependency is down | `horus mcp` writes `horus ready: 3 of 4` and a `FAIL <dependency>: <cause>` line, and exits 1. |
+| A call in an open session while a dependency is down | `NOT_READY`, `action_by` human, with `details.down`. |
+| The dependency is up again | The next session and the next call work. |
+
+The goal suite `goals/2026-11-19-job-queue` starts its own test stack
+`horus_test` (`HORUS_STACK=horus_test`, host port 18190) with a fake ComfyUI
+on 127.0.0.1 of the host, and removes the stack and its volume at the end. It
+needs Docker Desktop: Docker Desktop gives a container the loopback of the
+host at `host.docker.internal`. Run one row:
+
+```
+go test -tags goal -count=1 -run TestStackStartsTogether -v ./goals/2026-11-19-job-queue
+```
 
 ## Test the server
 
@@ -585,7 +666,7 @@ failure of the worker, the test starts the server two more times, with the
 fake worker in the modes `die` and `error`.
 
 It ends with `contract: N of M passed` and exits 0 only when all pass. The total
-M is 38 server checks of the image tools and the kind, plus 14 speech checks,
+M is 39 server checks of the image tools, the kind and the code table, plus 14 speech checks,
 plus 5 checks of the speech setup, plus 2 for each shipped workflow. The second check of a workflow depends on its
 kind: an image workflow has no style words in its graph, and a speech workflow
 has no graph, no subject and no output. `--report <file>` also writes each

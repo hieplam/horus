@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.1.2](https://github.com/hieplam/horus/compare/v0.1.1...v0.1.2) (2026-11-20)
+
+
+### Features
+
+* **catalog:** the kind of a workflow in the manifest and the tools ([#184](https://github.com/hieplam/horus/issues/184)) ([#208](https://github.com/hieplam/horus/issues/208)) ([e190106](https://github.com/hieplam/horus/commit/e190106baf3e002ce110ae8b177d9b030e5c2049))
+* **jobs:** the job data, the jobs service and the broker contract suite ([#198](https://github.com/hieplam/horus/issues/198)) ([#213](https://github.com/hieplam/horus/issues/213)) ([193af6b](https://github.com/hieplam/horus/commit/193af6b7fd3c2d62eea888f13195c1b922c94500))
+* **mcpserver:** generate_image through the job queue in the stack ([#202](https://github.com/hieplam/horus/issues/202)) ([#240](https://github.com/hieplam/horus/issues/240)) ([58b8d57](https://github.com/hieplam/horus/commit/58b8d57f06b18926141d90380dca35009401d703))
+* **postgres:** the job store and the Postgres broker ([#199](https://github.com/hieplam/horus/issues/199)) ([#218](https://github.com/hieplam/horus/issues/218)) ([778401f](https://github.com/hieplam/horus/commit/778401fcc446785c6ef9a598d5ab62ce76e96105))
+* **provision:** install a speech workflow: the setup plan, install_workflow, horus setup and horus doctor ([#188](https://github.com/hieplam/horus/issues/188)) ([#221](https://github.com/hieplam/horus/issues/221)) ([87399da](https://github.com/hieplam/horus/commit/87399dac1d92c2f3ee50b4cad54938ae209339a9))
+* **provision:** uninstall a speech workflow: uninstall_workflow, horus uninstall and the oracle of speech-install ([#189](https://github.com/hieplam/horus/issues/189)) ([#225](https://github.com/hieplam/horus/issues/225)) ([91abd7a](https://github.com/hieplam/horus/commit/91abd7a35facaf34e7423a13b0362f85f3dab8c0))
+* **speak:** the speak service and the tool generate_speech ([#187](https://github.com/hieplam/horus/issues/187)) ([#215](https://github.com/hieplam/horus/issues/215)) ([bf94290](https://github.com/hieplam/horus/commit/bf94290287f347ea0c3e05a0024a73409b0e4b34))
+* **speechworker:** the speech worker and its Go adapter ([#186](https://github.com/hieplam/horus/issues/186)) ([#211](https://github.com/hieplam/horus/issues/211)) ([dd15786](https://github.com/hieplam/horus/commit/dd157865a10b16fd5b1225355efd710b5ac01e35))
+* **stack:** compose.yaml, horus api, horus ready and NOT_READY ([#201](https://github.com/hieplam/horus/issues/201)) ([#226](https://github.com/hieplam/horus/issues/226)) ([d4a6796](https://github.com/hieplam/horus/commit/d4a6796583b761d807ec1ddde2eb97380a586f4d))
+* **webui:** the Horus UI, a read-only page of horus api ([#205](https://github.com/hieplam/horus/issues/205)) ([#234](https://github.com/hieplam/horus/issues/234)) ([99bd780](https://github.com/hieplam/horus/commit/99bd78067adb26254f2c1b64bcc2014e20167de1))
+* **worker:** horus worker, the one worker of the job queue ([#200](https://github.com/hieplam/horus/issues/200)) ([#220](https://github.com/hieplam/horus/issues/220)) ([c5a2a47](https://github.com/hieplam/horus/commit/c5a2a47bc062cc4758548c5bc094e0cad19ddb0c))
+* **workflows:** add the speech workflow vi-speech ([#185](https://github.com/hieplam/horus/issues/185)) ([#212](https://github.com/hieplam/horus/issues/212)) ([cff691e](https://github.com/hieplam/horus/commit/cff691e674ddf76a30ab53e2391618479446f02b))
+
+
+### Bug Fixes
+
+* **jobs:** the worker stops a running job at a cancel request ([#219](https://github.com/hieplam/horus/issues/219)) ([#222](https://github.com/hieplam/horus/issues/222)) ([1cb30a4](https://github.com/hieplam/horus/commit/1cb30a4a6f65789e1a078de6614f548a51cc34c5))
+* **platform:** RemoveSelf returns when its PowerShell is ready ([#196](https://github.com/hieplam/horus/issues/196)) ([#243](https://github.com/hieplam/horus/issues/243)) ([4e29446](https://github.com/hieplam/horus/commit/4e294469b1bf7c79030408af6744f58407295727))
+* **postgres:** the stub claim test starts both claims by an event, not a 0.5 s window ([#227](https://github.com/hieplam/horus/issues/227)) ([#228](https://github.com/hieplam/horus/issues/228)) ([afde9ea](https://github.com/hieplam/horus/commit/afde9ea418ac147319476517438769b06d528f06))
+* **provision:** the install state of a speech workflow reads the speech folder ([#214](https://github.com/hieplam/horus/issues/214)) ([#217](https://github.com/hieplam/horus/issues/217)) ([7942985](https://github.com/hieplam/horus/commit/794298502307acb403429eaba32f6cff713a53f2))
+* **speech:** read the transcript after 0.5 s of silence, and set the limit of speech-real from 240 measured files ([#223](https://github.com/hieplam/horus/issues/223)) ([#230](https://github.com/hieplam/horus/issues/230)) ([e7de5b3](https://github.com/hieplam/horus/commit/e7de5b3caed1e75acf4eaf3e3de7368a58f59605))
+* **vi-speech:** say in text.rules how to count the words of the share ([#237](https://github.com/hieplam/horus/issues/237)) ([#244](https://github.com/hieplam/horus/issues/244)) ([d250ca3](https://github.com/hieplam/horus/commit/d250ca32120492c528703ba7197270067bf5feb5))
+* **worker:** the worker takes the worker lock again after a restart of horus-db ([#224](https://github.com/hieplam/horus/issues/224)) ([#229](https://github.com/hieplam/horus/issues/229)) ([e29746c](https://github.com/hieplam/horus/commit/e29746c1e0e84a66d0a4cf027d43714d14eb168e))
+
 ## [0.1.1](https://github.com/hieplam/horus/compare/v0.1.0...v0.1.1) (2026-11-18)
 
 

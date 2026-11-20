@@ -5,6 +5,15 @@ The decision records: [ADR 0022](../adr/0022-speech-runs-in-a-python-speech-work
 [ADR 0023](../adr/0023-a-workflow-has-a-kind-and-each-kind-has-its-tool.md) and
 [ADR 0024](../adr/0024-generate-speech-returns-a-transcript.md).
 
+> **Record of a finished phase.** All 6 goal rows passed on 2026-11-20 on the
+> PC ([pull request #233](https://github.com/hieplam/horus/pull/233)). On the
+> same day, an agent that had only the horus MCP server made 5 speech files and
+> checked each file by its transcript
+> ([issue #193](https://github.com/hieplam/horus/issues/193)). The acceptance
+> does not prove the tone or the quality of the voice: no person listened. The
+> suite `goals/2026-11-20-text-to-speech/` is frozen: nobody edits it. A change
+> to text to speech gets a new spec and a new suite.
+
 ## What this work delivers
 
 An agent calls the tool `generate_speech` of the horus MCP server with a text

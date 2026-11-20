@@ -676,3 +676,34 @@ func TestCancelRunningEndsTheRun(t *testing.T) {
 		})
 	}
 }
+
+// TestWaitReportsEveryTouch: the waiter reports at each Config.Touch, also
+// when no event and no poll wakes it (the row queue-progress: a message at
+// least every 10 s). The poll is one hour and the clock is the real one.
+func TestWaitReportsEveryTouch(t *testing.T) {
+	st := brokertest.NewStore()
+	svc := jobs.New(st, brokertest.NewBroker(), jobs.Config{Poll: time.Hour, Touch: 200 * time.Millisecond})
+	j, err := svc.Submit(context.Background(), request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newReports()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _, _ = svc.Wait(ctx, j.ID, r.report) }()
+	start := time.Now()
+	var at []time.Duration
+	for len(at) < 4 {
+		select {
+		case <-r.ch:
+			at = append(at, time.Since(start))
+		case <-time.After(2 * time.Second):
+			t.Fatalf("reports at %v: no report for 2 s, want one every 200 ms", at)
+		}
+	}
+	for i := 1; i < len(at); i++ {
+		if gap := at[i] - at[i-1]; gap < 150*time.Millisecond || gap > time.Second {
+			t.Errorf("reports at %v: gap %s, want about 200 ms", at, gap)
+		}
+	}
+}

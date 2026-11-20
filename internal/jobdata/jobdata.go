@@ -210,6 +210,12 @@ func Apply(j Job, to State, c Change) Job {
 	return j
 }
 
+// The tool and the backend of an image job: the work queue jobs.comfyui.
+const (
+	ToolImage      = "generate_image"
+	BackendComfyUI = "comfyui"
+)
+
 // MessageVersion is the v of a Message and of an Event.
 const MessageVersion = 1
 

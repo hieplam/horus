@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -461,6 +462,29 @@ func TestWorkerSettings(t *testing.T) {
 		t.Setenv("HORUS_WORKER_CONCURRENCY", v)
 		if _, err := WorkerConcurrency(); err == nil || !strings.Contains(err.Error(), "HORUS_WORKER_CONCURRENCY must be a whole number of 1 or more") {
 			t.Errorf("WorkerConcurrency %q: %v", v, err)
+		}
+	}
+}
+
+// TestParseSharedDirs: the pairs of HORUS_SHARED_DIRS, the last "=" of a
+// pair, and the refusal of a container folder that is not one folder under
+// /shared/.
+func TestParseSharedDirs(t *testing.T) {
+	got, err := ParseSharedDirs(` C:\Users\me\a=b=/shared/pictures ; /Users/me/out=/shared/out/ ;`)
+	want := []SharedDir{{`C:\Users\me\a=b`, "/shared/pictures"}, {"/Users/me/out", "/shared/out"}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseSharedDirs: %+v %v, want %+v", got, err, want)
+	}
+	if s := FormatSharedDirs(got); s != `C:\Users\me\a=b=/shared/pictures;/Users/me/out=/shared/out` {
+		t.Errorf("FormatSharedDirs: %q", s)
+	}
+	if got, err := ParseSharedDirs(""); err != nil || len(got) != 0 {
+		t.Errorf("empty: %+v %v", got, err)
+	}
+	for _, bad := range []string{`C:\out`, `=/shared/x`, `C:\out=/tmp/x`, `C:\out=/shared/`, `C:\out=/shared/a/b`,
+		`C:\out=/shared/..`, `C:\a=/shared/x;D:\b=/shared/x`} {
+		if _, err := ParseSharedDirs(bad); err == nil {
+			t.Errorf("%q: no error", bad)
 		}
 	}
 }

@@ -15,10 +15,23 @@ HORUS_GENERATE_TIMEOUT is 1800 / 10 s and HORUS_QUEUE_TIMEOUT is 7200 / 10 s.
 1 is the first call) hard, 60 / --scale seconds after the calls start. This is
 an agent that leaves.
 
+Call n sends its call (n - 1) x 0.1 s after call 1, so the number of a call
+is its order: call 1 is the first call.
+
 Targets:
   host   starts the server program that --server-cmd names (the direct path).
-  stack  starts `docker exec -i <stack>-api horus mcp`. The fake listens on all
-         addresses, and the stack must reach it as its ComfyUI.
+  stack  starts `docker exec -i <stack>-api horus mcp`. The stack must reach the
+         fake as its ComfyUI: start the stack with HORUS_COMFYUI_URL
+         http://host.docker.internal:<--port>. The tool waits up to
+         --ready-timeout seconds until `docker exec <stack>-api horus ready`
+         exits 0, then starts the calls. --out-dir must be a shared folder of
+         the stack (HORUS_SHARED_DIRS).
+
+    python tests/peak_load.py --target stack --stack horus_test --port 18188 --out-dir <shared folder> --calls 12 --leave 3,6
+
+--listen is the address of the fake: 127.0.0.1 (the default) for Docker
+Desktop, which gives a container the loopback of the host at
+host.docker.internal. Docker on Linux needs --listen 0.0.0.0.
 
 The last line of stdout is one JSON line. All seconds are wall-clock seconds
 that the tool measured; the tool does not multiply them by --scale.
@@ -65,7 +78,9 @@ from mcp_contract import FIXTURE, SUBJECT, env_of, make_sandbox, resolve_program
 JOB_SECONDS = 240.0  # the time of one image before --scale
 GENERATE_TIMEOUT = 1800  # HORUS_GENERATE_TIMEOUT before --scale
 QUEUE_TIMEOUT = 7200  # HORUS_QUEUE_TIMEOUT before --scale
+RUN_ESTIMATE = 240  # HORUS_RUN_ESTIMATE before --scale: the run time of one job that the estimated start uses
 SEED_BASE = 1000  # call n uses the seed SEED_BASE + n, so the fake knows which call sent a job
+CALL_GAP = 0.1  # call n sends its call (n - 1) * CALL_GAP seconds after call 1, so the number of a call is its order
 
 
 class FakeComfy:
@@ -279,6 +294,7 @@ async def one_call(n: int, a, params: StdioServerParameters, out: Path, barrier:
             async with ClientSession(read, write) as s:
                 await s.initialize()
                 await barrier.wait()
+                await asyncio.sleep((n - 1) * CALL_GAP)
                 result["start"] = time.monotonic()
                 try:
                     res = await asyncio.wait_for(
@@ -319,12 +335,26 @@ async def leaver(n: int, delay: float, result: dict, left_at: dict[int, float], 
     kill_hard(PROCS[n])
 
 
+def wait_ready(stack: str, within: float) -> None:
+    """Wait until `docker exec <stack>-api horus ready` exits 0: the stack reaches the fake as its ComfyUI."""
+    until, last = time.monotonic() + within, ""
+    while True:
+        r = subprocess.run(["docker", "exec", f"{stack}-api", "horus", "ready"], capture_output=True, text=True)
+        if r.returncode == 0:
+            return
+        last = (r.stdout + r.stderr).strip()
+        if time.monotonic() > until:
+            raise SystemExit(f"the stack {stack} is not ready after {within:g} s: {last}")
+        time.sleep(1)
+
+
 async def run(a, fake: FakeComfy, port: int, tmp: Path) -> dict:
     sandbox = make_sandbox(tmp)
     if a.target == "host":
         cmd = [resolve_program(a.server_cmd[0]), *a.server_cmd[1:]]
     else:
         cmd = ["docker", "exec", "-i", f"{a.stack}-api", "horus", "mcp"]
+        wait_ready(a.stack, a.ready_timeout)
     env = {
         "HORUS_WORKFLOWS_DIR": sandbox["workflows"], "HORUS_COMFYUI_DIR": sandbox["comfy"],
         "HORUS_MODELS_DIR": sandbox["models"], "HORUS_TEXT_ENCODER_DIR": str(Path(sandbox["models"]) / "text_encoders"),
@@ -332,8 +362,10 @@ async def run(a, fake: FakeComfy, port: int, tmp: Path) -> dict:
         "HORUS_OUTPUT_DIR": str(tmp / "out"),
         "HORUS_GENERATE_TIMEOUT": str(round(GENERATE_TIMEOUT / a.scale)),
         "HORUS_QUEUE_TIMEOUT": str(round(QUEUE_TIMEOUT / a.scale)),
+        "HORUS_RUN_ESTIMATE": str(round(RUN_ESTIMATE / a.scale)),
         "PYTHONUTF8": "1",
     }
+    out_dir = Path(a.out_dir) if a.out_dir else tmp / "images"
     leave = {int(x) for x in a.leave.split(",") if x.strip()}
     results = {n: {} for n in range(1, a.calls + 1)}
     left_at: dict[int, float] = {}
@@ -349,7 +381,7 @@ async def run(a, fake: FakeComfy, port: int, tmp: Path) -> dict:
                      "HORUS_WORKFLOWS_DIR", "HORUS_OUTPUT_DIR") for x in ("-e", f"{k}={v}")]
             params = StdioServerParameters(command=cmd[0], args=[*cmd[1:3], *args, *cmd[3:]],
                                            env={"HORUS_PEAK_CALL": str(n)})
-        tasks.append(asyncio.create_task(one_call(n, a, params, tmp / "images" / f"call-{n}.png", barrier,
+        tasks.append(asyncio.create_task(one_call(n, a, params, out_dir / f"call-{n}.png", barrier,
                                                   results[n], errlogs[n - 1])))
     leavers = [asyncio.create_task(leaver(n, a.leave_at / a.scale, results[n], left_at, fake)) for n in sorted(leave) if n in results]
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -391,12 +423,16 @@ def main() -> int:
     ap.add_argument("--leave", default="", help="call numbers whose agent leaves, for example 3,6")
     ap.add_argument("--leave-at", type=float, default=60, help="seconds before --scale after which they leave")
     ap.add_argument("--log", default="", help="the log of the requests of the fake")
+    ap.add_argument("--port", type=int, default=0, help="the port of the fake (default: a free port)")
+    ap.add_argument("--listen", default="127.0.0.1", help="the address of the fake (Docker on Linux: 0.0.0.0)")
+    ap.add_argument("--out-dir", default="", help="the folder of the PNG files (stack: a shared folder; default: a temporary folder)")
+    ap.add_argument("--ready-timeout", type=float, default=180, help="stack: the most seconds to wait until horus ready exits 0")
     a = ap.parse_args()
     with tempfile.TemporaryDirectory(prefix="horus-peak-") as td:
         tmp = Path(td)
         log = Path(a.log) if a.log else tmp / "fake.log"
         fake = FakeComfy(a.parallel, JOB_SECONDS / a.scale, log)
-        httpd = Server(("127.0.0.1" if a.target == "host" else "0.0.0.0", 0), make_handler(fake))
+        httpd = Server((a.listen, a.port), make_handler(fake))
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         port = httpd.server_address[1]
         print(f"fake ComfyUI on port {port}; one job takes {fake.job_seconds:g} s; log {log}", file=sys.stderr)

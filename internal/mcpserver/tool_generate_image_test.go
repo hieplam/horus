@@ -45,6 +45,11 @@ func (f *fakeImages) Generate(ctx context.Context, r generate.Request, o generat
 	return res, nil
 }
 
+// Check is the real argument check of internal/generate: it calls no backend.
+func (f *fakeImages) Check(r generate.Request) (generate.Plan, error) {
+	return generate.New(nil, nil).Check(r)
+}
+
 func (f *fakeImages) Running(ctx context.Context) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

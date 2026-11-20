@@ -12,7 +12,9 @@ import (
 // ImageResult is the result of generate_image, in the key order that the tool shows.
 type ImageResult = generate.Result
 
-func generateImage(images Images) tool {
+// generateImage is the tool. With q (the stack), the call goes through the
+// job queue (queue.go). Without q, the direct path calls the image service.
+func generateImage(images Images, q *Queue) tool {
 	return tool{
 		name:  "generate_image",
 		title: "Generate an image",
@@ -30,6 +32,8 @@ func generateImage(images Images) tool {
 			f("width", tInt).null().d("Pixels. Default and limits: describe_workflow output.").dflt(nil),
 			f("height", tInt).null().d("Pixels. Default and limits: describe_workflow output.").dflt(nil),
 			f("overwrite", tBool).d("Replace out_path when it exists.").dflt(false),
+			f("idempotency_key", tString).null().d("Optional key of this request, for a later call again with the same request. " +
+				"horus keeps it with the job in the stack, and makes a new image for each call.").dflt(nil),
 		},
 		output: envelope("ImageResult", obj{
 			"ImageResult": model("ImageResult",
@@ -42,10 +46,15 @@ func generateImage(images Images) tool {
 				f("seconds", tNumber).d("Wall time of this call."),
 				f("backend_seconds", tNumber).null().d("Time the GPU spent on the job."),
 				f("started_backend", tBool).d("True: this call had to start the backend first."),
-				f("job_id", tString),
+				f("job_id", tString).d("The id of the job: the horus job id in the stack, else the id of the job in the backend."),
+				f("backend_job_id", tString).d("The id of the job in the backend (ComfyUI)."),
+				f("queue_seconds", tNumber).null().d("Time the job waited in the horus queue before its run. Null: no horus queue."),
 			),
 		}),
 		body: func(ctx context.Context, c *call) (any, error) {
+			if q != nil {
+				return q.generate(ctx, images, c)
+			}
 			res, err := images.Generate(ctx, generate.Request{
 				Workflow:  c.args.str("workflow"),
 				Subject:   c.args.str("subject"),

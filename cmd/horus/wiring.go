@@ -267,19 +267,78 @@ func (noStart) Start(context.Context, io.Writer) error {
 // is down reports it. The check of ComfyUI asks HORUS_COMFYUI_URL. apiURL is
 // the address of horus api to check, or "" in the process of horus api.
 func stackOf(ctx context.Context, apiURL string) (mcpserver.Stack, func()) {
-	stack := mcpserver.Stack{Images: generate.New(comfy.New(""), noStart{}), APIURL: apiURL}
+	stack, _, done := stackWith(ctx, apiURL, jobs.Config{})
+	return stack, done
+}
+
+// stackWith is stackOf, and it also gives the job queue service with the
+// settings cfg. The service is nil when the database URL cannot be used:
+// then the checks of horus-db and horus-worker fail with the cause.
+func stackWith(ctx context.Context, apiURL string, cfg jobs.Config) (mcpserver.Stack, *jobs.Service, func()) {
+	stack := mcpserver.Stack{Images: stackImages(), APIURL: apiURL}
 	url := settings.DatabaseURL()
 	if url == "" {
 		stack.Queue = downQueue("HORUS_DATABASE_URL is not set: horus ready runs in the stack, for example docker exec horus-api horus ready")
-		return stack, func() {}
+		return stack, nil, func() {}
 	}
 	db, err := postgres.Open(ctx, url)
 	if err != nil {
 		stack.Queue = downQueue(err.Error())
-		return stack, func() {}
+		return stack, nil, func() {}
 	}
-	stack.Queue = jobs.New(postgres.NewStore(db), postgres.NewBroker(db, postgres.BrokerOptions{}), jobs.Config{}).WithHealth(db)
-	return stack, db.Close
+	svc := jobs.New(postgres.NewStore(db), postgres.NewBroker(db, postgres.BrokerOptions{}), cfg).WithHealth(db)
+	stack.Queue = svc
+	return stack, svc, db.Close
+}
+
+// stackImages is the image service of a process of the stack: it never
+// starts ComfyUI. horus mcp in the stack uses only its argument check and
+// its check of ComfyUI: the worker runs each job.
+func stackImages() *generate.Service { return generate.New(comfy.New(""), noStart{}) }
+
+// queueConfig gives the settings of the job queue of an API process:
+// HORUS_QUEUE_MAX, HORUS_QUEUE_TIMEOUT, HORUS_WORKER_CONCURRENCY (for the
+// estimated start) and HORUS_RUN_ESTIMATE.
+func queueConfig() (jobs.Config, error) {
+	max, err := settings.QueueMax()
+	if err != nil {
+		return jobs.Config{}, err
+	}
+	timeout, err := settings.QueueTimeout()
+	if err != nil {
+		return jobs.Config{}, err
+	}
+	slots, err := settings.WorkerConcurrency()
+	if err != nil {
+		return jobs.Config{}, err
+	}
+	run, err := settings.RunEstimate()
+	if err != nil {
+		return jobs.Config{}, err
+	}
+	return jobs.Config{QueueMax: max, QueueTimeout: time.Duration(timeout) * time.Second, Slots: slots,
+		DefaultRun: time.Duration(run) * time.Second}, nil
+}
+
+// stackMCP gives the parts of horus mcp in the stack: the readiness gate and
+// the job queue of generate_image with the shared folders of
+// HORUS_SHARED_DIRS. done closes the database pool.
+func stackMCP(ctx context.Context) (mcpserver.Options, func(), error) {
+	cfg, err := queueConfig()
+	if err != nil {
+		return mcpserver.Options{}, nil, err
+	}
+	dirs, err := settings.SharedDirs()
+	if err != nil {
+		return mcpserver.Options{}, nil, err
+	}
+	stack, svc, done := stackWith(ctx, localAPI(), cfg)
+	if svc == nil {
+		done()
+		return mcpserver.Options{}, nil, fmt.Errorf("the job queue has no database: %s", stack.Ready(ctx).Text())
+	}
+	q := &mcpserver.Queue{Jobs: svc, Paths: mcpserver.PathsOf(dirs, settings.HostOS()), QueueTimeout: cfg.QueueTimeout}
+	return mcpserver.Options{Ready: stack.Ready, Queue: q}, done, nil
 }
 
 // downQueue is the job queue when the database cannot be used: the checks of

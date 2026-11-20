@@ -40,8 +40,8 @@ import (
 
 // The backend and the tool of the jobs that this worker runs.
 const (
-	Backend   = "comfyui"
-	ToolImage = "generate_image"
+	Backend   = jobdata.BackendComfyUI
+	ToolImage = jobdata.ToolImage
 )
 
 // The defaults of Config.

@@ -101,7 +101,7 @@ func TestGenerateSpeechToolCallsTheService(t *testing.T) {
 // voice. No argument names an engine, Python, ffmpeg or the loudness (the
 // goal row speech-hidden).
 func TestGenerateSpeechArgumentsNameNoSpeechSetup(t *testing.T) {
-	tl := generateSpeech(nil)
+	tl := generateSpeech(nil, false)
 	names := []string{}
 	for _, a := range tl.args {
 		names = append(names, a.name)

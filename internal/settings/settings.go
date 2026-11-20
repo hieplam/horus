@@ -264,3 +264,77 @@ func APIPort() (int, error) {
 // Stack is HORUS_STACK: the name of the Docker stack. The names of its
 // containers are <stack>-api, <stack>-worker and <stack>-db. Default horus.
 func Stack() string { return strings.TrimSpace(Get("HORUS_STACK", "horus")) }
+
+// QueueMax is HORUS_QUEUE_MAX: the count of queued jobs at which a new call
+// of the stack gets QUEUE_FULL. Default 20.
+func QueueMax() (int, error) { return positive("HORUS_QUEUE_MAX", "20") }
+
+// QueueTimeout is HORUS_QUEUE_TIMEOUT: the longest wait of a job in the
+// queue of the stack, in seconds. Default 7200.
+func QueueTimeout() (int, error) { return positive("HORUS_QUEUE_TIMEOUT", "7200") }
+
+// RunEstimate is HORUS_RUN_ESTIMATE: the run time of one job, in seconds,
+// that the estimated start of a queued job uses until a job succeeded. After
+// that, the mean run time of the last succeeded jobs counts. Default 240.
+func RunEstimate() (int, error) { return positive("HORUS_RUN_ESTIMATE", "240") }
+
+// SharedDir is one pair of HORUS_SHARED_DIRS: a folder of the host and the
+// folder in the containers of the stack where Docker mounts it.
+type SharedDir struct {
+	Host      string `json:"host"`
+	Container string `json:"container"`
+}
+
+// SharedPrefix is the folder of the containers under which each container
+// folder of HORUS_SHARED_DIRS must be.
+const SharedPrefix = "/shared/"
+
+// SharedDirs is HORUS_SHARED_DIRS: the pairs "<host folder>=<container
+// folder>", with ";" between two pairs, for example
+// C:\Users\me\Pictures\horus=/shared/pictures. The last "=" of a pair ends the
+// host folder. Each container folder is a folder under /shared/, and two pairs
+// never share one. Empty: no pair.
+func SharedDirs() ([]SharedDir, error) { return ParseSharedDirs(Get("HORUS_SHARED_DIRS", "")) }
+
+// ParseSharedDirs reads the value of HORUS_SHARED_DIRS.
+func ParseSharedDirs(v string) ([]SharedDir, error) {
+	out := []SharedDir{}
+	seen := map[string]bool{}
+	for _, part := range strings.Split(v, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		i := strings.LastIndex(part, "=")
+		if i <= 0 {
+			return nil, fmt.Errorf("HORUS_SHARED_DIRS: %q is not a pair <host folder>=<container folder>", part)
+		}
+		d := SharedDir{Host: strings.TrimSpace(part[:i]), Container: strings.TrimRight(strings.TrimSpace(part[i+1:]), "/")}
+		name := strings.TrimPrefix(d.Container, SharedPrefix)
+		if !strings.HasPrefix(d.Container, SharedPrefix) || name == "" || strings.ContainsAny(name, `/\`) || name == "." || name == ".." {
+			return nil, fmt.Errorf("HORUS_SHARED_DIRS: the container folder %q of %q must be one folder under %s, for example %spictures",
+				d.Container, part, SharedPrefix, SharedPrefix)
+		}
+		if seen[d.Container] {
+			return nil, fmt.Errorf("HORUS_SHARED_DIRS: two pairs have the container folder %s", d.Container)
+		}
+		seen[d.Container] = true
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// FormatSharedDirs is the value of HORUS_SHARED_DIRS for the pairs.
+func FormatSharedDirs(dirs []SharedDir) string {
+	parts := make([]string, len(dirs))
+	for i, d := range dirs {
+		parts[i] = d.Host + "=" + d.Container
+	}
+	return strings.Join(parts, ";")
+}
+
+// HostOS is HORUS_HOST_OS: the operating system of the host of the stack
+// (windows, darwin or linux), as horus stack-mounts writes it. It gives the
+// rules of a host path: a Windows or macOS path is the same path in any case.
+// Empty: not known.
+func HostOS() string { return strings.ToLower(strings.TrimSpace(Get("HORUS_HOST_OS", ""))) }

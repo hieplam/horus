@@ -68,6 +68,9 @@ var Codes = []Spec{
 	{"CANCELLED", true, "retry", "The job was cancelled on the backend. Call again if you still need the image."},
 	{"NOT_READY", true, "human",
 		"A dependency of horus is down (details.down). Tell the user. The user starts it, then the caller calls again."},
+	{"QUEUE_FULL", true, "retry",
+		"The horus queue is full, or the job cannot start before its deadline. Call again after details.retry_after_seconds."},
+	{"WORKER_LOST", true, "retry", "The horus worker stopped while it ran the job. Call again."},
 	{"INTERNAL", false, "human", "This is a bug in horus. Report details to the user."},
 }
 
@@ -79,6 +82,12 @@ func lookup(code string) (Spec, bool) {
 		}
 	}
 	return Spec{}, false
+}
+
+// Has tells if code is in the code table. New panics on a code that is not.
+func Has(code string) bool {
+	_, ok := lookup(code)
+	return ok
 }
 
 // Error is a horus failure with a stable code.

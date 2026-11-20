@@ -118,7 +118,7 @@ func TestNotReadyGate(t *testing.T) {
 		return jobdata.ReadinessOf([]jobdata.CheckResult{{Dependency: jobdata.DependencyDB, Up: true},
 			comfy, {Dependency: jobdata.DependencyWorker, Up: true}, {Dependency: jobdata.DependencyAPI, Up: true}})
 	}
-	cs := connect(t, NewWithReady(images, nil, nil, ready), nil)
+	cs := connect(t, NewWith(images, nil, nil, Options{Ready: ready}), nil)
 	call := map[string]any{"workflow": "it-illustration", "subject": "a falcon over a server rack, flat colours"}
 	res := callTool(t, cs, "generate_image", call)
 	env := envelopeOf(t, res)

@@ -115,19 +115,24 @@ var commands = map[string]command{
 	}},
 	"mcp": {"serve the 6 horus tools over stdio (MCP)", func(args []string) int {
 		return withSignal(func(ctx context.Context) int {
-			// In the stack (HORUS_DATABASE_URL is set), the session starts
-			// only when horus is ready, and each call checks the readiness.
-			var ready cli.Readiness
-			var gate mcpserver.ReadyFunc
-			if settings.DatabaseURL() != "" {
-				stack, done := stackOf(ctx, localAPI())
-				defer done()
-				ready, gate = stack.Ready, stack.Ready
+			if settings.DatabaseURL() == "" {
+				return cli.MCP(ctx, args, os.Stderr, nil, func(ctx context.Context) error {
+					speech := newSpeech(ctx)
+					defer speech.Close() // the speech worker ends with horus mcp
+					return mcpserver.Run(ctx, newImages(""), newSetup(cli.SetupPlace{}, seams{}), speech, mcpserver.Options{})
+				})
 			}
-			return cli.MCP(ctx, args, os.Stderr, ready, func(ctx context.Context) error {
-				speech := newSpeech(ctx)
-				defer speech.Close() // the speech worker ends with horus mcp
-				return mcpserver.Run(ctx, newImages(""), newSetup(cli.SetupPlace{}, seams{}), speech, gate)
+			// In the stack (HORUS_DATABASE_URL is set), the session starts
+			// only when horus is ready, each call checks the readiness, and
+			// generate_image goes through the job queue.
+			opts, done, err := stackMCP(ctx)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "horus mcp:", err)
+				return 1
+			}
+			defer done()
+			return cli.MCP(ctx, args, os.Stderr, cli.Readiness(opts.Ready), func(ctx context.Context) error {
+				return mcpserver.Run(ctx, stackImages(), newSetup(cli.SetupPlace{}, seams{}), nil, opts)
 			})
 		})
 	}},

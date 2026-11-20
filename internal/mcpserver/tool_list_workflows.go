@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hieplam/horus/internal/catalog"
+	"github.com/hieplam/horus/internal/jobdata"
 	"github.com/hieplam/horus/internal/provision"
 )
 
@@ -25,13 +26,18 @@ type WorkflowSummary struct {
 	DownloadBytes  int64           `json:"download_bytes"`
 }
 
-// ListResult is the result of list_workflows.
+// ListResult is the result of list_workflows. Ready and Queue are nil on the
+// direct path.
 type ListResult struct {
-	Workflows      []WorkflowSummary `json:"workflows"`
-	BackendRunning bool              `json:"backend_running"`
+	Workflows      []WorkflowSummary  `json:"workflows"`
+	BackendRunning bool               `json:"backend_running"`
+	Ready          *jobdata.Readiness `json:"ready"`
+	Queue          *QueueState        `json:"queue"`
 }
 
-func listWorkflows(images Images, setup Setup) tool {
+// listWorkflows is the tool. With q (the stack), the result also has the
+// readiness of the 4 dependencies and the counts of the queue.
+func listWorkflows(images Images, setup Setup, q *Queue) tool {
 	return tool{
 		name:  "list_workflows",
 		title: "List workflows",
@@ -44,6 +50,24 @@ func listWorkflows(images Images, setup Setup) tool {
 			"ListResult": model("ListResult",
 				f("workflows", tList(ref("WorkflowSummary"))),
 				f("backend_running", tBool).d("False: the next generate_image starts the backend first (1 to 3 minutes more)."),
+				f("ready", ref("Readiness")).null().d("In the Docker stack: the 4 dependencies of horus and their state. Null: horus runs on this machine without the stack."),
+				f("queue", ref("QueueState")).null().d("In the Docker stack: the jobs that wait, the jobs that run, and the slots of the worker. Null: no horus queue."),
+			),
+			"Readiness": model("Readiness",
+				f("ready", tBool).d("True only when the 4 dependencies are up."),
+				f("up", tInt).d("The count of the dependencies that are up."),
+				f("checks", tList(ref("CheckResult"))),
+				f("down", tList(tString)).d("The dependencies that are down."),
+			),
+			"CheckResult": model("CheckResult",
+				f("dependency", tEnum(jobdata.Dependencies...)),
+				f("up", tBool),
+				f("detail", tString),
+			),
+			"QueueState": model("QueueState",
+				f("waiting", tInt).d("Jobs in the horus queue that wait for a slot."),
+				f("running", tInt).d("Jobs that run now."),
+				f("slots", tInt).d("The jobs that the worker runs at the same time (HORUS_WORKER_CONCURRENCY)."),
 			),
 			"WorkflowSummary": model("WorkflowSummary",
 				f("name", tString).d("Pass this to the other tools."),
@@ -97,7 +121,14 @@ func listWorkflows(images Images, setup Setup) tool {
 					Output: s.Output, TypicalSeconds: s.TypicalSeconds, InstallState: row.State(), DownloadBytes: size,
 				})
 			}
-			return ListResult{Workflows: rows, BackendRunning: running}, nil
+			res := ListResult{Workflows: rows, BackendRunning: running}
+			if q != nil {
+				res.Ready = c.ready
+				if res.Queue, err = q.state(ctx); err != nil {
+					return nil, err
+				}
+			}
+			return res, nil
 		},
 	}
 }

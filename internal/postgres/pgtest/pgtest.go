@@ -60,8 +60,15 @@ func URL(t testing.TB) string {
 // The test closes it and drops the database at its end.
 func DB(t testing.TB) *postgres.DB {
 	t.Helper()
+	return Open(t, URL(t))
+}
+
+// Open gives a pool of connections to the database of url (from URL), and
+// applies the schema horus. The test closes the pool at its end.
+func Open(t testing.TB, url string) *postgres.DB {
+	t.Helper()
 	ctx := context.Background()
-	db, err := postgres.Connect(ctx, URL(t))
+	db, err := postgres.Connect(ctx, url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +77,72 @@ func DB(t testing.TB) *postgres.DB {
 		t.Fatal(err)
 	}
 	return db
+}
+
+// inThisDB limits a row of pg_locks or pg_stat_activity to the database of the
+// connection. Each test has its own database, so a test never touches the
+// sessions of another test that runs at the same time.
+const inThisDB = "(SELECT oid FROM pg_database WHERE datname = current_database())"
+
+// holdsWorkerLock is the SQL condition of a row of pg_locks that holds the
+// one-worker lock in the database of the connection. $1 is
+// postgres.WorkerLockKey.
+const holdsWorkerLock = "locktype = 'advisory' AND granted AND objsubid = 1 AND database = " + inThisDB +
+	" AND ((classid::bigint << 32) | objid::bigint) = $1"
+
+// WorkerLockHolder gives the process id of the session that holds the
+// one-worker lock in the database of url, or 0 when no session holds it.
+func WorkerLockHolder(t testing.TB, url string) int {
+	t.Helper()
+	var pid int
+	query(t, url, func(ctx context.Context, conn *pgx.Conn) error {
+		return conn.QueryRow(ctx, "SELECT coalesce((SELECT pid FROM pg_locks WHERE "+holdsWorkerLock+" LIMIT 1), 0)",
+			postgres.WorkerLockKey).Scan(&pid)
+	})
+	return pid
+}
+
+// EndWorkerLock ends the session that holds the one-worker lock in the
+// database of url, as pg_terminate_backend does, and waits until the session
+// is gone. Postgres then releases the lock. It gives the count of ended
+// sessions.
+func EndWorkerLock(t testing.TB, url string) int {
+	t.Helper()
+	var n int
+	query(t, url, func(ctx context.Context, conn *pgx.Conn) error {
+		return conn.QueryRow(ctx, "SELECT count(*) FILTER (WHERE pg_terminate_backend(pid, 10000)) FROM pg_locks WHERE "+holdsWorkerLock,
+			postgres.WorkerLockKey).Scan(&n)
+	})
+	return n
+}
+
+// EndSessions ends each other session of the database of url, as a restart of
+// the database does, and waits until each one is gone. It gives the count of
+// ended sessions.
+func EndSessions(t testing.TB, url string) int {
+	t.Helper()
+	var n int
+	query(t, url, func(ctx context.Context, conn *pgx.Conn) error {
+		return conn.QueryRow(ctx, `SELECT count(*) FILTER (WHERE pg_terminate_backend(pid, 10000)) FROM pg_stat_activity
+WHERE datname = current_database() AND pid <> pg_backend_pid()`).Scan(&n)
+	})
+	return n
+}
+
+// query runs f on a new connection to the database of url. An error never
+// shows the password.
+func query(t testing.TB, url string, f func(ctx context.Context, conn *pgx.Conn) error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatalf("connect to the test database: %v", err)
+	}
+	defer conn.Close(ctx)
+	if err := f(ctx, conn); err != nil {
+		t.Fatalf("the test database: %v", err)
+	}
 }
 
 // admin runs one statement in the database of base. An error never shows the

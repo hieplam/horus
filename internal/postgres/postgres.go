@@ -39,6 +39,10 @@ const (
 	lockWorker int64 = 0x68_6f_72_75_73_02 // the one-worker lock: a session lock
 )
 
+// WorkerLockKey is the key of the one-worker lock (Store.WorkerLock). In
+// pg_locks, classid holds its high 32 bits and objid its low 32 bits.
+const WorkerLockKey = lockWorker
+
 //go:embed schema/*.sql
 var schemaFiles embed.FS
 

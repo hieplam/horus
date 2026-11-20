@@ -90,7 +90,7 @@ type Options struct {
 	Ready ReadyFunc
 	// Queue is the job queue of the stack. With it, generate_image goes
 	// through the queue and never calls ComfyUI, list_workflows shows the
-	// queue, and generate_speech refuses (ADR 0038). nil: the direct path.
+	// queue, and generate_speech refuses (ADR 0039). nil: the direct path.
 	Queue *Queue
 }
 

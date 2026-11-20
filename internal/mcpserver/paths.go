@@ -1,5 +1,5 @@
 // The host paths and the container paths of the stack (spec
-// docs/specs/2026-11-19-job-queue.md, "MCP contract"; ADR 0038). An agent
+// docs/specs/2026-11-19-job-queue.md, "MCP contract"; ADR 0039). An agent
 // gives and gets the paths of its own machine, the host. The API process and
 // the worker run in Linux containers, and Docker mounts each shared folder of
 // HORUS_SHARED_DIRS into both. Paths changes a host path in a shared folder

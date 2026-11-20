@@ -1,6 +1,6 @@
 // generate_image through the job queue of the stack (spec
 // docs/specs/2026-11-19-job-queue.md, "One job, step by step" and "MCP
-// contract"; ADR 0025, ADR 0027 and ADR 0038). With HORUS_DATABASE_URL, the
+// contract"; ADR 0025, ADR 0027 and ADR 0039). With HORUS_DATABASE_URL, the
 // API process never calls ComfyUI for a job:
 //
 //  1. It changes the out_path of the host to the container path (Paths), and

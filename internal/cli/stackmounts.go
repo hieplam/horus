@@ -1,4 +1,4 @@
-// horus stack-mounts: the shared folders of the stack (ADR 0038). Docker
+// horus stack-mounts: the shared folders of the stack (ADR 0039). Docker
 // Compose cannot make one mount for each pair of a list in a variable, so
 // this command writes them into compose.override.yaml, which docker compose
 // reads next to compose.yaml.
@@ -10,9 +10,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
+	"github.com/hieplam/horus/internal/platform"
 	"github.com/hieplam/horus/internal/settings"
 )
 
@@ -80,7 +80,7 @@ func StackMounts(args []string, out, errOut io.Writer) int {
 		}
 		path = filepath.Join(root, OverrideFile)
 	}
-	if err := os.WriteFile(path, []byte(StackOverride(dirs, runtime.GOOS)), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(StackOverride(dirs, platform.OS())), 0o644); err != nil {
 		fmt.Fprintln(errOut, "horus stack-mounts:", err)
 		return 1
 	}

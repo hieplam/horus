@@ -26,7 +26,7 @@ type SpeechResult = speak.Result
 
 // speechInStack is the error of generate_speech in the stack: the stack runs
 // only image jobs, and the API process never runs a backend for a job (ADR
-// 0025, ADR 0038).
+// 0025, ADR 0039).
 func speechInStack() *herr.Error {
 	e := herr.New("BACKEND_UNAVAILABLE", "horus in the Docker stack makes images only: generate_speech does not run in the stack",
 		map[string]any{"tool": "generate_speech", "stack": true})

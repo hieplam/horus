@@ -22,7 +22,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -285,13 +284,21 @@ func (f *jobFake) idle() bool {
 	return true
 }
 
+// goEnv is one value of go env, for example GOOS or GOEXE. The suite imports
+// only the standard library, and runtime.GOOS is a fact of internal/platform.
+func goEnv(t *testing.T, name string) string {
+	t.Helper()
+	out, err := exec.Command("go", "env", name).Output()
+	if err != nil {
+		t.Fatalf("go env %s: %v", name, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // buildHorus builds the program horus of this repo into a temporary folder.
 func buildHorus(t *testing.T) string {
 	t.Helper()
-	exe := filepath.Join(t.TempDir(), "horus")
-	if runtime.GOOS == "windows" {
-		exe += ".exe"
-	}
+	exe := filepath.Join(t.TempDir(), "horus"+goEnv(t, "GOEXE"))
 	if code, out := run(t, root, "go", "build", "-o", exe, "./cmd/horus"); code != 0 {
 		t.Fatalf("go build ./cmd/horus: exit code %d\n%s", code, out)
 	}
@@ -526,8 +533,8 @@ func fingerprintOf(t *testing.T, subject string, seed uint64, outPath string, ov
 	rev.Write(graph)
 	s := strconv.FormatUint(seed, 10)
 	p := filepath.Clean(outPath)
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		p = strings.ToLower(p)
+	if goos := goEnv(t, "GOOS"); goos == "windows" || goos == "darwin" {
+		p = strings.ToLower(p) // the file systems of Windows and macOS do not tell the case apart
 	}
 	text := recipeText{V: 1, Tool: "generate_image", Workflow: "it-illustration", WorkflowRev: hex.EncodeToString(rev.Sum(nil)),
 		Subject: strings.Join(strings.Fields(subject), " "), Seed: &s, Width: m.Output.Width, Height: m.Output.Height,

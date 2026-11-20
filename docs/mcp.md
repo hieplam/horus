@@ -342,6 +342,11 @@ The `transcript` is the words that the speech recognition model reads from the
 audio file. An agent cannot listen to the file, so it compares the transcript
 with its text and decides. horus does not compare them
 ([ADR 0024](adr/0024-generate-speech-returns-a-transcript.md)).
+A transcript can differ from the text in a few words while the audio can be
+right: the speech recognition model can write a word with another tone or
+another letter that sounds almost the same. `text.rules` of
+`describe_workflow` gives the share of wrong words that the workflow measured
+for a right file and for a wrong file.
 `started_worker` is `true` when the call had to start the speech worker first:
 the first call of a `horus mcp` process also loads the models (5 to 20 s).
 

@@ -1,12 +1,17 @@
 """baseline: measure the speech models of the workflow vi-speech on this machine.
 
 It speaks the 5 fixed sentences of tests/speech/sentences.json with VieNeu, reads each file back with the speech
-recognition model, and prints the facts that docs/specs/2026-11-20-text-to-speech.md needs: the share of wrong
-words, the loudness, the seconds of each call, the load time, the memory and the longest text that works.
+recognition model through the function `transcribe` of internal/speechworker/worker.py, and prints the facts that
+docs/specs/2026-11-20-text-to-speech.md needs: the share of wrong words, the loudness, the seconds of each call, the
+load time, the memory and the longest text that works.
 
 Run it with the Python of a venv that has the packages `vieneu` and `faster-whisper`, with ffmpeg on the PATH:
 
-    <venv python> tests/speech/baseline.py --models <folder> [--out <folder>] [--long]
+    <venv python> tests/speech/baseline.py --models <folder> [--out <folder>] [--runs N] [--long]
+
+--runs N speaks each sentence N times and ends with a table: for each sentence, the runs, the median and the worst
+share of wrong words. The spread in the spec comes from this option. The folder of --out keeps each file, and
+results.jsonl in it keeps the transcript and the share of each file.
 
 The model folder has three folders: `vieneu` (config.json, denoiser.onnx, onnx_update/), `codec` and
 `whisper-small`. The files and their SHA-256 are in workflows/vi-speech/models.json. The script loads each model
@@ -19,6 +24,7 @@ import json
 import os
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -28,6 +34,7 @@ from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+WORKER = HERE.parents[1] / "internal" / "speechworker" / "worker.py"
 TARGET_LUFS = -18.0
 PEAK_LIMIT = 0.891  # -1 dBFS, so the gain never clips
 WAV = ["-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le"]
@@ -68,14 +75,15 @@ def encode(take: Path, out: Path) -> None:
         gain += TARGET_LUFS - measured
 
 
-def samples_16k(path: Path):
-    """The audio as 16 kHz mono float samples, the input of the speech recognition model. ffmpeg decodes it,
-    so the result does not depend on the audio reader of the faster-whisper package."""
-    import numpy as np
+def worker_module():
+    """The file of the speech worker as a module. The baseline reads each file with its function `transcribe`, so
+    the measured share of wrong words comes from the transcript step of the product."""
+    import importlib.util
 
-    r = subprocess.run([tool("ffmpeg"), "-loglevel", "error", "-i", str(path), "-ar", "16000", "-ac", "1", "-f", "f32le", "-"],
-                       capture_output=True, check=True)
-    return np.frombuffer(r.stdout, dtype=np.float32)
+    spec = importlib.util.spec_from_file_location("horus_speech_worker", WORKER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def words(text: str) -> list[str]:
@@ -144,13 +152,14 @@ def main() -> int:
     ap.add_argument("--models", type=Path, required=True, help="the folder with vieneu/, codec/ and whisper-small/")
     ap.add_argument("--out", type=Path, default=None, help="where the audio files go; default: a temp folder")
     ap.add_argument("--voice", default=None, help="a preset voice; default: the default voice of the package")
+    ap.add_argument("--runs", type=int, default=1, help="speak each sentence this many times")
     ap.add_argument("--long", action="store_true", help="also measure the longest text that works (slow)")
     args = ap.parse_args()
     models = args.models.resolve()
     for part in ("vieneu/onnx_update/config.json", "codec", "whisper-small/model.bin"):
         if not (models / part).exists():
             sys.exit(f"baseline: {models / part} does not exist")
-    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
     scratch = Path(tempfile.mkdtemp(prefix="horus-speech-baseline-"))
     out_dir = (args.out or scratch / "out").resolve()
@@ -167,6 +176,7 @@ def main() -> int:
     started = time.monotonic()
     stt = WhisperModel(str(models / "whisper-small"), device="cpu", compute_type="int8")
     stt_load = time.monotonic() - started
+    worker = worker_module()
     voices = [voice_id for _label, voice_id in tts.list_preset_voices()]
     voice = args.voice or getattr(tts, "_default_voice", None) or voices[0]
     print(f"load: vieneu {tts_load:.1f} s, speech recognition {stt_load:.1f} s, voices {len(voices)}, voice '{voice}'")
@@ -180,24 +190,36 @@ def main() -> int:
         speak_s = time.monotonic() - started
         encode(take, out)
         started_read = time.monotonic()
-        segments, _info = stt.transcribe(samples_16k(out), language="vi", beam_size=5, condition_on_previous_text=False)
-        transcript = " ".join(s.text.strip() for s in segments)
+        transcript = worker.transcribe(stt, out)
         return {"seconds": round(time.monotonic() - started, 1), "speak_seconds": round(speak_s, 1),
                 "read_seconds": round(time.monotonic() - started_read, 1), "audio_seconds": round(audio_seconds(out), 2),
                 "lufs": lufs(out), "transcript": transcript, "wrong": wrong_share(text, transcript)}
 
     sentences = json.loads((HERE / "sentences.json").read_text(encoding="utf-8"))["sentences"]
     made, worst = 0, 0.0
-    for s in sentences:
-        out = out_dir / f"{s['id']}.wav"
-        r = speak(s["text"], out)
-        ok = out.is_file() and r["lufs"] is not None and abs(r["lufs"] - TARGET_LUFS) <= 0.5 and r["transcript"]
-        made += 1 if ok else 0
-        worst = max(worst, r["wrong"])
-        print(f"{s['id']}: {'ok' if ok else 'FAIL'}, wrong words {r['wrong']}, loudness {r['lufs']} LUFS, "
-              f"audio {r['audio_seconds']} s, call {r['seconds']} s (speak {r['speak_seconds']} s, read {r['read_seconds']} s)")
-        print(f"  text:       {s['text']}")
-        print(f"  transcript: {r['transcript']}")
+    shares: dict[str, list[float]] = {s["id"]: [] for s in sentences}
+    results = (out_dir / "results.jsonl").open("w", encoding="utf-8")
+    for run in range(1, args.runs + 1):
+        for s in sentences:
+            name = s["id"] if args.runs == 1 else f"{s['id']}-{run:02d}"
+            out = out_dir / f"{name}.wav"
+            r = speak(s["text"], out)
+            ok = out.is_file() and r["lufs"] is not None and abs(r["lufs"] - TARGET_LUFS) <= 0.5 and r["transcript"]
+            made += 1 if ok else 0
+            worst = max(worst, r["wrong"])
+            shares[s["id"]].append(r["wrong"])
+            results.write(json.dumps({"run": run, "id": s["id"], "file": out.name, **r}, ensure_ascii=False) + "\n")
+            results.flush()
+            print(f"{name}: {'ok' if ok else 'FAIL'}, wrong words {r['wrong']}, loudness {r['lufs']} LUFS, "
+                  f"audio {r['audio_seconds']} s, call {r['seconds']} s (speak {r['speak_seconds']} s, read {r['read_seconds']} s)")
+            print(f"  text:       {s['text']}")
+            print(f"  transcript: {r['transcript']}")
+    results.close()
+    print(f"\nshare of wrong words, {args.runs} runs of each sentence:\n")
+    print("| Sentence | Runs | Median | Worst |\n|---|---:|---:|---:|")
+    for sid, vals in shares.items():
+        print(f"| `{sid}` | {len(vals)} | {statistics.median(vals):.3f} | {max(vals):.3f} |")
+    print()
 
     if args.long:
         base = " ".join(s["text"] for s in sentences if "[" not in s["text"])
@@ -213,9 +235,9 @@ def main() -> int:
         print(f"longest text that works: {longest} chars")
 
     print(f"memory: peak {peak_memory_mb():.0f} MB in one process with both models")
-    print(f"baseline: {made} of {len(sentences)} files, worst share of wrong words {worst}")
-    print(f"files: {out_dir}")
-    return 0 if made == len(sentences) else 1
+    print(f"baseline: {made} of {len(sentences) * args.runs} files, worst share of wrong words {worst}")
+    print(f"files: {out_dir} (each file, its transcript and its share: results.jsonl)")
+    return 0 if made == len(sentences) * args.runs else 1
 
 
 if __name__ == "__main__":

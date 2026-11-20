@@ -42,7 +42,7 @@ one file with VieNeu on the CPU.
 
 | Row | Outcome | Oracle | Threshold | Ratchet |
 |---|---|---|---|---|
-| `speech-real` | `generate_speech` with a Vietnamese sentence returns an audio file and a transcript with the words of the text. | End-to-end run on the PC with the real models: 5 fixed sentences through the MCP server. | Each file exists. Its loudness is -18 LUFS ± 0.5. The share of wrong words of each sentence is at most 0.17 (the section "Measured baseline"). | Speech files that an agent makes through horus: 0 → 5 |
+| `speech-real` | `generate_speech` with a Vietnamese sentence returns an audio file and a transcript with the words of the text. | End-to-end run on the PC with the real models: 5 fixed sentences through the MCP server. | Each file exists. Its loudness is -18 LUFS ± 0.5. The share of wrong words of each sentence is at most 0.344 (the section "Measured baseline"). | Speech files that an agent makes through horus: 0 → 5 |
 | `speech-hidden` | The caller gives only a text and a voice name. | The contract test reads the schema of `generate_speech`. | 0 arguments that name an engine, Python, ffmpeg or the loudness. | Arguments that show the speech setup: 0, and it stays 0 |
 | `speech-install` | On a machine with no speech setup, `install_workflow` with both consents makes `generate_speech` work. The uninstall removes what horus installed. | End-to-end run in a sandbox home folder: install, one speech file, `uninstall_workflow`, then `horus uninstall -yes`. | Before both consents: 0 changes on disk. After the uninstall: 0 files of the speech setup in the sandbox. | Steps that a person does by hand to set up speech: 3 (venv, `pip install`, ffmpeg) → 0 |
 | `speech-errors` | Each failure of a speech call gives an error code with `action_by` and `next_step`. | The contract test with a fake speech worker. | One check for each failure of the table "Failures" below. Each check passes. | Speech failures with a check: 0 → 8 |
@@ -196,8 +196,8 @@ an empty Hugging Face cache.
 
 | Fact | Value |
 |---|---|
-| Share of wrong words, the worst of the 5 sentences | 0.12 in run 1, 0.08 in run 2 |
-| Limit of the row `speech-real` | 0.17: the worst value plus a margin of 0.05 |
+| Share of wrong words | The section "The spread of the share of wrong words" below |
+| Limit of the row `speech-real` | 0.344: the worst share of 240 files (0.294) plus a margin of 0.05 |
 | Loudness of the 10 files | -18.0 to -17.9 LUFS |
 | Time of one call, a sentence of 3 to 6 s of audio | 5.2 to 8.2 s: about half to speak, half to read the transcript |
 | Load time of both models, files in the disk cache of the OS | 4.1 to 6.5 s |
@@ -206,12 +206,125 @@ an empty Hugging Face cache.
 | Longest text that works | 3,999 characters: 210 s of audio, a call of 272 s, share of wrong words 0.014 |
 
 - `text.max_chars` of the workflow is 4,000.
-- The wrong words of the runs are words that the speech recognition model
-  read with a different tone, for example `Mấy` for `Máy` and `lối` for
-  `lỗi`. Not verified: that the audio has the right tone. A person did not
-  listen.
 - The speech model does not give the same audio for the same text two times.
   So the share of wrong words changes from run to run.
+
+#### The spread of the share of wrong words
+
+The spread is the values that the share of wrong words of one sentence takes
+in different runs. 2 runs (10 files) are too few to set a limit from it. So the
+spread was measured again on 2026-11-20, on the same PC, in two measurements:
+
+- **The cause measurement.** A scratch script with the steps of the speech
+  worker (the same models, the same loudness step) made 60 files: 12 runs of
+  the 5 sentences. The speech recognition model then read the same 60 files
+  with each setting of the table "Settings of the transcript step" below.
+- **The limit measurement.** `tests/speech/baseline.py --runs 12` and then
+  `--runs 24` made 180 other files: 36 runs of the 5 sentences. The baseline
+  reads each file with the function `transcribe` of the speech worker, so it
+  measures the transcript step of the product.
+
+The share of wrong words with the transcript step of the product (0.5 s of
+silence before the audio), from the 240 files of both measurements:
+
+| Sentence | Runs | Median | Worst |
+|---|---:|---:|---:|
+| `plain` | 48 | 0.000 | 0.125 |
+| `commas` | 48 | 0.088 | 0.294 |
+| `english-words` | 48 | 0.000 | 0.154 |
+| `tag` | 48 | 0.000 | 0.188 |
+| `two-sentences` | 48 | 0.060 | 0.200 |
+
+The same 60 files of the cause measurement, read with the transcript step
+before the change (no silence):
+
+| Sentence | Runs | Median | Worst |
+|---|---:|---:|---:|
+| `plain` | 12 | 0.000 | 0.062 |
+| `commas` | 12 | 0.088 | 0.235 |
+| `english-words` | 12 | 0.000 | 0.077 |
+| `tag` | 12 | 0.062 | 0.188 |
+| `two-sentences` | 12 | 0.080 | 0.240 |
+
+The oracle of the row `speech-real` (`TestSpeechReal`), 13 runs through the MCP
+server with a build that has this transcript step, 65 files:
+
+| Sentence | Runs | Median | Worst |
+|---|---:|---:|---:|
+| `plain` | 13 | 0.062 | 0.125 |
+| `commas` | 13 | 0.059 | 0.235 |
+| `english-words` | 13 | 0.000 | 0.154 |
+| `tag` | 13 | 0.000 | 0.188 |
+| `two-sentences` | 13 | 0.080 | 0.200 |
+
+- **The limit.** The worst share of the 240 files is 0.294. The limit of the
+  row `speech-real` is 0.294 + 0.05 = 0.344. The 65 files of the oracle are not
+  part of the baseline: they check the limit.
+- **What a caller must expect.** The transcript of a right audio file can
+  differ from the text. In 133 of the 240 files, the transcript had all the
+  words of the text. The worst transcript did not have 5 of the 17 words
+  of its text (0.294): `Mấy chú nhận yêu cầu, xử lý giữ liệu, rồi trà kết quả
+  về trong người dùng.` Each of the 5 is a word with another tone or another
+  letter. So a caller must expect up to about 3 words in 10 to
+  differ, and the audio can be right. A share above 0.344 is outside the
+  measured spread, so the caller treats that file as wrong. `describe_workflow`
+  of `vi-speech` gives these numbers in `text.rules`.
+- **A wrong file gives a much larger share.** The transcript of each file,
+  compared with the text of one of the 4 other sentences, gives a share of
+  0.846 or more. So the limit 0.344 still tells a right file from a wrong file.
+
+What the cause measurement shows:
+
+- **The same file gives the same transcript.** The speech recognition model
+  read each file two times with the same setting. The two transcripts were the
+  same for 60 of 60 files. So the spread comes from the speech model. VieNeu
+  picks each part of its output at random (its sampling, temperature 0.8), and
+  it gives a different audio file at each call.
+- **The same few words fail.** Before the change, 6 words give 31 of the 62
+  wrong words: `cho` read as `trong` (6 of 12 runs), `và` read as `vào` (6),
+  `lỗi` read as `lối` (6), `nhờ` read as `nhiều` (5), `dữ` read as `giữ` (4)
+  and a dropped `ổn` (4). Most of them are a word with another tone or another
+  letter that sounds almost the same. In the Northern accent of the voice
+  `Hải Đăng`, `d` and `gi` sound the same. Not verified: that the audio has the
+  right word. A person did not listen.
+- **The commas are not the cause.** In the sentence `commas`, 3 of its 21
+  wrong words are next to a comma.
+- **The start of the audio is not the cause.** Each file starts with 50 to
+  140 ms of silence. The first word of a sentence is wrong in 3 of the 60 files.
+  With 0.5 s of silence before the audio, it is also wrong in 3 of 60. In the
+  first 60 files of the limit measurement, it is wrong in 9 files without the
+  silence and in 8 with it.
+- **No setting of the transcript step removes the spread.** The best setting
+  lowers the mean share from 0.054 to 0.045.
+
+Settings of the transcript step, each on the same 60 files of the cause
+measurement. The last column counts the files with a better share and the
+files with a worse share than the setting before.
+
+| Setting | Mean share | Worst share | Files above 0.17 | Better, worse |
+|---|---:|---:|---:|---:|
+| Beam size 5, `condition_on_previous_text=False` (the setting before) | 0.054 | 0.240 | 5 | - |
+| The same, a second reading | 0.054 | 0.240 | 5 | 0, 0 |
+| 0.25 s of silence before the audio | 0.053 | 0.235 | 4 | 9, 9 |
+| **0.5 s of silence before the audio (the setting now)** | **0.045** | **0.188** | **3** | **12, 4** |
+| 1 s of silence before the audio | 0.047 | 0.235 | 4 | 11, 3 |
+| 0.5 s of silence, `without_timestamps=True` | 0.045 | 0.188 | 3 | 13, 4 |
+| `vad_filter=True` | 0.054 | 0.240 | 5 | 0, 0 |
+| Beam size 10 | 0.052 | 0.235 | 4 | 2, 0 |
+| `without_timestamps=True` | 0.050 | 0.235 | 4 | 5, 0 |
+| A fixed `initial_prompt` with no word of the 5 sentences | 0.057 | 0.240 | 5 | 2, 3 |
+| `compute_type=float32` (int8 before) | 0.048 | 0.240 | 2 | 7, 1 |
+| 0.5 s of silence, `compute_type=float32` | 0.045 | 0.200 | 4 | 10, 2 |
+
+The limit measurement confirms the setting. Its first 60 files (`--runs 12`),
+read without the silence, give a mean share of 0.049. With the silence, they
+give 0.042: the share is better in 11 files and worse in 6. Over these 60 files
+and the 60 files of the cause measurement, the silence gives a better share in
+23 files and a worse share in 10.
+
+The speech worker reads each file with the 0.5 s of silence (the function
+`transcribe` of `worker.py`). The silence is only in the input of the speech
+recognition model. The audio file that the caller gets has no added silence.
 
 ### Failures
 

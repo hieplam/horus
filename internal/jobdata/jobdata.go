@@ -267,6 +267,10 @@ type Summary struct {
 	// SameKeyToday is the count of the jobs of today whose idempotency key
 	// another job of today has: the measurement for the dedupe (ADR 0027).
 	SameKeyToday int `json:"same_key_today"`
+	// WorkflowToday gives, for each workflow, the count of its jobs that
+	// ended as succeeded or failed since 00:00. A workflow with no such job
+	// has no key. The panel "workflows" of the Horus UI shows it.
+	WorkflowToday map[string]int `json:"workflow_today"`
 	// MeanRunSeconds is the mean run time of the last 10 succeeded jobs, from
 	// started_at to finished_at. 0 when no job succeeded.
 	MeanRunSeconds float64 `json:"mean_run_seconds"`

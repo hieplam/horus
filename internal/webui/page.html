@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Horus UI</title>
+<!--
+  The Horus UI (ADR 0028): a read-only page of horus api. The reference is
+  docs/specs/2026-11-19-job-queue-ui.html: the page has its 11 parts, with the
+  same data-part names and the same styles. horus api renders the page from the
+  job store, the broker and the readiness report at each request. The script at
+  the end reads the page again at each event of /api/events and every 5 s.
+-->
+<style>
+:root {
+  --bg: #f4f6f9; --surface: #ffffff; --surface-2: #eaeef4; --fg: #16202c; --fg-2: #4a5667; --muted: #7b8698; --line: #d6dce5;
+  --accent: #1f4fa3; --ochre: #9a6210; --ok: #2b7a4b; --ok-soft: #e0f1e6; --bad: #b3261e; --bad-soft: #f8e1df; --grey-soft: #e6e9ee;
+  --font-head: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e131a; --surface: #151c26; --surface-2: #1c2533; --fg: #e5e9ef; --fg-2: #a9b3c2; --muted: #828da0; --line: #2a3546;
+    --accent: #84a9ee; --ochre: #e2aa4f; --ok: #63c18a; --ok-soft: #15301f; --bad: #f08b82; --bad-soft: #3b1a18; --grey-soft: #252e3b; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+code { background: var(--surface-2); padding: 0.05em 0.35em; border-radius: 4px; }
+h3, h4 { margin: 0; }
+.ui { max-width: 1840px; margin: 0 auto; padding: 18px 24px; display: flex; flex-direction: column; gap: 16px; }
+.ui-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.ui-top h3 { font-family: var(--font-head); font-size: 20px; }
+.ready-strip { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pill { display: inline-flex; align-items: center; font-size: 12.5px; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); color: var(--fg-2); white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.grey { background: var(--grey-soft); color: var(--fg-2); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.tile .n { font-family: var(--font-head); font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tile .l { font-size: 12.5px; color: var(--fg-2); }
+.tile.wait { border-left: 4px solid var(--ochre); }
+.tile.run { border-left: 4px solid var(--accent); }
+.tile.ok { border-left: 4px solid var(--ok); }
+.tile.bad { border-left: 4px solid var(--bad); }
+.tile.wf { border-left: 4px solid var(--muted); }
+.ui-cols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 1100px) { .ui-cols { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ui-panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ui-panel h4 { font-size: 13.5px; font-weight: 600; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ui-panel h4 span { font-weight: 400; color: var(--muted); }
+.run-job { display: flex; flex-direction: column; gap: 6px; }
+.bar-outer { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.bar-inner { height: 100%; background: var(--accent); border-radius: 4px; }
+.meta { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--fg-2); flex-wrap: wrap; gap: 6px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; font-size: 12.5px; color: var(--fg-2); background: var(--surface-2); white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.subj { color: var(--fg-2); max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subj.full { max-width: none; white-space: normal; }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 13px; margin: 0; }
+.kv dt { color: var(--fg-2); } .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.empty { font-size: 13px; color: var(--muted); margin: 0; }
+.errors { background: var(--bad-soft); color: var(--bad); border-radius: 10px; padding: 8px 14px; font-size: 13px; margin: 0; }
+</style>
+</head>
+<body>
+<div class="ui" data-at="{{.At.Format "2006-01-02T15:04:05Z07:00"}}">
+  <div class="ui-top">
+    <h3>horus on this PC</h3>
+    <div class="ready-strip" data-part="ready-strip" title="horus serves only when its 4 dependencies are up">
+      {{- range .Pills}}
+      <span class="pill {{.Class}}" title="{{.Title}}">{{.Text}}</span>
+      {{- end}}
+    </div>
+  </div>
+  {{- if .Errors}}
+  <p class="errors">{{range $i, $e := .Errors}}{{if $i}}<br>{{end}}No answer from {{$e}}{{end}}</p>
+  {{- end}}
+  <div class="tiles">
+    <div class="tile wait" data-part="tile-waiting" title="Jobs in the state queued, now"><span class="n">{{.Waiting}}</span><span class="l">waiting in the queue</span></div>
+    <div class="tile run" data-part="tile-running" title="Jobs in the state running, and the number of slots"><span class="n">{{.Running}} / {{.Slots}}</span><span class="l">running / slots</span></div>
+    <div class="tile ok" data-part="tile-succeeded" title="Jobs that ended with a PNG since 00:00"><span class="n">{{.SucceededToday}}</span><span class="l">succeeded today</span></div>
+    <div class="tile bad" data-part="tile-failed" title="Jobs that ended with an error since 00:00"><span class="n">{{.FailedToday}}</span><span class="l">failed today</span></div>
+    <div class="tile wf" data-part="tile-workflows" title="Workflows that list_workflows shows to agents"><span class="n">{{.WorkflowCount}}</span><span class="l">{{.WorkflowText}}</span></div>
+  </div>
+  <div class="ui-cols">
+    <div class="col">
+      <div class="ui-panel" data-part="panel-running">
+        <h4>Running <span>{{.SlotText}}</span></h4>
+        {{- range .RunningJobs}}
+        <div class="run-job" data-job="{{.ID}}">
+          <div class="meta"><b>{{.Workflow}}</b><span class="mono">{{.Meta}}</span></div>
+          <div class="subj full">{{.Subject}}</div>
+          <div class="bar-outer" title="{{.BarTitle}}"><div class="bar-inner" style="width:{{.Percent}}"></div></div>
+          <div class="meta"><span>{{.Line}}</span><span>{{.Limit}}</span></div>
+        </div>
+        {{- else}}
+        <p class="empty">No job runs now.</p>
+        {{- end}}
+      </div>
+      <div class="ui-panel" data-part="panel-queue">
+        <h4>Queue <span>oldest first</span></h4>
+        {{- if .Queue}}
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th class="num">#</th><th>Workflow</th><th>Agent</th><th>Subject</th><th class="num">Waited</th><th class="num">Start in</th></tr></thead>
+            <tbody>
+              {{- range .Queue}}
+              <tr data-job="{{.ID}}"><td class="num">{{.Position}}</td><td>{{.Workflow}}</td><td>{{.Caller}}</td><td class="subj" title="{{.Subject}}">{{.Subject}}</td><td class="num">{{.Waited}}</td><td class="num">{{.StartIn}}</td></tr>
+              {{- end}}
+            </tbody>
+          </table>
+        </div>
+        {{- else}}
+        <p class="empty">No job waits in the queue.</p>
+        {{- end}}
+      </div>
+      <div class="ui-panel" data-part="panel-recent">
+        <h4>Recent <span>last 10</span></h4>
+        {{- if .Recent}}
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Ended</th><th>Workflow</th><th>Result</th><th class="num">Queue</th><th class="num">Run</th></tr></thead>
+            <tbody>
+              {{- range .Recent}}
+              <tr data-job="{{.ID}}"><td class="num">{{.Ended}}</td><td>{{.Workflow}}</td><td><span class="pill {{.PillClass}}">{{.Pill}}</span> {{if .DetailMono}}<span class="mono" title="{{.DetailTitle}}">{{.Detail}}</span>{{else}}<span title="{{.DetailTitle}}">{{.Detail}}</span>{{end}}</td><td class="num">{{.Queue}}</td><td class="num">{{.Run}}</td></tr>
+              {{- end}}
+            </tbody>
+          </table>
+        </div>
+        {{- else}}
+        <p class="empty">No job ended yet.</p>
+        {{- end}}
+      </div>
+    </div>
+    <div class="col">
+      <div class="ui-panel" data-part="panel-worker">
+        <h4>Worker</h4>
+        <dl class="kv">
+          <dt>State</dt><dd>{{.Worker.State}}</dd>
+          <dt>Slots</dt><dd>{{.Worker.Slots}} (<code>HORUS_WORKER_CONCURRENCY</code>)</dd>
+          <dt>Models in memory</dt><dd>{{.Worker.Models}}</dd>
+          <dt>Broker</dt><dd>{{.Worker.Broker}}</dd>
+          <dt>Job store</dt><dd>{{.Worker.JobStore}}</dd>
+          <dt>ComfyUI</dt><dd>{{.Worker.ComfyUI}}</dd>
+          <dt>Same key today</dt><dd>{{.Worker.SameKey}}</dd>
+        </dl>
+      </div>
+      <div class="ui-panel" data-part="panel-workflows">
+        <h4>Workflows <span>what agents see</span></h4>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Name</th><th>Backend</th><th>Installed</th><th class="num">Today</th></tr></thead>
+            <tbody>
+              {{- range .Workflows}}
+              <tr><td>{{.Name}}</td><td>{{.Backend}}</td><td><span class="pill {{.PillClass}}">{{.Pill}}</span></td><td class="num">{{.Today}}</td></tr>
+              {{- end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+// Read the page again at each event of the job queue, and every 5 s for the
+// times and the readiness. The page changes nothing.
+(function () {
+  var busy = false, again = false;
+  function refresh() {
+    if (busy) { again = true; return; }
+    busy = true;
+    fetch(location.href, { cache: "no-store" }).then(function (r) { return r.ok ? r.text() : null; }).then(function (html) {
+      if (!html) { return; }
+      var next = new DOMParser().parseFromString(html, "text/html").querySelector(".ui");
+      var now = document.querySelector(".ui");
+      if (next && now) { now.replaceWith(next); }
+    }).catch(function () {}).then(function () {
+      busy = false;
+      if (again) { again = false; refresh(); }
+    });
+  }
+  if (window.EventSource) { new EventSource("api/events").addEventListener("job", refresh); }
+  setInterval(refresh, 5000);
+})();
+</script>
+</body>
+</html>

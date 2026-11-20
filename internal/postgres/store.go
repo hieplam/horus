@@ -331,6 +331,20 @@ FROM horus.jobs`, today).Scan(&sum.Queued, &sum.Running, &sum.SucceededToday, &s
 		if err != nil {
 			return err
 		}
+		rows, err := tx.Query(ctx, `SELECT coalesce(workflow, ''), count(*) FROM horus.jobs
+WHERE state IN ('succeeded', 'failed') AND finished_at >= $1 GROUP BY 1`, today)
+		if err != nil {
+			return err
+		}
+		sum.WorkflowToday = map[string]int{}
+		var name string
+		var n int
+		if _, err := pgx.ForEachRow(rows, []any{&name, &n}, func() error {
+			sum.WorkflowToday[name] = n
+			return nil
+		}); err != nil {
+			return err
+		}
 		err = tx.QueryRow(ctx, `SELECT coalesce(avg(extract(epoch FROM finished_at - started_at)), 0)::float8 FROM (
     SELECT finished_at, started_at FROM horus.jobs WHERE state = 'succeeded'
     ORDER BY finished_at DESC LIMIT 10) AS last`).Scan(&sum.MeanRunSeconds)

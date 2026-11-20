@@ -54,6 +54,7 @@ var checks = []check{
 	{"notify_each_listener", checkNotifyEachListener},
 	{"listen_from_its_start", checkListenFromStart},
 	{"long_delivery", checkLongDelivery},
+	{"depth", checkDepth},
 }
 
 // Names are the names of the checks: each one is a subtest of Run.
@@ -323,6 +324,36 @@ func checkSeparateQueues(t testing.TB, b jobs.Broker) {
 	none(t, cha, "message 2 is in another queue")
 	chb, _ := consume(t, b, "jobs.b", 2)
 	ack(t, next(t, chb, 2))
+}
+
+// depthIs checks the depth of the queue.
+func depthIs(t testing.TB, b jobs.Broker, queue string, want int, when string) {
+	t.Helper()
+	n, err := b.Depth(context.Background(), queue)
+	if err != nil || n != want {
+		t.Errorf("Depth of %s %s: %d, %v; want %d", queue, when, n, err, want)
+	}
+}
+
+// checkDepth: the depth of a queue counts the messages that wait for a
+// delivery. A message that a consumer holds does not count, and an ack does
+// not change the depth. Each queue has its own depth.
+func checkDepth(t testing.TB, b jobs.Broker) {
+	depthIs(t, b, "jobs.depth", 0, "before a publish")
+	publish(t, b, "jobs.depth", 1, 2, 3)
+	publish(t, b, "jobs.other", 4)
+	depthIs(t, b, "jobs.depth", 3, "after 3 publishes")
+	depthIs(t, b, "jobs.other", 1, "after 1 publish")
+	ch, _ := consume(t, b, "jobs.depth", 1)
+	d1 := next(t, ch, 1)
+	depthIs(t, b, "jobs.depth", 2, "while a consumer holds 1 message")
+	ack(t, d1)
+	d2 := next(t, ch, 2)
+	depthIs(t, b, "jobs.depth", 1, "after the ack of 1 message, while the consumer holds the next one")
+	ack(t, d2)
+	ack(t, next(t, ch, 3))
+	depthIs(t, b, "jobs.depth", 0, "after the ack of each message")
+	depthIs(t, b, "jobs.other", 1, "after the acks in another queue")
 }
 
 func listen(t testing.TB, b jobs.Broker) <-chan jobdata.Event {

@@ -101,7 +101,7 @@ func TestReadinessOnPostgres(t *testing.T) {
 	if r := ready(); r.Ready || !strings.Contains(strings.Join(r.Down, ","), jobdata.DependencyAPI) {
 		t.Errorf("horus api stopped: %+v", r)
 	}
-	if !strings.Contains(alog.String(), "horus api: serves /readyz and /livez on http://"+addr) || !strings.Contains(alog.String(), "horus api: stopped") {
+	if !strings.Contains(alog.String(), "horus api: serves the Horus UI, /readyz and /livez on http://"+addr) || !strings.Contains(alog.String(), "horus api: stopped") {
 		t.Errorf("the log of horus api:\n%s", alog.String())
 	}
 }

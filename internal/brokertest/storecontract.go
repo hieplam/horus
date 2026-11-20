@@ -463,6 +463,19 @@ func checkSummary(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock,
 		ended(203, jobdata.Failed, t0.Add(-13*time.Hour-time.Minute), t0.Add(-13*time.Hour), ""), // 23:00 yesterday
 		ended(204, jobdata.Cancelled, t0.Add(-21*time.Minute), t0.Add(-20*time.Minute), ""),
 	)
+	// The workflow of each job is it-illustration, apart from these: a
+	// failed job of today, a failed job of yesterday and a cancelled job of
+	// today. Only the first one counts in workflow_today.
+	for i := range all {
+		switch all[i].ID {
+		case uid(202):
+			all[i].Workflow = "other-today"
+		case uid(203):
+			all[i].Workflow = "other-yesterday"
+		case uid(204):
+			all[i].Workflow = "other-cancelled"
+		}
+	}
 	for _, j := range all {
 		insert(t, s, j)
 	}
@@ -480,6 +493,9 @@ func checkSummary(t testing.TB, s jobs.Store, _ func(string) []string, _ *clock,
 	counts("succeeded_today", sum.SucceededToday, 11)
 	counts("failed_today", sum.FailedToday, 1)
 	counts("same_key_today", sum.SameKeyToday, 2)
+	if want := map[string]int{"it-illustration": 11, "other-today": 1}; !reflect.DeepEqual(sum.WorkflowToday, want) {
+		t.Errorf("Summary workflow_today: %v, want %v (the succeeded and failed jobs of today, by workflow)", sum.WorkflowToday, want)
+	}
 	if math.Abs(sum.MeanRunSeconds-6.5) > 1e-9 {
 		t.Errorf("Summary mean_run_seconds: %v, want 6.5 (the last 10 succeeded jobs run 2 to 11 s)", sum.MeanRunSeconds)
 	}

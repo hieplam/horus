@@ -3,6 +3,7 @@ package brokertest
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -72,6 +73,41 @@ func (b keepOnAck) Consume(ctx context.Context, queue string, prefetch int) (<-c
 	return out, nil
 }
 
+// depthOfAll is a broker whose depth counts each message without an ack,
+// also a message that a consumer holds.
+type depthOfAll struct {
+	*Broker
+	unacked *atomic.Int32
+}
+
+func (b depthOfAll) Publish(ctx context.Context, queue string, m jobdata.Message) error {
+	b.unacked.Add(1)
+	return b.Broker.Publish(ctx, queue, m)
+}
+
+func (b depthOfAll) Consume(ctx context.Context, queue string, prefetch int) (<-chan jobdata.Delivery, error) {
+	in, err := b.Broker.Consume(ctx, queue, prefetch)
+	if err != nil {
+		return nil, err
+	}
+	out := make(chan jobdata.Delivery)
+	go func() {
+		defer close(out)
+		for d := range in {
+			ackOne := d.Ack
+			d.Ack = func(ctx context.Context) error { b.unacked.Add(-1); return ackOne(ctx) }
+			select {
+			case out <- d:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
+func (b depthOfAll) Depth(context.Context, string) (int, error) { return int(b.unacked.Load()), nil }
+
 // TestChecksFailOnBadBrokers is the stub check of the suite: each bad broker
 // fails the check of the rule that it breaks.
 func TestChecksFailOnBadBrokers(t *testing.T) {
@@ -86,6 +122,7 @@ func TestChecksFailOnBadBrokers(t *testing.T) {
 		{"at_most_prefetch", ignorePrefetch{NewBroker()}, "prefetch 2 and 2 deliveries without an ack: a delivery of job-3 came"},
 		{"again_after_consumer_stops", neverAgain{NewBroker()}, "no delivery in 1s, want job-1"},
 		{"ack_deletes", keepOnAck{NewBroker()}, "want {V:1 JobID:job-2"},
+		{"depth", depthOfAll{NewBroker(), &atomic.Int32{}}, "Depth of jobs.depth after 3 publishes: 4, <nil>; want 3"},
 	} {
 		got := Failures(t, c.check, c.broker)
 		if len(got) == 0 {
@@ -101,7 +138,7 @@ func TestChecksFailOnBadBrokers(t *testing.T) {
 // TestNames checks the names of the checks that the goal row reads.
 func TestNames(t *testing.T) {
 	want := "order at_most_prefetch ack_deletes again_after_consumer_stops two_consumers_never_share " +
-		"nack_requeue nack_drop queues_are_separate notify_each_listener listen_from_its_start long_delivery"
+		"nack_requeue nack_drop queues_are_separate notify_each_listener listen_from_its_start long_delivery depth"
 	if got := strings.Join(Names(), " "); got != want {
 		t.Errorf("names %q, want %q", got, want)
 	}
@@ -186,6 +223,20 @@ type keepOld struct{ *Store }
 
 func (keepOld) DeleteOld(context.Context, time.Duration) (int, error) { return 0, nil }
 
+// allWorkflowsToday is a job store whose Summary counts each job of today in
+// workflow_today, also a cancelled one.
+type allWorkflowsToday struct{ *Store }
+
+func (s allWorkflowsToday) Summary(ctx context.Context) (jobdata.Summary, error) {
+	sum, err := s.Store.Summary(ctx)
+	for _, j := range sum.Recent {
+		if j.State == jobdata.Cancelled {
+			sum.WorkflowToday[j.Workflow]++
+		}
+	}
+	return sum, err
+}
+
 // TestStoreChecksFailOnBadStores is the stub check of the store contract:
 // each bad store fails the check of the rule that it breaks.
 func TestStoreChecksFailOnBadStores(t *testing.T) {
@@ -199,6 +250,7 @@ func TestStoreChecksFailOnBadStores(t *testing.T) {
 		{"worker_lock", func(s *Store) jobs.Store { return noLock{s} }, "error <nil>, want jobdata.ErrWorkerLocked"},
 		{"worker_lock_lost", func(s *Store) jobs.Store { return lockNeverLost{s} }, "Check after the session of the lock ended: <nil>, want jobdata.ErrLockLost"},
 		{"worker_lock_lost", func(s *Store) jobs.Store { return releaseAny{s} }, "Check of the new lock after the release of the lost lock: jobdata: this worker no longer holds the worker lock, want nil"},
+		{"summary", func(s *Store) jobs.Store { return allWorkflowsToday{s} }, "Summary workflow_today: map[it-illustration:11 other-cancelled:1 other-today:1]"},
 		{"heartbeat", func(s *Store) jobs.Store { return noHeartbeat{s} }, "after the first heartbeat: Summary worker <nil>"},
 		{"delete_old", func(s *Store) jobs.Store { return keepOld{s} }, "DeleteOld: 0 deleted, <nil>; want 3"},
 	} {

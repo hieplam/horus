@@ -182,3 +182,13 @@ func (b *Broker) Listen(ctx context.Context) (<-chan jobdata.Event, error) {
 	}()
 	return l, nil
 }
+
+// Depth gives the count of the messages of the queue that no consumer holds.
+func (b *Broker) Depth(ctx context.Context, queue string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.ready[queue]), nil
+}

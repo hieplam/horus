@@ -172,7 +172,7 @@ func (s *Store) Summary(ctx context.Context) (jobdata.Summary, error) {
 	defer s.mu.Unlock()
 	now := s.now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	sum := jobdata.Summary{RunningJobs: []jobdata.Job{}, QueuedJobs: []jobdata.Job{}, Recent: []jobdata.Job{}}
+	sum := jobdata.Summary{WorkflowToday: map[string]int{}, RunningJobs: []jobdata.Job{}, QueuedJobs: []jobdata.Job{}, Recent: []jobdata.Job{}}
 	keys := map[string]int{}
 	var ended, succeeded []jobdata.Job
 	for _, id := range s.order {
@@ -190,8 +190,10 @@ func (s *Store) Summary(ctx context.Context) (jobdata.Summary, error) {
 				switch j.State {
 				case jobdata.Succeeded:
 					sum.SucceededToday++
+					sum.WorkflowToday[j.Workflow]++
 				case jobdata.Failed:
 					sum.FailedToday++
+					sum.WorkflowToday[j.Workflow]++
 				}
 			}
 		}

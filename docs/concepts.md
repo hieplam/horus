@@ -220,6 +220,10 @@ the 3 containers and ComfyUI. `docker exec horus-api horus ready` prints one
 `ok` or `FAIL` line for each. See
 [the stack and its readiness](mcp.md#the-stack-and-its-readiness).
 
+**Horus UI.** The read-only page of the stack at `http://127.0.0.1:8190/`: the
+readiness, the queue, the running jobs, the recent results, the worker and the
+workflows. See [the Horus UI](mcp.md#the-horus-ui).
+
 **If wrong.** When a dependency is down, an agent cannot start a session, and
 a call gets `NOT_READY` with the name of the dependency. When it is up again,
-horus serves again.
+horus serves again. The Horus UI shows the dependency that is down.

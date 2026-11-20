@@ -39,6 +39,7 @@ type stackEnv struct {
 	svc       *jobs.Service
 	container string // the container folder of the shared folder
 	cs        *mcp.ClientSession
+	server    *mcp.Server
 	progress  chan string
 }
 
@@ -65,7 +66,8 @@ func newStackEnv(t *testing.T, cfg jobs.Config, wrap ...func(jobs.Store) jobs.St
 		return jobdata.ReadinessOf([]jobdata.CheckResult{{Dependency: jobdata.DependencyDB, Up: true}, {Dependency: jobdata.DependencyComfyUI, Up: true},
 			{Dependency: jobdata.DependencyWorker, Up: true}, {Dependency: jobdata.DependencyAPI, Up: true}})
 	}
-	e.cs = connect(t, NewWith(e.images, noFilesSetup{}, nil, Options{Ready: ready, Queue: q}), &mcp.ClientOptions{
+	e.server = NewWith(e.images, noFilesSetup{}, nil, Options{Ready: ready, Queue: q})
+	e.cs = connect(t, e.server, &mcp.ClientOptions{
 		ProgressNotificationHandler: func(_ context.Context, r *mcp.ProgressNotificationClientRequest) {
 			select { // a waiter reports at each poll: a full channel drops the message, so the client never blocks
 			case e.progress <- r.Params.Message:
@@ -208,7 +210,7 @@ func TestQueueGenerateImage(t *testing.T) {
 	if err := json.Unmarshal(j.Payload, &plan); err != nil || filepath.ToSlash(plan.Path) != e.container+"/covers/one.png" || plan.Seed != 7 {
 		t.Errorf("payload %s %v", j.Payload, err)
 	}
-	if j.Tool != "generate_image" || j.Backend != "comfyui" || j.WorkQueue != "jobs.comfyui" || j.Caller != "test 0" {
+	if j.Tool != "generate_image" || j.Backend != "comfyui" || j.WorkQueue != "jobs.comfyui" || j.Caller != "test" {
 		t.Errorf("job row %+v", j)
 	}
 	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(j.RequestHash) || j.IdempotencyKey != "f1:"+j.RequestHash {
@@ -424,4 +426,112 @@ type slowGet struct{ jobs.Store }
 func (s slowGet) Get(ctx context.Context, id string) (jobdata.Job, error) {
 	time.Sleep(50 * time.Millisecond)
 	return s.Store.Get(ctx, id)
+}
+
+// jobsOf gives every job of the job store, newest first by the summary lists.
+func (e *stackEnv) jobsOf(t *testing.T) []jobdata.Job {
+	t.Helper()
+	sum, err := e.store.Summary(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []jobdata.Job
+	for _, l := range [][]jobdata.Job{sum.QueuedJobs, sum.RunningJobs, sum.Recent} {
+		for _, j := range l {
+			full, err := e.store.Get(context.Background(), j.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, full)
+		}
+	}
+	return out
+}
+
+// TestQueueCallerAndResourceKey: two clients with different names and roots
+// insert two jobs, and each row has its own caller text: the title (else the
+// name) of the client, then the last element of its first root. A client
+// without a root gives the name only. The resource key of a row is 64 hex
+// characters, the same for two workflows with the same model files, and
+// another one for other model files.
+func TestQueueCallerAndResourceKey(t *testing.T) {
+	e := newStackEnv(t, jobs.Config{DefaultRun: 4 * time.Minute})
+	e.worker(t, nil)
+	// connectAs connects a client on protocol version version.
+	connectAs := func(version string, impl *mcp.Implementation, roots ...*mcp.Root) *mcp.ClientSession {
+		st, ct := mcp.NewInMemoryTransports()
+		ss, err := e.server.Connect(context.Background(), st, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = ss.Close() })
+		c := mcp.NewClient(impl, nil)
+		c.AddRoots(roots...)
+		cs, err := c.Connect(context.Background(), ct, &mcp.ClientSessionOptions{ProtocolVersion: version})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = cs.Close() })
+		return cs
+	}
+	callAs := func(cs *mcp.ClientSession, out string) {
+		t.Helper()
+		res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "generate_image", Arguments: map[string]any{
+			"workflow": "it-illustration", "subject": testSubject, "seed": 1, "out_path": hostShared + `\` + out}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if env := envelopeOf(t, res); env["ok"] != true {
+			t.Fatalf("envelope %v", env)
+		}
+	}
+	const v1 = "2025-11-25"
+	callAs(connectAs(v1, &mcp.Implementation{Name: "claude-code", Title: "Claude Code", Version: "2"}, &mcp.Root{URI: "file:///C:/work/horus"}), "a.png")
+	callAs(connectAs(v1, &mcp.Implementation{Name: "codex", Version: "1"}, &mcp.Root{URI: "file:///work/blog/"}, &mcp.Root{URI: "file:///work/other"}), "b.png")
+	callAs(connectAs(v1, &mcp.Implementation{Name: "plain", Version: "1"}), "c.png")
+	// Protocol version 2026-07-28: the server cannot ask for roots in a request.
+	callAs(connectAs("", &mcp.Implementation{Name: "newest", Version: "1"}, &mcp.Root{URI: "file:///x/lost"}), "d.png")
+
+	got := map[string]bool{}
+	for _, j := range e.jobsOf(t) {
+		got[j.Caller] = true
+		if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(j.ResourceKey) {
+			t.Errorf("resource_key %q of the job of %q is not 64 hex characters", j.ResourceKey, j.Caller)
+		}
+	}
+	for _, want := range []string{"Claude Code · folder horus", "codex · folder blog", "plain", "newest"} {
+		if !got[want] {
+			t.Errorf("no job with the caller %q: callers %v", want, got)
+		}
+	}
+	if len(got) != 4 {
+		t.Errorf("callers %v, want 4 different texts", got)
+	}
+}
+
+// TestWorkflowResourceKey: the key of a workflow comes from its models.json.
+func TestWorkflowResourceKey(t *testing.T) {
+	useRepoWorkflows(t)
+	a, err := workflowResourceKey("it-illustration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := workflowResourceKey("it-illustration")
+	if err != nil || a != b {
+		t.Errorf("two calls: %s %s %v", a, b, err)
+	}
+	if _, err := workflowResourceKey("nope"); err == nil {
+		t.Error("an unknown workflow gave a key")
+	}
+}
+
+func TestFolderOfRoot(t *testing.T) {
+	for uri, want := range map[string]string{
+		"file:///C:/work/horus": "horus", "file:///work/blog/": "blog", "file:///": "", "file:///C:": "",
+		"https://example.com/x": "", "": "", "file:///C:/projects/my%20app": "my app",
+	} {
+		if got := folderOfRoot(uri); got != want {
+			t.Errorf("folderOfRoot(%q) = %q, want %q", uri, got, want)
+		}
+	}
 }

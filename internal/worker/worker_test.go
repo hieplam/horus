@@ -761,3 +761,34 @@ func TestCancelOfARunningJob(t *testing.T) {
 	}
 	t.Logf("cancel-running-job: cancelled after %s, %d cancel in ComfyUI, %d ack", time.Since(t0), len(cancels), e.broker.acks.Load())
 }
+
+// TestLoadedResourceKey: a worker writes loaded_resource_key in its row after
+// a job ran on ComfyUI: the resource key of that job. Before the first job
+// the key is empty. A job with another key changes it.
+func TestLoadedResourceKey(t *testing.T) {
+	e := setup(t, options{})
+	submitWith := func(i int, key string) jobdata.Job {
+		t.Helper()
+		p, err := e.gen.Check(generate.Request{Workflow: "it-illustration", Subject: subject, Seed: int64(i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(p)
+		j, err := e.jobs.Submit(context.Background(), jobdata.Job{Tool: worker.ToolImage, Workflow: p.Workflow,
+			Backend: worker.Backend, ResourceKey: key, Payload: raw, Caller: "test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return j
+	}
+	e.start(t, e.config("worker-1", 1, nil))
+	waitFor(t, "the first heartbeat", func() bool { return e.summaryWorker(t) != nil })
+	if k := e.summaryWorker(t).LoadedResourceKey; k != "" {
+		t.Fatalf("loaded_resource_key %q before the first job, want empty", k)
+	}
+	for i, key := range []string{"key-a", "key-b"} {
+		j := submitWith(i+1, key)
+		waitFor(t, "the job succeeded", func() bool { return e.state(t, j.ID) == jobdata.Succeeded })
+		waitFor(t, "loaded_resource_key "+key, func() bool { return e.summaryWorker(t).LoadedResourceKey == key })
+	}
+}

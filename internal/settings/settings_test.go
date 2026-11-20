@@ -470,12 +470,12 @@ func TestWorkerSettings(t *testing.T) {
 // pair, and the refusal of a container folder that is not one folder under
 // /shared/.
 func TestParseSharedDirs(t *testing.T) {
-	got, err := ParseSharedDirs(` C:\Users\me\a=b=/shared/pictures ; /Users/me/out=/shared/out/ ;`)
-	want := []SharedDir{{`C:\Users\me\a=b`, "/shared/pictures"}, {"/Users/me/out", "/shared/out"}}
+	got, err := ParseSharedDirs(` C:\Users\you\a=b=/shared/pictures ; /Users/you/out=/shared/out/ ;`)
+	want := []SharedDir{{`C:\Users\you\a=b`, "/shared/pictures"}, {"/Users/you/out", "/shared/out"}}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("ParseSharedDirs: %+v %v, want %+v", got, err, want)
 	}
-	if s := FormatSharedDirs(got); s != `C:\Users\me\a=b=/shared/pictures;/Users/me/out=/shared/out` {
+	if s := FormatSharedDirs(got); s != `C:\Users\you\a=b=/shared/pictures;/Users/you/out=/shared/out` {
 		t.Errorf("FormatSharedDirs: %q", s)
 	}
 	if got, err := ParseSharedDirs(""); err != nil || len(got) != 0 {

@@ -512,7 +512,7 @@ machine: set it up with the steps above, and start it with
    between two pairs. Each container folder is one folder under `/shared/`.
 
    ```
-   HORUS_SHARED_DIRS=C:\Users\me\Pictures\horus=/shared/pictures
+   HORUS_SHARED_DIRS=C:\Users\you\Pictures\horus=/shared/pictures
    ```
 
    Then run, from the repo root:

@@ -13,29 +13,29 @@ import (
 // TestStackOverride: one bind mount of each pair into horus-api and
 // horus-worker, the settings of the shared folders, and $ as $$.
 func TestStackOverride(t *testing.T) {
-	got := StackOverride([]settings.SharedDir{{Host: `C:\Users\me\Pictures\horus`, Container: "/shared/pictures"},
+	got := StackOverride([]settings.SharedDir{{Host: `C:\Users\you\Pictures\horus`, Container: "/shared/pictures"},
 		{Host: `D:\a$b`, Container: "/shared/ab"}}, "windows")
 	want := `services:
   horus-api:
     environment:
-      HORUS_SHARED_DIRS: "C:\\Users\\me\\Pictures\\horus=/shared/pictures;D:\\a$$b=/shared/ab"
+      HORUS_SHARED_DIRS: "C:\\Users\\you\\Pictures\\horus=/shared/pictures;D:\\a$$b=/shared/ab"
       HORUS_OUTPUT_DIR: "/shared/pictures"
       HORUS_HOST_OS: "windows"
     volumes:
       - type: bind
-        source: "C:\\Users\\me\\Pictures\\horus"
+        source: "C:\\Users\\you\\Pictures\\horus"
         target: "/shared/pictures"
       - type: bind
         source: "D:\\a$$b"
         target: "/shared/ab"
   horus-worker:
     environment:
-      HORUS_SHARED_DIRS: "C:\\Users\\me\\Pictures\\horus=/shared/pictures;D:\\a$$b=/shared/ab"
+      HORUS_SHARED_DIRS: "C:\\Users\\you\\Pictures\\horus=/shared/pictures;D:\\a$$b=/shared/ab"
       HORUS_OUTPUT_DIR: "/shared/pictures"
       HORUS_HOST_OS: "windows"
     volumes:
       - type: bind
-        source: "C:\\Users\\me\\Pictures\\horus"
+        source: "C:\\Users\\you\\Pictures\\horus"
         target: "/shared/pictures"
       - type: bind
         source: "D:\\a$$b"

@@ -516,7 +516,7 @@ Each setting is an environment variable or a line in `.env`. The environment win
 | `HORUS_QUEUE_MAX` | `20` | In the stack: the count of queued jobs at which a new call gets `QUEUE_FULL`. |
 | `HORUS_QUEUE_TIMEOUT` | `7200` | In the stack: the most seconds that a job waits in the queue. The deadline of a job is its insert time plus this time. A job after its deadline never starts. |
 | `HORUS_RUN_ESTIMATE` | `240` | In the stack: the seconds of one run that the estimated start of a queued job uses until a job succeeded. Then the mean run time of the last 10 succeeded jobs counts. |
-| `HORUS_SHARED_DIRS` | the output folder of horus and `/shared/outputs` | The shared folders of the stack: pairs `<host folder>=<container folder>`, with `;` between two pairs, for example `C:\Users\me\Pictures\horus=/shared/pictures`. Each container folder is one folder under `/shared/`. `horus stack-mounts` reads it on the host. |
+| `HORUS_SHARED_DIRS` | the output folder of horus and `/shared/outputs` | The shared folders of the stack: pairs `<host folder>=<container folder>`, with `;` between two pairs, for example `C:\Users\you\Pictures\horus=/shared/pictures`. Each container folder is one folder under `/shared/`. `horus stack-mounts` reads it on the host. |
 | `HORUS_HOST_OS` | set by `horus stack-mounts` | In the stack: the system of the host (`windows`, `darwin` or `linux`). It gives the rules of a host path. |
 
 Only the code of `internal/download` reads `HF_TOKEN`, and `go test ./internal/archtest`
@@ -633,7 +633,7 @@ the job in the job queue, and the worker runs it.
 
 Terms:
 
-- **Host path:** a path of the machine of the agent, for example `C:\Users\me\Pictures\horus\cover.png`.
+- **Host path:** a path of the machine of the agent, for example `C:\Users\you\Pictures\horus\cover.png`.
 - **Container path:** the same file as the containers see it, for example `/shared/pictures/cover.png`.
 - **Shared folder:** a host folder that the stack mounts into `horus-api` and `horus-worker`. `HORUS_SHARED_DIRS` gives each pair of a host folder and its container folder.
 - **Deadline:** the insert time of the job plus `HORUS_QUEUE_TIMEOUT`.

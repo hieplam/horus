@@ -13,7 +13,7 @@ sections "One job, step by step", "Settings" and "MCP contract".
   `out_path` must be in a shared folder of `HORUS_SHARED_DIRS`, and the stack
   mounts only those folders into `horus-api` and `horus-worker`.
 - An agent runs on the host. Its `out_path` is a path of the host, for example
-  `C:\Users\me\Pictures\horus\cover.png`. The API process and the worker run in
+  `C:\Users\you\Pictures\horus\cover.png`. The API process and the worker run in
   Linux containers. `generate.Check` refuses a Windows path there: it is not
   an absolute path of Linux.
 - Docker Compose makes a mount only from a fixed line of a compose file. It

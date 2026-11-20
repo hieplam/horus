@@ -40,7 +40,7 @@ func StackMounts(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(w, "and HORUS_HOST_OS of the two containers. docker compose up -d reads the file.")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "HORUS_SHARED_DIRS holds pairs <host folder>=<container folder>, with ; between two pairs, for")
-		fmt.Fprintln(w, `example C:\Users\me\Pictures\horus=/shared/pictures. Each container folder is one folder under`)
+		fmt.Fprintln(w, `example C:\Users\you\Pictures\horus=/shared/pictures. Each container folder is one folder under`)
 		fmt.Fprintln(w, "/shared/. Without the setting, the one pair is the output folder of horus and "+DefaultSharedContainer+".")
 		fmt.Fprintln(w, "A call without out_path writes its PNG into the first shared folder.")
 		fmt.Fprintln(w, "")

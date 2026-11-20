@@ -30,7 +30,7 @@ import (
 
 // hostShared is the shared folder of the host in the tests. The container
 // folder is a real temporary folder, so that the fake worker can write.
-const hostShared = `C:\Users\me\Pictures\horus`
+const hostShared = `C:\Users\you\Pictures\horus`
 
 // stackEnv is a server in the stack with its job queue.
 type stackEnv struct {
@@ -166,7 +166,7 @@ var uuidV7 = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-
 // starts with the place in the queue. The image service makes no image.
 func TestQueueGenerateImage(t *testing.T) {
 	e := newStackEnv(t, jobs.Config{DefaultRun: 4 * time.Minute})
-	host := `c:\users\me\pictures\HORUS\covers\one.png`
+	host := `c:\users\you\pictures\HORUS\covers\one.png`
 	envc := make(chan map[string]any, 1)
 	go func() {
 		envc <- e.call(t, context.Background(), map[string]any{"workflow": "it-illustration", "subject": testSubject, "seed": 7, "out_path": host})
@@ -182,7 +182,7 @@ func TestQueueGenerateImage(t *testing.T) {
 		t.Fatalf("envelope %v", env)
 	}
 	// The result gives the cleaned host path: the drive letter in upper case.
-	if r["path"] != `C:\users\me\pictures\HORUS\covers\one.png` || r["backend_job_id"] != "prompt-1" || r["seed"] != 7.0 || r["started_backend"] != false {
+	if r["path"] != `C:\users\you\pictures\HORUS\covers\one.png` || r["backend_job_id"] != "prompt-1" || r["seed"] != 7.0 || r["started_backend"] != false {
 		t.Errorf("result %v", r)
 	}
 	id, _ := r["job_id"].(string)

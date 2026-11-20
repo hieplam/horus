@@ -291,7 +291,7 @@ const SharedPrefix = "/shared/"
 
 // SharedDirs is HORUS_SHARED_DIRS: the pairs "<host folder>=<container
 // folder>", with ";" between two pairs, for example
-// C:\Users\me\Pictures\horus=/shared/pictures. The last "=" of a pair ends the
+// C:\Users\you\Pictures\horus=/shared/pictures. The last "=" of a pair ends the
 // host folder. Each container folder is a folder under /shared/, and two pairs
 // never share one. Empty: no pair.
 func SharedDirs() ([]SharedDir, error) { return ParseSharedDirs(Get("HORUS_SHARED_DIRS", "")) }

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/hieplam/horus/compare/v0.1.6...v0.1.7) (2026-11-20)
+
+
+### Bug Fixes
+
+* **webui:** the Horus UI shows the host path of a PNG and the times of the viewer ([#264](https://github.com/hieplam/horus/issues/264), [#265](https://github.com/hieplam/horus/issues/265)) ([#268](https://github.com/hieplam/horus/issues/268)) ([b77abeb](https://github.com/hieplam/horus/commit/b77abeb10b7f27d15072328dfa69f2f0af8417ec))
+
 ## [0.1.6](https://github.com/hieplam/horus/compare/v0.1.5...v0.1.6) (2026-11-20)
 
 

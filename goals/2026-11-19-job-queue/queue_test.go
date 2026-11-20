@@ -451,6 +451,8 @@ type peakResult struct {
 	GPUForNobody      float64 `json:"gpu_seconds_for_nobody"`
 	MaxJobs           int     `json:"max_jobs_in_comfyui"`
 	MaxRunning        int     `json:"max_running"`
+	Left              []int   `json:"left"`
+	JobsInComfyUI     int     `json:"jobs_in_comfyui"`
 }
 
 // peakRun runs the peak tool against a new test stack whose worker has slots

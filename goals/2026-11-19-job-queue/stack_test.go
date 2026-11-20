@@ -506,6 +506,17 @@ func eventually(within time.Duration, check func() string) (time.Duration, strin
 	}
 }
 
+// eventuallyBy is eventually with the limit of a goal row: when check gives ""
+// after within, it gives a reason that names the time, because a check that
+// ends late is not a pass of a row with a time threshold.
+func eventuallyBy(within time.Duration, check func() string) (time.Duration, string) {
+	took, why := eventually(within, check)
+	if why == "" && took > within {
+		why = fmt.Sprintf("passed after %s, more than %s", took.Round(100*time.Millisecond), within)
+	}
+	return took, why
+}
+
 // hasAll tells if list holds each of want.
 func hasAll(list []string, want ...string) bool {
 	for _, w := range want {

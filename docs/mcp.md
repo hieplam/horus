@@ -1039,7 +1039,10 @@ time (`--parallel`) and holds the others in its queue. It needs no GPU.
   is its order.
 - The last line of stdout is one JSON line: `png`, `generation_timeout`,
   `queue_full`, `wait_for_error_seconds`, `gpu_seconds_for_nobody`,
-  `max_jobs_in_comfyui` and `max_running`. Seconds are wall-clock seconds.
+  `max_jobs_in_comfyui`, `max_running`, `left` and `jobs_in_comfyui`. Seconds
+  are wall-clock seconds. `left` holds the numbers of the calls whose agent
+  left, sorted. `jobs_in_comfyui` is the number of jobs that reached the fake
+  ComfyUI.
   `gpu_seconds_for_nobody` counts the seconds that the fake ran a job of a call
   that had left, from the time that the call left.
 - The exit code is 0 when the run ended, whatever the numbers. `--log` names the

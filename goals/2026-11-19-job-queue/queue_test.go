@@ -305,30 +305,64 @@ func buildHorus(t *testing.T) string {
 	return exe
 }
 
-// queueStack is the test stack of a row, with one shared folder.
+// queueStack is the test stack of a row, with one shared folder and one
+// models folder.
 type queueStack struct {
 	env []string
 	// shared is the shared folder on the host: HORUS_SHARED_DIRS pairs it
 	// with the container folder /shared/goal.
 	shared string
+	// models is the models folder of the test on the host: horus
+	// stack-mounts mounts it into horus-api as HORUS_MODELS_DIR. It is a new
+	// test folder, so a test stack never mounts the model files of the
+	// machine, also when the environment of the test sets HORUS_MODELS_DIR.
+	models string
+	// workflows is the workflows folder of the test on the host, or "":
+	// tests/stack-sandbox.yaml mounts it into the stack as
+	// HORUS_WORKFLOWS_DIR (newSandboxStack).
+	workflows string
 }
 
 // newQueueStack prepares the test stack for a fake ComfyUI on port: a new
-// shared folder, the override file that horus stack-mounts writes for it,
-// and the settings of the stack (NAME=value) in settings. The row starts the
-// stack with upWait.
+// shared folder and a new models folder, the override file that horus
+// stack-mounts writes for them, and the settings of the stack (NAME=value) in
+// settings. The row starts the stack with upWait.
 func newQueueStack(t *testing.T, port int, settings ...string) *queueStack {
 	t.Helper()
+	return queueStackWith(t, port, false, settings)
+}
+
+// newSandboxStack is newQueueStack with a new workflows folder too: the
+// compose file tests/stack-sandbox.yaml mounts it into horus-api and
+// horus-worker as HORUS_WORKFLOWS_DIR. The contract test writes its
+// workflows there, and its stand-in model files into the models folder.
+func newSandboxStack(t *testing.T, port int, settings ...string) *queueStack {
+	t.Helper()
+	return queueStackWith(t, port, true, settings)
+}
+
+func queueStackWith(t *testing.T, port int, sandbox bool, settings []string) *queueStack {
+	t.Helper()
 	exe := buildHorus(t)
-	shared := t.TempDir()
+	st := &queueStack{shared: t.TempDir(), models: t.TempDir()}
 	override := filepath.Join(t.TempDir(), "override.yaml")
 	cmd := exec.Command(exe, "stack-mounts", "-o", override)
-	cmd.Env = append(os.Environ(), "HORUS_SHARED_DIRS="+shared+"="+sharedContainer)
+	cmd.Env = append(os.Environ(), "HORUS_SHARED_DIRS="+st.shared+"="+sharedContainer, "HORUS_MODELS_DIR="+st.models)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("horus stack-mounts: %v\n%s", err, out)
 	}
-	env := append(stackEnvFiles(t, port, override), settings...)
-	return &queueStack{env: prepareStack(t, env), shared: shared}
+	files := []string{override}
+	if sandbox {
+		st.workflows = t.TempDir()
+		file, err := filepath.Abs(filepath.Join(root, "tests", "stack-sandbox.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, file)
+		settings = append(settings, "HORUS_TEST_WORKFLOWS_DIR="+st.workflows)
+	}
+	st.env = prepareStack(t, append(stackEnvFiles(t, port, files...), settings...))
+	return st
 }
 
 // e2eStack starts a fake ComfyUI whose jobs run for runTime, and the test

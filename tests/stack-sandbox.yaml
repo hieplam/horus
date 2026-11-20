@@ -1,0 +1,24 @@
+# The workflows folder of a test stack (tests/mcp_contract.py --stack). A test
+# adds this file after compose.yaml and the file of horus stack-mounts, for
+# example in COMPOSE_FILE, and sets HORUS_TEST_WORKFLOWS_DIR to an empty test
+# folder. The contract test writes its two workflows there: it-illustration
+# and absent-style, with a models.json whose sizes and SHA-256 values match
+# the stand-in model files that it writes into the models folder of the stack
+# (HORUS_MODELS_DIR). The stack of the owner never reads this file.
+services:
+  horus-api:
+    environment:
+      HORUS_WORKFLOWS_DIR: /sandbox/workflows
+    volumes:
+      - type: bind
+        source: ${HORUS_TEST_WORKFLOWS_DIR}
+        target: /sandbox/workflows
+        read_only: true
+  horus-worker:
+    environment:
+      HORUS_WORKFLOWS_DIR: /sandbox/workflows
+    volumes:
+      - type: bind
+        source: ${HORUS_TEST_WORKFLOWS_DIR}
+        target: /sandbox/workflows
+        read_only: true

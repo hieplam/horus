@@ -2,7 +2,8 @@
 """Contract test of the horus MCP server. No GPU, no network, no real model files.
 
     python tests/mcp_contract.py [--server-cmd <exe> ...] [--report <file>]      (Python 3.12 with mcp==2.3.0, and Go)
-    python tests/mcp_contract.py --stack <name> --port <port> --shared-dir <folder> [--http <url>]
+    python tests/mcp_contract.py --stack <name> --port <port> --shared-dir <folder> --models-dir <folder>
+                                 --workflows-dir <folder> [--http <url>]
 
 The test starts the server over stdio, like an agent harness does, and talks to
 it with the official MCP client. A fake ComfyUI (a small HTTP server in this
@@ -24,7 +25,12 @@ the server to the speech checks, as JSON (the goal suite reads it).
 --stack runs the checks of the stack over stdio into the stack (`docker exec -i
 <name>-api horus mcp`). With --http <url> too, the same checks go over
 Streamable HTTP to /mcp of horus api at <url>, with the bearer token of the
-environment variable HORUS_API_TOKEN. The test never prints the token.
+environment variable HORUS_API_TOKEN. The test never prints the token. The
+test stack mounts two folders of the test into horus-api: --models-dir as
+HORUS_MODELS_DIR (horus stack-mounts) and --workflows-dir as
+HORUS_WORKFLOWS_DIR (tests/stack-sandbox.yaml). The test writes the same two
+workflows and stand-in model files there as on the host. It refuses a models
+folder with a file that it did not write, so it never changes real model files.
 """
 
 from __future__ import annotations
@@ -189,12 +195,30 @@ def make_sandbox(tmp: Path, with_speech: bool = False) -> dict[str, str]:
     """Workflows: it-illustration (installed, tiny stand-in files), absent-style (no files) and
     stand-in-speech (a manifest of the kind speech, no files; only with with_speech)."""
     wf_root, models_root = tmp / "workflows", tmp / "comfy" / "ComfyUI" / "models"
+    write_image_workflows(wf_root, models_root)
+    (tmp / "comfy" / "ComfyUI" / "main.py").write_text("# fake\n", encoding="utf-8")
+    out = {"workflows": str(wf_root), "comfy": str(tmp / "comfy"), "models": str(models_root)}
+    if with_speech:
+        out.update(make_speech_setup(tmp, wf_root))
+    return out
+
+
+# The first bytes of each stand-in model file. The run on the stack refuses a models folder with another file.
+STAND_IN = b"stand-in for "
+# The two image workflows of the sandbox, and the stand-in model file that a check removes and writes again.
+IMAGE_WORKFLOWS = ("it-illustration", "absent-style")
+REMOVED = ("vae", "flux2-vae.safetensors")
+
+
+def write_image_workflows(wf_root: Path, models_root: Path) -> None:
+    """it-illustration with a stand-in file of each of its 3 model files in models_root, and absent-style, whose
+    diffusion model is absent."""
     src = ROOT / "workflows" / "it-illustration"
     dst = wf_root / "it-illustration"
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns("examples"))
     models = json.loads((src / "models.json").read_text(encoding="utf-8"))
     for f in models["files"]:
-        data = f"stand-in for {f['repo_path']}".encode()
+        data = STAND_IN + f["repo_path"].encode()
         target = models_root / f["folder"] / f["repo_path"].split("/")[-1]
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
@@ -216,11 +240,58 @@ def make_sandbox(tmp: Path, with_speech: bool = False) -> dict[str, str]:
     am["files"][0]["repo_path"] = "diffusion_models/absent-model.safetensors"
     am["files"][0]["bytes"], am["files"][0]["sha256"] = 5_000_000_000, "0" * 64
     (absent / "models.json").write_text(json.dumps(am), encoding="utf-8")
-    (tmp / "comfy" / "ComfyUI" / "main.py").write_text("# fake\n", encoding="utf-8")
-    out = {"workflows": str(wf_root), "comfy": str(tmp / "comfy"), "models": str(models_root)}
-    if with_speech:
-        out.update(make_speech_setup(tmp, wf_root))
-    return out
+
+
+def stand_in(models_root: Path, folder: str, name: str) -> Path:
+    """Write the stand-in model file folder/name of it-illustration again, as write_image_workflows writes it."""
+    models = json.loads((ROOT / "workflows" / "it-illustration" / "models.json").read_text(encoding="utf-8"))
+    f = next(f for f in models["files"] if f["folder"] == folder and f["repo_path"].endswith("/" + name))
+    target = models_root / folder / name
+    target.write_bytes(STAND_IN + f["repo_path"].encode())
+    return target
+
+
+def make_stack_sandbox(workflows: Path, models: Path) -> dict[str, str]:
+    """The sandbox of the run on the stack, in the two folders that the test stack mounts into horus-api: the same
+    two image workflows as on the host, and their stand-in model files. The stack has no speech workflow. It refuses a
+    models folder with a file that is not a stand-in or the mount marker, and a workflows folder with another entry,
+    so a wrong folder (the real models of a machine) is never changed."""
+    for f in (p for p in models.rglob("*") if p.is_file()):
+        if f.name != MARKER and f.read_bytes()[:len(STAND_IN)] != STAND_IN:
+            raise SystemExit(f"--models-dir {models} holds {f}, which this test did not write: give an empty test folder")
+    for d in workflows.iterdir() if workflows.is_dir() else []:
+        if d.name not in IMAGE_WORKFLOWS:
+            raise SystemExit(f"--workflows-dir {workflows} holds {d}, which this test did not write: give an empty test folder")
+        shutil.rmtree(d)
+    write_image_workflows(workflows, models)
+    if os.name != "nt":  # the user of the containers (uid 10001) writes and deletes model files there
+        for d in [models, *(p for p in models.rglob("*") if p.is_dir())]:
+            d.chmod(0o777)
+    return {"workflows": str(workflows), "models": str(models)}
+
+
+# The file that the run on the stack writes into the models folder to see that horus-api mounts that folder.
+MARKER = ".horus-contract-mount"
+
+
+def models_mounted(stack: str, models: Path) -> tuple[bool, str]:
+    """True when the folder HORUS_MODELS_DIR of <stack>-api is the models folder of the test: a new random marker
+    file that the test writes there can be read in the container."""
+    token = os.urandom(8).hex()
+    marker = models / MARKER
+    marker.write_text(token, encoding="utf-8")
+    try:
+        out = subprocess.run(["docker", "exec", f"{stack}-api", "sh", "-c", f'cat "$HORUS_MODELS_DIR/{MARKER}"'],
+                             capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
+    finally:
+        marker.unlink(missing_ok=True)
+    return out.returncode == 0 and out.stdout.strip() == token, (out.stdout + out.stderr).strip()[:200]
+
+
+def same_path(a: str, b: str) -> bool:
+    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
 
 
 def make_speech_setup(tmp: Path, wf_root: Path) -> dict[str, str]:
@@ -355,7 +426,7 @@ def wait_ready(stack: str, within: float) -> None:
         time.sleep(1)
 
 
-async def run_stack(stack: str, shared: Path, tmp: Path, c: Checks, http_url: str = "") -> None:
+async def run_stack(stack: str, shared: Path, sandbox: dict[str, str], tmp: Path, c: Checks, http_url: str = "") -> None:
     """The contract checks over stdio into the stack: the server is `horus mcp` in the container <stack>-api. With
     http_url, the same checks go over Streamable HTTP to /mcp of horus api, with the bearer token of HORUS_API_TOKEN.
     The fake ComfyUI of this process is the ComfyUI of the stack. The checks that need the sandbox of the host
@@ -364,11 +435,11 @@ async def run_stack(stack: str, shared: Path, tmp: Path, c: Checks, http_url: st
         # The read time limit is longer than the gap between two progress messages of a long call (5 s).
         headers = {"Authorization": "Bearer " + os.environ.get("HORUS_API_TOKEN", "")}
         async with httpx2.AsyncClient(headers=headers, timeout=httpx2.Timeout(30, read=300)) as client:
-            await session_checks(lambda: streamable_http_client(http_url, http_client=client), {}, tmp, c, stack=stack, shared=shared)
+            await session_checks(lambda: streamable_http_client(http_url, http_client=client), sandbox, tmp, c, stack=stack, shared=shared)
     else:
         params = StdioServerParameters(command="docker", args=["exec", "-i", f"{stack}-api", "horus", "mcp"])
         with open(tmp / "server.stderr.log", "w", encoding="utf-8") as errlog:
-            await session_checks(lambda: stdio_client(params, errlog=errlog), {}, tmp, c, stack=stack, shared=shared)
+            await session_checks(lambda: stdio_client(params, errlog=errlog), sandbox, tmp, c, stack=stack, shared=shared)
     code_table_checks(["docker", "exec", f"{stack}-api", "horus", "errors", "-json"], c)
 
 
@@ -421,24 +492,19 @@ async def session_checks(connect, sandbox: dict[str, str], tmp: Path, c: Checks,
             c.check("uninstall_workflow is marked destructive, list_workflows read-only",
                     bool(ann and ann.destructive_hint) and bool(tools["list_workflows"].annotations.read_only_hint), "")
 
-            if stack:
-                res = env_of(await s.call_tool("list_workflows", {}))
-                listed = (res.get("result") or {}).get("workflows", [])
-                kinds = {w["name"]: w.get("kind") for w in listed}
-                c.check("list_workflows shows it-illustration as an image workflow, and each workflow has an install_state",
-                        res["ok"] and kinds.get("it-illustration") == "image" and all("install_state" in w for w in listed),
-                        json.dumps(res)[:400])
-            else:
-                res = env_of(await s.call_tool("list_workflows", {}))
-                states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
-                # absent-style shares the text encoder and the VAE with it-illustration, so 2 of its 3 files are present.
-                # The speech setup of the sandbox has each part of stand-in-speech, so it is installed.
-                c.check("list_workflows shows installed and partially_installed styles",
-                        res["ok"] and states == {"it-illustration": "installed", "absent-style": "partially_installed",
-                                                 "stand-in-speech": "installed"}, json.dumps(res)[:400])
-                kinds = {w["name"]: w.get("kind") for w in (res.get("result") or {}).get("workflows", [])}
-                c.check("list_workflows shows the kind of each workflow: a manifest without kind is image",
-                        kinds == {"it-illustration": "image", "absent-style": "image", "stand-in-speech": "speech"}, str(kinds))
+            # The stack has the two image workflows of the sandbox, and no speech workflow (the speech setup is on the host).
+            speech_row = {} if stack else {SPEECH: "installed"}
+            res = env_of(await s.call_tool("list_workflows", {}))
+            states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
+            # absent-style shares the text encoder and the VAE with it-illustration, so 2 of its 3 files are present.
+            # The speech setup of the sandbox has each part of stand-in-speech, so it is installed.
+            c.check("list_workflows shows installed and partially_installed styles",
+                    res["ok"] and states == {"it-illustration": "installed", "absent-style": "partially_installed", **speech_row},
+                    json.dumps(res)[:400])
+            kinds = {w["name"]: w.get("kind") for w in (res.get("result") or {}).get("workflows", [])}
+            c.check("list_workflows shows the kind of each workflow: a manifest without kind is image",
+                    kinds == {"it-illustration": "image", "absent-style": "image", **({} if stack else {SPEECH: "speech"})}, str(kinds))
+            if not stack:
                 res = env_of(await s.call_tool("describe_workflow", {"workflow": "stand-in-speech"}))
                 r = res.get("result") or {}
                 c.check("describe_workflow of a speech workflow shows the voices, tags and formats, and no graph",
@@ -459,7 +525,7 @@ async def session_checks(connect, sandbox: dict[str, str], tmp: Path, c: Checks,
             r = res.get("result") or {}
             c.check("describe_workflow gives subject rules, examples and the 3 model files",
                     res["ok"] and len(r.get("subject", {}).get("rules", [])) >= 3 and r["subject"]["examples"]
-                    and ([f["state"] for f in r.get("files", [])] == ["present"] * 3 if not stack else len(r.get("files", [])) == 3),
+                    and [f["state"] for f in r.get("files", [])] == ["present"] * 3,
                     json.dumps(res)[:400])
             listed = (env_of(await s.call_tool("list_workflows", {})).get("result") or {}).get("workflows", [])
             c.check("list_workflows and describe_workflow carry no theme or look",
@@ -541,26 +607,55 @@ async def session_checks(connect, sandbox: dict[str, str], tmp: Path, c: Checks,
                     e.get("code") == "GENERATION_TIMEOUT" and job in Fake.cancelled, json.dumps(res)[:300] + f" cancelled={Fake.cancelled}")
             Fake.mode = "ok"
 
-            if not stack:  # the model files and the install plan are those of the host (the stack has none: see docs/mcp.md)
-                res = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration"}))
-                c.check("install of an installed style -> ok, already_installed",
-                        res["ok"] and res["result"]["already_installed"] is True, json.dumps(res)[:300])
+            # The model files are in the models folder of the sandbox: on the host the models folder of the server, in the
+            # stack the test folder that horus stack-mounts mounts into horus-api as HORUS_MODELS_DIR. The stack never
+            # installs ComfyUI: its plan holds only model files (spec 2026-11-19-job-queue.md, "MCP contract").
+            models_root = Path(sandbox["models"])
+            mounted = True
+            if stack:
+                mounted, why = models_mounted(stack, models_root)
+                c.check("the stack mounts the models folder of the test into horus-api as HORUS_MODELS_DIR", mounted, why)
+            res = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration"}))
+            c.check("install of an installed style -> ok, already_installed",
+                    res["ok"] and res["result"]["already_installed"] is True, json.dumps(res)[:300])
 
-                installed = res
-                res = env_of(await s.call_tool("install_workflow", {"workflow": "absent-style"}))
-                e = res.get("error") or {}
-                c.check("install without accept_license -> LICENSE_CONFIRMATION_REQUIRED, action_by=human, with size",
-                        e.get("code") == "LICENSE_CONFIRMATION_REQUIRED" and e["action_by"] == "human" and e["details"].get("download_bytes", 0) > 0,
-                        json.dumps(res)[:300])
+            installed = res
+            res = env_of(await s.call_tool("install_workflow", {"workflow": "absent-style"}))
+            e = res.get("error") or {}
+            c.check("install without accept_license -> LICENSE_CONFIRMATION_REQUIRED, action_by=human, with size",
+                    e.get("code") == "LICENSE_CONFIRMATION_REQUIRED" and e["action_by"] == "human" and e["details"].get("download_bytes", 0) > 0,
+                    json.dumps(res)[:300])
 
-                # The setup consent changes nothing on a machine where ComfyUI is installed.
-                again = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration", "accept_setup": True}))
-                lic = env_of(await s.call_tool("install_workflow", {"workflow": "absent-style", "accept_setup": True}))
-                c.check("a machine with ComfyUI: accept_setup=true changes no answer of install_workflow",
-                        without_seconds(again) == without_seconds(installed) and again["ok"] and lic == res,
-                        json.dumps(again)[:200] + " " + json.dumps(lic)[:200])
+            # The setup consent changes nothing on a machine where ComfyUI is installed.
+            again = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration", "accept_setup": True}))
+            lic = env_of(await s.call_tool("install_workflow", {"workflow": "absent-style", "accept_setup": True}))
+            c.check("a machine with ComfyUI: accept_setup=true changes no answer of install_workflow",
+                    without_seconds(again) == without_seconds(installed) and again["ok"] and lic == res,
+                    json.dumps(again)[:200] + " " + json.dumps(lic)[:200])
 
-                model_files = list(Path(sandbox["models"]).rglob("*.safetensors"))
+            # One model file removed: the install state and the plan see it. The plan is the first call, before the
+            # consent, so nothing is downloaded. Then the test writes the stand-in again.
+            folder, name = REMOVED
+            (models_root / folder / name).unlink(missing_ok=True)
+            res = env_of(await s.call_tool("list_workflows", {}))
+            states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
+            c.check("one model file removed -> list_workflows shows it-illustration partially_installed",
+                    states.get("it-illustration") == "partially_installed", json.dumps(states))
+            res = env_of(await s.call_tool("install_workflow", {"workflow": "it-illustration"}))
+            e = res.get("error") or {}
+            steps = (e.get("details") or {}).get("steps")
+            one = steps[0] if isinstance(steps, list) and len(steps) == 1 else {}
+            c.check("one model file removed -> the plan of install_workflow (before the consent) holds exactly that model "
+                    "file step, in the models folder, and no setup step",
+                    e.get("code") == "LICENSE_CONFIRMATION_REQUIRED" and one.get("kind") == "file" and one.get("name") == name
+                    and same_path(one.get("dir") or "", str(models_root / folder)), json.dumps(res)[:500])
+            stand_in(models_root, folder, name)
+
+            model_files = list(models_root.rglob("*.safetensors"))
+            if not mounted:  # never change a models folder that is not the folder of the test
+                for what in ("uninstall without confirm", "uninstall with confirm", "uninstall with remove_shared", "after uninstall"):
+                    c.check(f"{what}: not run, because horus-api does not mount the models folder of the test", False)
+            else:
                 states_of = lambda files: sorted(f["state"] for f in files)  # noqa: E731
                 res = env_of(await s.call_tool("uninstall_workflow", {"workflow": "it-illustration"}))
                 e = res.get("error") or {}
@@ -582,7 +677,7 @@ async def session_checks(connect, sandbox: dict[str, str], tmp: Path, c: Checks,
                 res = env_of(await s.call_tool("list_workflows", {}))
                 states = {w["name"]: w["install_state"] for w in (res.get("result") or {}).get("workflows", [])}
                 c.check("after uninstall, list_workflows shows both styles not_installed",
-                        states == {"it-illustration": "not_installed", "absent-style": "not_installed", "stand-in-speech": "installed"}, json.dumps(states))
+                        states == {"it-illustration": "not_installed", "absent-style": "not_installed", **speech_row}, json.dumps(states))
 
             res = env_of(await s.call_tool("generate_image", {"workflow": "nope-style", "subject": SUBJECT}))
             c.check("errors are the same envelope in structuredContent and in text",
@@ -1029,20 +1124,19 @@ def speech_record_of(path: Path) -> list[str]:
 HTTPD: Server
 # True in the run over Streamable HTTP (--http).
 HTTP_RUN = False
-# The count of checks of the run on the stack (the checks of the host run, less STACK_SKIPPED, and the stack check).
-STACK_TOTAL = 26
+# The count of checks of the run on the stack (the checks of the host run, less STACK_SKIPPED, and the 2 stack checks:
+# the stack ran the call, and the stack mounts the models folder of the test).
+STACK_TOTAL = 37
 
 
 # The checks that the run on the stack leaves out, and why (the pull request of task #203 lists them too).
 STACK_SKIPPED = {
-    "list_workflows shows installed and partially_installed styles; the kind of each workflow":
-        "they read the sandbox of the host: its model files and its two extra workflows. The stack run checks the kind and the install_state of it-illustration.",
     "the checks of the speech workflow (describe, generate_image refusal, generate_speech, the speech worker)":
         "the stand-in speech workflow and the fake speech worker are files of the host sandbox. The container has no speech setup (the speech worker is outside the job queue).",
     "style without model files -> WORKFLOW_NOT_INSTALLED":
         "absent-style is a copy in the sandbox of the host. The stack has no such workflow.",
-    "install_workflow and uninstall_workflow (9 checks)":
-        "they change the model files of the sandbox. In the stack, the models are on the host and ComfyUI runs on the host.",
+    "the 2 uninstall checks of the speech workflow":
+        "they are speech setup checks: the stack has no speech workflow. The 9 install and uninstall checks of the image workflows run on the stack.",
     "the setup checks and the speech setup checks":
         "they run install_workflow with a fake package manager on the PATH of a host server process.",
     "the 2 style-neutral checks of each shipped workflow":
@@ -1059,6 +1153,10 @@ def main() -> int:
     ap.add_argument("--report", type=Path, help="write each check and the answers of the speech checks to this JSON file")
     ap.add_argument("--stack", default="", help="run over stdio into the stack with this compose project name (docker exec -i <name>-api horus mcp)")
     ap.add_argument("--shared-dir", type=Path, help="stack: the host folder of a shared folder of the stack (HORUS_SHARED_DIRS)")
+    ap.add_argument("--models-dir", type=Path, help="stack: the host folder that horus stack-mounts mounts into horus-api as "
+                                                    "HORUS_MODELS_DIR. An empty test folder: the test writes stand-in model files there")
+    ap.add_argument("--workflows-dir", type=Path, help="stack: the host folder that tests/stack-sandbox.yaml mounts into the stack "
+                                                       "as HORUS_WORKFLOWS_DIR. An empty test folder: the test writes two workflows there")
     ap.add_argument("--port", type=int, default=0, help="the port of the fake ComfyUI (stack: the port in HORUS_COMFYUI_URL of the stack)")
     ap.add_argument("--listen", default="127.0.0.1",
                     help="the address of the fake ComfyUI. Docker Desktop reaches 127.0.0.1 of the host at host.docker.internal. "
@@ -1068,8 +1166,8 @@ def main() -> int:
                     help="stack: run over Streamable HTTP to /mcp at URL (http://127.0.0.1:<HORUS_API_PORT>/mcp), with the bearer token "
                          "of the environment variable HORUS_API_TOKEN. Needs --stack")
     a = ap.parse_args()
-    if a.stack and not a.shared_dir:
-        ap.error("--stack needs --shared-dir")
+    if a.stack and not (a.shared_dir and a.models_dir and a.workflows_dir):
+        ap.error("--stack needs --shared-dir, --models-dir and --workflows-dir")
     if a.http and not a.stack:
         ap.error("--http needs --stack: the checks read the job rows in <stack>-db")
     if a.http and not os.environ.get("HORUS_API_TOKEN"):
@@ -1083,8 +1181,9 @@ def main() -> int:
         tmp = Path(td)
         try:
             if a.stack:
+                sandbox = make_stack_sandbox(a.workflows_dir.resolve(), a.models_dir.resolve())
                 wait_ready(a.stack, a.ready_timeout)
-                asyncio.run(run_stack(a.stack, a.shared_dir.resolve(), tmp, c, a.http))
+                asyncio.run(run_stack(a.stack, a.shared_dir.resolve(), sandbox, tmp, c, a.http))
             else:
                 sandbox = make_sandbox(tmp, with_speech=True)
                 asyncio.run(run(a.server_cmd, sandbox, HTTPD.server_address[1], tmp, c))
@@ -1096,9 +1195,9 @@ def main() -> int:
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
     passed = sum(1 for ok, _, _ in c.rows if ok)
     shipped = sum(1 for d in (ROOT / "workflows").iterdir() if (d / "manifest.json").is_file())
-    # 41 server checks of the image tools, the kind and the code table, 14 speech checks, 5 checks of the speech setup,
+    # 43 server checks of the image tools, the kind and the code table, 14 speech checks, 5 checks of the speech setup,
     # 2 checks of the speech uninstall, plus 2 style-neutral checks for each shipped workflow
-    total = 41 + 14 + 5 + 2 + 2 * shipped
+    total = 43 + 14 + 5 + 2 + 2 * shipped
     if a.stack:
         total = STACK_TOTAL
     if a.report:

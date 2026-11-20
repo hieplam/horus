@@ -302,9 +302,13 @@ func stackImages() *generate.Service { return generate.New(comfy.New(""), noStar
 // on the host (hostComfyUI), so a plan has no ComfyUI step and no system
 // package step: only model files. The check of the model files asks the
 // ComfyUI of HORUS_COMFYUI_URL.
-func stackSetup() *provision.Service {
+func stackSetup() *provision.Service { return stackSetupFor(seams{}) }
+
+// stackSetupFor is stackSetup with the test seams s: the downloads of
+// s.download.
+func stackSetupFor(s seams) *provision.Service {
 	files := &modelfiles.Store{OnlyModelsDir: true}
-	return provision.New(files, downloader{}, comfy.New(""), hostComfyUI{}, "")
+	return provision.New(files, downloader{s.download}, comfy.New(""), hostComfyUI{}, "")
 }
 
 // hostComfyUI is the ComfyUI install of the setup service of the stack. The

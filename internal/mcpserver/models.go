@@ -58,24 +58,6 @@ func (m *Models) hostItems(res *provision.Result) {
 	}
 }
 
-// hostPlan gives a copy of pl with the host path of each model file, for the
-// answers of a tool. The copy is never run.
-func (m *Models) hostPlan(pl provision.Plan) provision.Plan {
-	if m == nil {
-		return pl
-	}
-	out := pl
-	out.Files = append([]provision.FileState(nil), pl.Files...)
-	for i := range out.Files {
-		out.Files[i].Path = m.hostPath(out.Files[i].Path)
-	}
-	out.Steps = append([]provision.Step(nil), pl.Steps...)
-	for i := range out.Steps {
-		out.Steps[i].File.Path = m.hostPath(out.Steps[i].File.Path)
-	}
-	return out
-}
-
 // refusal gives the error of the tool (install_workflow or
 // uninstall_workflow) for the workflow w in the stack, or nil. A speech
 // workflow does not run in the stack (ADR 0039), and the stack changes model
@@ -109,7 +91,7 @@ func (m *Models) refusal(tool string, w *catalog.Workflow) error {
 // holds a step that is not a model file. horus in the stack never installs
 // ComfyUI or a system package: the setup service of the stack gives no such
 // step, so this is a bug.
-func setupInStack(pl provision.Plan) error {
+func setupInStack(pl provision.Plan, m *Models) error {
 	var names []string
 	for _, st := range pl.Steps {
 		if st.Kind != provision.StepFile {
@@ -117,5 +99,5 @@ func setupInStack(pl provision.Plan) error {
 		}
 	}
 	return herr.New("INTERNAL", fmt.Sprintf("the plan of the stack holds %d setup step(s): %v; horus in the stack installs only model files", len(names), names),
-		map[string]any{"steps": stepRows(pl)})
+		map[string]any{"steps": stepRows(pl, m)})
 }

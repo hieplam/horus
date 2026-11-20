@@ -115,7 +115,7 @@ func install(ctx context.Context, c *call, setup Setup, m *Models) (any, error) 
 	pl, planErr := setup.Plan(context.WithoutCancel(ctx), request(w))
 	if planErr == nil && setupSteps(pl) > 0 {
 		if m != nil {
-			return nil, setupInStack(m.hostPlan(pl))
+			return nil, setupInStack(pl, m)
 		}
 		return installWithSetup(ctx, c, setup, w, pl, t0)
 	}
@@ -137,7 +137,7 @@ func install(ctx context.Context, c *call, setup Setup, m *Models) (any, error) 
 		return nil, err
 	}
 	if !c.args.boolean("accept_license") {
-		return nil, licenseRequired(w, stepRows(m.hostPlan(pl)))
+		return nil, licenseRequired(w, stepRows(pl, m))
 	}
 	res, err := watchInstall(ctx, c, setup, float64(lic.DownloadBytes), 0, func(watch provision.Watch) (*provision.Result, error) {
 		return setup.Install(ctx, request(w), watch)
@@ -260,8 +260,9 @@ func setupSteps(pl provision.Plan) int {
 	return n
 }
 
-// stepRows gives details.steps of pl.
-func stepRows(pl provision.Plan) []setupStep {
+// stepRows gives details.steps of pl. In the stack (m), each folder is the
+// host folder.
+func stepRows(pl provision.Plan, m *Models) []setupStep {
 	rows := []setupStep{}
 	for _, st := range pl.Steps {
 		row := setupStep{Kind: st.Kind, Name: st.Name, Command: st.Command, Dir: ptr(st.Dir)}
@@ -270,6 +271,8 @@ func stepRows(pl provision.Plan) []setupStep {
 		}
 		if *row.Dir == "" {
 			row.Dir = nil
+		} else {
+			row.Dir = ptr(m.hostPath(*row.Dir))
 		}
 		rows = append(rows, row)
 	}
@@ -321,7 +324,7 @@ func (l *lockedText) tail(n int) []string {
 // installWithSetup is install_workflow on a machine whose plan has a step
 // that is not a model file. It changes nothing before both consents.
 func installWithSetup(ctx context.Context, c *call, setup Setup, w *catalog.Workflow, pl provision.Plan, t0 time.Time) (any, error) {
-	steps := stepRows(pl)
+	steps := stepRows(pl, nil)
 	var person *provision.PersonStepError
 	if errors.As(pl.Refusal(true), &person) {
 		pkg := person.Package
@@ -374,7 +377,7 @@ func installWithSetup(ctx context.Context, c *call, setup Setup, w *catalog.Work
 		if res != nil {
 			return nil, installError(res, err, w)
 		}
-		row := stepRows(provision.Plan{Steps: []provision.Step{failed}})[0]
+		row := stepRows(provision.Plan{Steps: []provision.Step{failed}}, nil)[0]
 		e := herr.New("BACKEND_NOT_INSTALLED", fmt.Sprintf("the setup step %s (%s) failed: %v", failed.Name, failed.Kind, err),
 			map[string]any{"step": row, "steps": steps, "output_tail": out.tail(20)})
 		e.NextStep = "Show the message and details.step to the user. When the user has fixed the cause, call install_workflow again with accept_setup=true."

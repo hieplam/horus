@@ -185,7 +185,10 @@ the kind `speech` has no ComfyUI graph.
 file that horus made. The model is Whisper small. The caller compares the
 transcript with its text to check the file. The model does not give the same
 audio for the same text two times, so the transcript can differ from the text
-in a few words.
+in a few words. Whisper small also writes some words with another tone or
+another letter that sounds almost the same, for example `lối` for `lỗi`. So a
+small difference does not prove a wrong file: `describe_workflow` gives the
+share of wrong words that a right file can have.
 
 **Speech worker.** A Python process that holds the speech model and the speech
 recognition model in memory, so each call does not load them again. `horus mcp`

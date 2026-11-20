@@ -22,7 +22,10 @@
       "Write the text in Vietnamese with all tone marks. A word without tone marks gets a wrong tone.",
       "Use only these tags: [cười], [thở dài], [hắng giọng]. The model reads any other [tag] aloud, so horus refuses it.",
       "Write a number or an abbreviation as words when you need an exact reading.",
-      "Check the transcript in the result against your text. The model does not give the same audio for the same text two times."
+      "Check the transcript in the result against your text. The model does not give the same audio for the same text two times, so the transcript changes from call to call.",
+      "A small difference is normal, and the audio can be right with it. The speech recognition model writes some words with another tone or another letter that sounds almost the same, for example 'lối' for 'lỗi' or 'giữ' for 'dữ'.",
+      "The share of wrong words is the words of your text that are not in the transcript, divided by the words of your text. In 120 measured files of short sentences, it was 0 in 63 files and at most 0.188 (about 1 word in 5).",
+      "A share above 0.238 is outside the measured spread: treat the file as wrong and call generate_speech again. The transcript of another sentence gives a share of 0.85 or more."
     ],
     "examples": [
       {

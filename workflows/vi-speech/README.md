@@ -40,7 +40,12 @@ The caller gives a text and a voice name. Nothing else.
 
 Write the text with all Vietnamese tone marks. The model does not give the same
 audio for the same text two times. So the caller compares the transcript of
-the result with its text.
+the result with its text. Up to about 1 word in 5 of the text can be missing
+from the transcript while the audio can be right: the speech recognition model
+writes some words with another tone or another letter that sounds almost the
+same (`lối` for `lỗi`). A share of wrong words above 0.238 is outside the
+measured spread, so treat that file as wrong. `text.rules` of
+`describe_workflow` gives these numbers.
 
 ## The voices
 
@@ -79,6 +84,7 @@ AMD Ryzen 7 4800H, CPU only, Windows 11. The details are in the section
 | Load time of both models | 4.1 to 6.5 s |
 | Memory at the peak, short text | 1,973 MB |
 | Memory at the peak, a text of 3,999 characters | 5,255 MB |
+| Share of wrong words, 120 files of the 5 test sentences | 0 in 63 files, 0.188 at worst. The limit of the real run is 0.238. |
 
 ## Evidence
 

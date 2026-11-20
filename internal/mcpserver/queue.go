@@ -120,10 +120,14 @@ func (q *Queue) generate(ctx context.Context, images Images, c *call) (any, erro
 	if err != nil {
 		return nil, err
 	}
+	resourceKey, err := workflowResourceKey(plan.Workflow)
+	if err != nil {
+		return nil, err
+	}
 	j, st, err := q.Jobs.SubmitStatus(ctx, jobdata.Job{
 		Tool: jobdata.ToolImage, Workflow: plan.Workflow, Backend: jobdata.BackendComfyUI,
-		ResourceKey: jobdata.BackendComfyUI + "/" + plan.Workflow, Payload: payload,
-		RequestHash: fp.Hash, IdempotencyKey: fp.Key, Caller: callerOf(c),
+		ResourceKey: resourceKey, Payload: payload,
+		RequestHash: fp.Hash, IdempotencyKey: fp.Key, Caller: callerOf(ctx, c),
 	})
 	var full *jobs.QueueFullError
 	if errors.As(err, &full) {
@@ -202,16 +206,22 @@ func (q *Queue) fingerprint(c *call, plan generate.Plan, host string) (jobs.Fing
 	return jobs.Recipe(r)
 }
 
-// callerOf names the client of the session, for the column caller.
-func callerOf(c *call) string {
-	if c.req == nil || c.req.Session == nil {
-		return ""
+// workflowResourceKey is the resource key of a workflow: one key for its
+// model files (jobs.ResourceKey).
+func workflowResourceKey(name string) (string, error) {
+	w, err := catalog.Get(name)
+	if err != nil {
+		return "", err
 	}
-	p := c.req.Session.InitializeParams()
-	if p == nil || p.ClientInfo == nil {
-		return ""
+	m, err := w.Models()
+	if err != nil {
+		return "", err
 	}
-	return strings.TrimSpace(p.ClientInfo.Name + " " + p.ClientInfo.Version)
+	sums := make([]string, 0, len(m.Files))
+	for _, f := range m.Files {
+		sums = append(sums, f.SHA256)
+	}
+	return jobs.ResourceKey(name, sums), nil
 }
 
 // queueFull is the error QUEUE_FULL of a refused submit.

@@ -139,7 +139,11 @@ type loop struct {
 	cfg  Config
 	jobs *jobs.Service
 	gen  *generate.Service
-	row  jobdata.Worker
+
+	// rowMu guards row: the heartbeat reads it while the jobs change
+	// LoadedResourceKey.
+	rowMu sync.Mutex
+	row   jobdata.Worker
 
 	// lock is the worker lock of this worker. Only the goroutine of the
 	// heartbeat changes it, and Run releases it after that goroutine ends.
@@ -181,7 +185,7 @@ func Run(ctx context.Context, cfg Config, j *jobs.Service, g *generate.Service) 
 	defer func() { l.lock.Release() }()
 
 	l.row = jobdata.Worker{ID: cfg.ID, Host: cfg.Host, PID: cfg.PID, Version: cfg.Version, Slots: cfg.Slots, StartedAt: time.Now()}
-	if err := j.Heartbeat(ctx, l.row); err != nil {
+	if err := j.Heartbeat(ctx, l.row); err != nil { // no other goroutine runs yet
 		return err
 	}
 	l.logf("started: id %s, %d slots, work queue %s", cfg.ID, cfg.Slots, jobs.WorkQueue(Backend))
@@ -255,9 +259,30 @@ func (l *loop) heartbeat(ctx context.Context) {
 	if !l.keepLock(ctx) {
 		return
 	}
-	if err := l.jobs.Heartbeat(ctx, l.row); err != nil && ctx.Err() == nil {
+	l.beat(ctx)
+}
+
+// beat writes the row of this worker, with the resource key of the last job
+// that ran on ComfyUI.
+func (l *loop) beat(ctx context.Context) {
+	l.rowMu.Lock()
+	row := l.row
+	l.rowMu.Unlock()
+	if err := l.jobs.Heartbeat(ctx, row); err != nil && ctx.Err() == nil {
 		l.logf("the heartbeat failed: %v", err)
 	}
+}
+
+// loaded records that a job with the resource key key ran on ComfyUI: ComfyUI
+// holds the model files of that key in memory now. The next heartbeat writes
+// it to loaded_resource_key. A job without a key changes nothing.
+func (l *loop) loaded(key string) {
+	if key == "" {
+		return
+	}
+	l.rowMu.Lock()
+	l.row.LoadedResourceKey = key
+	l.rowMu.Unlock()
 }
 
 // keepLock gives true while this worker holds the worker lock. When the
@@ -379,6 +404,7 @@ func (l *loop) run(ctx context.Context, j jobdata.Job, progress func(jobdata.Pro
 			progress(jobdata.Progress{Value: value, Total: total, Message: message})
 		},
 		Submitted: func(ctx context.Context, backendJobID string) {
+			l.loaded(j.ResourceKey)
 			if err := l.jobs.Submitted(ctx, j.ID, backendJobID); err != nil && ctx.Err() == nil {
 				l.logf("the job %s: save backend_job_id %s: %v", j.ID, backendJobID, err)
 			}
@@ -386,6 +412,11 @@ func (l *loop) run(ctx context.Context, j jobdata.Job, progress func(jobdata.Pro
 	})
 	if err != nil {
 		return nil, err
+	}
+	// Show the loaded models at once, not at the next heartbeat. A worker
+	// without the lock writes no row.
+	if !l.noLock.Load() {
+		l.beat(ctx)
 	}
 	return json.Marshal(res)
 }

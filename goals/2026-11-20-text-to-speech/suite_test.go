@@ -35,7 +35,7 @@ import (
 // The task that builds the outcome of a row gives the row its oracle.
 
 func TestSpeechReal(t *testing.T) {
-	t.Fatal("not built: generate_speech with the real models, 5 fixed sentences, the loudness and the transcript of each file")
+	speechReal(t)
 }
 
 func TestSpeechHidden(t *testing.T) {

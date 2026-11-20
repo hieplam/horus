@@ -34,9 +34,9 @@ LIMIT = 3600.0  # seconds
 
 async def call(session: ClientSession, name: str, args: dict) -> dict:
     res = await session.call_tool(name, args, read_timeout_seconds=LIMIT)
-    if res.structuredContent is None:
+    if res.structured_content is None:
         sys.exit(f"real_run: {name} gave no structuredContent: {res.content}")
-    return res.structuredContent
+    return res.structured_content
 
 
 async def run(args: argparse.Namespace) -> dict:

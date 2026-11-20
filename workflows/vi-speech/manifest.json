@@ -25,6 +25,7 @@
       "Check the transcript in the result against your text. The model does not give the same audio for the same text two times, so the transcript changes from call to call.",
       "A small difference is normal, and the audio can be right with it. The speech recognition model writes some words with another tone or another letter that sounds almost the same, for example 'lối' for 'lỗi' or 'giữ' for 'dữ'.",
       "The share of wrong words is the words of your text that are not in the transcript, divided by the words of your text. In 240 measured files of short sentences, it was 0 in 133 files and at most 0.294 (about 3 words in 10).",
+      "Count the words as horus measured them. Remove each [tag], write both texts in lower case, and write a space in place of each character that is not a letter or a digit. Then each part between spaces is one word, so 'hàng đợi' is 2 words and 'Xin chào [cười] tôi là Hải Đăng.' is 6 words. A word that is 2 times in your text must be 2 times in the transcript.",
       "A share above 0.344 is outside the measured spread: treat the file as wrong and call generate_speech again. The transcript of another sentence gives a share of 0.846 or more."
     ],
     "examples": [

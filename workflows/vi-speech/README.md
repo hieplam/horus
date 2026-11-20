@@ -46,7 +46,9 @@ from the transcript while the audio can be right: the speech recognition model
 writes some words with another tone or another letter that sounds almost the
 same (`lối` for `lỗi`). A share of wrong words above 0.344 is outside the
 measured spread, so treat that file as wrong. `text.rules` of
-`describe_workflow` gives these numbers.
+`describe_workflow` gives these numbers. It also says how to count the words
+as the measure did: each syllable between spaces is one word (`hàng đợi` is 2
+words), in lower case, without punctuation and without the tags.
 
 ## The voices
 

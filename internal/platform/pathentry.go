@@ -120,8 +120,9 @@ func RemovePathEntry(program, home string) error { return removePathEntry(progra
 // takes no path, so it cannot delete another file.
 //
 //   - Windows: a running program cannot delete its own file. RemoveSelf
-//     starts a hidden PowerShell process that waits until this process ends,
-//     then deletes the file. The file is gone a moment after the exit.
+//     starts a hidden PowerShell process and returns when that process is
+//     ready to delete the file. The PowerShell waits until this process
+//     ends, then deletes the file. The file is gone a moment after the exit.
 //   - other systems: the file is deleted at once.
 func RemoveSelf() (string, error) {
 	self, err := os.Executable()

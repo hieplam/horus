@@ -66,9 +66,12 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	case "removeself":
 		// The program of TestTheProgramFileRemovesItself: a copy of the test
-		// binary in a temporary folder deletes its own file, then ends.
+		// binary in a temporary folder deletes its own file, then ends. The
+		// standard error gives how long RemoveSelf took.
+		start := time.Now()
 		self, err := RemoveSelf()
 		fmt.Println(self)
+		fmt.Fprintf(os.Stderr, "RemoveSelf returned after %s\n", time.Since(start).Round(time.Millisecond))
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "RemoveSelf:", err)
 			os.Exit(1)

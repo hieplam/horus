@@ -1,13 +1,16 @@
 package platform
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -163,8 +166,18 @@ func removePathEntry(program, home string) error {
 	return nil
 }
 
-// removeSelf starts a hidden PowerShell that waits until this process ends
-// (up to 60 s), then deletes the file self (up to 10 s of tries).
+// removeSelfReady is how long removeSelf waits for the line "ready" of the
+// PowerShell. On a busy machine, powershell.exe can take 10 s and more to
+// start.
+const removeSelfReady = 60 * time.Second
+
+// removeSelf starts a hidden PowerShell and returns when the PowerShell is
+// ready: it holds a handle of this process and wrote the line "ready". So
+// the start of PowerShell is over before this process ends. When this
+// process ends (up to 60 s), the PowerShell deletes the file self (up to
+// 10 s of tries). After "ready", the script uses only .NET calls. A cmdlet
+// such as Get-Process loads its module on the first call, and that load can
+// take a second on a busy machine.
 func removeSelf(self string) error {
 	ps := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 	if os.Getenv("SystemRoot") == "" || !IsFile(ps) {
@@ -174,26 +187,47 @@ func removeSelf(self string) error {
 		}
 		ps = p
 	}
-	script := fmt.Sprintf("$p=%d; $f='%s'; "+
-		"for ($i=0; $i -lt 600; $i++) { if (-not (Get-Process -Id $p -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 100 }; "+
-		"for ($i=0; $i -lt 50; $i++) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue; if (-not (Test-Path -LiteralPath $f)) { break }; Start-Sleep -Milliseconds 200 }",
+	script := fmt.Sprintf("$p=[Diagnostics.Process]::GetProcessById(%d); $f='%s'; $null=[IO.File]::Exists($f); "+
+		"[Console]::Out.WriteLine('ready'); [Console]::Out.Flush(); "+
+		"$null=$p.WaitForExit(60000); "+
+		"for ($i=0; $i -lt 50; $i++) { try { [IO.File]::Delete($f) } catch {}; if (-not [IO.File]::Exists($f)) { break }; [Threading.Thread]::Sleep(200) }",
 		os.Getpid(), strings.ReplaceAll(self, "'", "''"))
-	start := func(flags uint32) error {
+	start := func(flags uint32) (*exec.Cmd, io.ReadCloser, error) {
 		cmd := exec.Command(ps, "-NoProfile", "-NonInteractive", "-Command", script)
 		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags, HideWindow: true}
-		if err := cmd.Start(); err != nil {
-			return err
+		out, err := cmd.StdoutPipe()
+		if err != nil {
+			return nil, nil, err
 		}
-		return cmd.Process.Release()
+		if err := cmd.Start(); err != nil {
+			return nil, nil, err
+		}
+		return cmd, out, nil
 	}
 	// Leave the Job Object of a terminal or a CI runner when it allows it, so
 	// the end of the job does not end the PowerShell too early.
-	err := start(createNoWindow | createNewProcessGroup | breakawayFromJob)
+	cmd, out, err := start(createNoWindow | createNewProcessGroup | breakawayFromJob)
 	if errors.Is(err, errorAccessDenied) {
-		err = start(createNoWindow | createNewProcessGroup)
+		cmd, out, err = start(createNoWindow | createNewProcessGroup)
 	}
 	if err != nil {
 		return fmt.Errorf("cannot start powershell.exe to delete %s: %w", self, err)
 	}
-	return nil
+	defer out.Close()
+	line := make(chan string, 1)
+	go func() {
+		s, _ := bufio.NewReader(out).ReadString('\n')
+		line <- strings.TrimSpace(s)
+	}()
+	select {
+	case s := <-line:
+		if s != "ready" {
+			_ = cmd.Process.Kill()
+			return fmt.Errorf("powershell.exe ended before it was ready to delete %s (it wrote %q). Delete it by hand.", self, s)
+		}
+	case <-time.After(removeSelfReady):
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("powershell.exe was not ready in %s, so horus cannot delete %s after its end. Delete it by hand.", removeSelfReady, self)
+	}
+	return cmd.Process.Release()
 }

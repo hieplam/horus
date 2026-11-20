@@ -47,8 +47,10 @@ func TestPathEntryOfTheInstallerIsRemoved(t *testing.T) {
 }
 
 // TestTheProgramFileRemovesItself: a copy of the test binary in a temporary
-// folder calls RemoveSelf and ends. Its file is gone within 10 s. The copy is
-// the only program that the test runs, so no other file can be the target.
+// folder calls RemoveSelf and ends. Its file is gone within 10 s after the
+// end of the copy. The copy is the only program that the test runs, so no
+// other file can be the target. On Windows, RemoveSelf returns only when its
+// PowerShell is ready, so the start of PowerShell is not in the 10 s.
 func TestTheProgramFileRemovesItself(t *testing.T) {
 	self, err := os.Executable()
 	if err != nil {
@@ -69,20 +71,25 @@ func TestTheProgramFileRemovesItself(t *testing.T) {
 	}
 	cmd := exec.Command(copyPath)
 	cmd.Env = append(os.Environ(), helperEnv+"=removeself")
+	var errOut strings.Builder
+	cmd.Stderr = &errOut
 	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("the copy failed: %v %s", err, out)
+		t.Fatalf("the copy failed: %v %s %s", err, out, errOut.String())
 	}
+	t.Log(strings.TrimSpace(errOut.String()))
 	if got := strings.TrimSpace(string(out)); !strings.EqualFold(got, copyPath) {
 		t.Fatalf("RemoveSelf named %q, want the copy %q", got, copyPath)
 	}
-	deadline := time.Now().Add(10 * time.Second)
+	ended := time.Now()
+	deadline := ended.Add(10 * time.Second)
 	for IsFile(copyPath) {
 		if time.Now().After(deadline) {
 			t.Fatalf("%s is still there after 10 s", copyPath)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	t.Logf("the file was gone %s after the end of the copy", time.Since(ended).Round(time.Millisecond))
 	if !IsFile(keep) {
 		t.Error("another file of the folder was deleted")
 	}

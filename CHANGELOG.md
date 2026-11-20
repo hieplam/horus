@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/hieplam/horus/compare/v0.1.2...v0.1.3) (2026-11-20)
+
+
+### Features
+
+* **mcpserver:** write caller, resource_key and loaded_resource_key ([#232](https://github.com/hieplam/horus/issues/232)) ([#241](https://github.com/hieplam/horus/issues/241)) ([ede62f4](https://github.com/hieplam/horus/commit/ede62f406c62dbb18911566e347b0b7c7e0b04e5))
+
 ## [0.1.2](https://github.com/hieplam/horus/compare/v0.1.1...v0.1.2) (2026-11-20)
 
 

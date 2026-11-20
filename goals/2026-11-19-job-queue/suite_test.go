@@ -81,6 +81,10 @@ func TestPeakTimeouts(t *testing.T) {
 // With one slot, ComfyUI never holds more than one horus job.
 func TestBoundedBackendQueue(t *testing.T) {
 	res, log := twelveCalls(t)
+	if res.JobsInComfyUI != 10 || res.PNG != 10 {
+		t.Fatalf("jobs that reached ComfyUI: %d, PNG: %d, want 10 and 10: the bound is measured under the full load:\n%s",
+			res.JobsInComfyUI, res.PNG, log)
+	}
 	if res.MaxJobs != 1 {
 		t.Fatalf("the most jobs in ComfyUI at one time: %d, want 1 with 1 slot:\n%s", res.MaxJobs, log)
 	}

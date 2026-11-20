@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/hieplam/horus/compare/v0.1.7...v0.1.8) (2026-11-20)
+
+
+### Bug Fixes
+
+* **worker:** the panel Running shows the step that ComfyUI reports ([#266](https://github.com/hieplam/horus/issues/266)) ([#270](https://github.com/hieplam/horus/issues/270)) ([3d408b3](https://github.com/hieplam/horus/commit/3d408b3c9087f905bc40db11bbd490b51f7f832c))
+
 ## [0.1.7](https://github.com/hieplam/horus/compare/v0.1.6...v0.1.7) (2026-11-20)
 
 

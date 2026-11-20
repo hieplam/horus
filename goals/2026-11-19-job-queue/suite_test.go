@@ -96,10 +96,14 @@ func TestBoundedBackendQueue(t *testing.T) {
 // their order (horus-db, horus-worker, horus-api), each one healthy, and
 // horus ready in horus-api exits 0 with 4 ok lines, in 120 s or less from the
 // start of the command. The build of the image comes before, and is not
-// timed.
+// timed. Before the start, the row measures the health check of horus-db on
+// a new volume: horus-db is never healthy while the database refuses TCP,
+// because Docker Compose starts horus-worker when horus-db is healthy.
 func TestStackStartsTogether(t *testing.T) {
 	fake := startFake(t)
-	env := newStack(t, fake)
+	env := stackEnv(t, fake)
+	checkDBHealthNeedsTCP(t, env)
+	prepareStack(t, env)
 	start := time.Now()
 	took := upWait(t, env)
 

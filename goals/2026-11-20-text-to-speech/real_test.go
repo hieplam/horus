@@ -24,10 +24,30 @@ import (
 // nothing.
 
 const (
-	targetLUFS     = -18.0
-	lufsTolerance  = 0.5
-	wrongWordLimit = 0.17 // the spec, section "Measured baseline"
+	targetLUFS    = -18.0
+	lufsTolerance = 0.5
 )
+
+var limitRe = regexp.MustCompile(`(?m)^\| ` + "`speech-real`" + ` \|.*share of wrong words of each sentence is at most ([0-9.]+)`)
+
+// wrongWordLimit reads the limit from the row speech-real of the spec, so the
+// test and the spec cannot differ.
+func wrongWordLimit(t *testing.T) float64 {
+	t.Helper()
+	spec, err := os.ReadFile(filepath.Join(root, "docs", "specs", "2026-11-20-text-to-speech.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := limitRe.FindSubmatch(spec)
+	if m == nil {
+		t.Fatal("the row speech-real of the spec has no \"share of wrong words of each sentence is at most <limit>\"")
+	}
+	v, err := strconv.ParseFloat(string(m[1]), 64)
+	if err != nil || v <= 0 || v >= 1 {
+		t.Fatalf("the limit %q of the row speech-real is not a number between 0 and 1", m[1])
+	}
+	return v
+}
 
 // realCall is one entry of the output of tests/speech/real_run.py speak.
 type realCall struct {
@@ -51,6 +71,8 @@ type realCall struct {
 }
 
 func speechReal(t *testing.T) {
+	checkWrongShare(t) // the function that this oracle uses is the function of baseline.py
+	limit := wrongWordLimit(t)
 	if os.Getenv("HORUS_SPEECH_REAL") != "1" {
 		t.Skip("needs HORUS_SPEECH_REAL=1 on a PC where the speech models are installed (install_workflow for vi-speech with both consents), with ffmpeg on the PATH and a Python that has the package mcp (docs/mcp.md, \"Test the server\")")
 	}
@@ -139,8 +161,8 @@ func speechReal(t *testing.T) {
 			bad = append(bad, fmt.Sprintf("loudness %.1f LUFS is not %.0f +/- %.1f", loud, targetLUFS, lufsTolerance))
 		}
 		share := wrongShare(s.Text, r.Transcript)
-		if share > wrongWordLimit {
-			bad = append(bad, fmt.Sprintf("share of wrong words %.3f is above %.2f", share, wrongWordLimit))
+		if share > limit {
+			bad = append(bad, fmt.Sprintf("share of wrong words %.3f is above %.3f", share, limit))
 		}
 		worst = max(worst, share)
 		status := "ok"
@@ -150,10 +172,10 @@ func speechReal(t *testing.T) {
 		} else {
 			made++
 		}
-		t.Logf("%s: %s, loudness %.1f LUFS, share of wrong words %.3f, audio %.1f s, call %.1f s, started worker %v\n  text:       %s\n  transcript: %s",
-			s.ID, status, loud, share, r.AudioSeconds, r.Seconds, r.StartedWorker, s.Text, r.Transcript)
+		t.Logf("%s: %s, loudness %.1f LUFS, share of wrong words %.3f (limit %.3f), audio %.1f s, call %.1f s, started worker %v\n  text:       %s\n  transcript: %s",
+			s.ID, status, loud, share, limit, r.AudioSeconds, r.Seconds, r.StartedWorker, s.Text, r.Transcript)
 	}
-	t.Logf("speech files that an agent made through horus: %d of %d, worst share of wrong words %.3f", made, len(fixed.Sentences), worst)
+	t.Logf("speech files that an agent made through horus: %d of %d, worst share of wrong words %.3f, limit %.3f", made, len(fixed.Sentences), worst, limit)
 }
 
 var lufsLine = regexp.MustCompile(`I:\s+(-?[\d.]+) LUFS`)
@@ -225,9 +247,10 @@ func wrongShare(text, transcript string) float64 {
 	return v
 }
 
-// TestWrongShareIsTheShareOfBaselinePy fixes the function against the values
-// that tests/speech/baseline.py gives for the same pairs.
-func TestWrongShareIsTheShareOfBaselinePy(t *testing.T) {
+// checkWrongShare fixes wrongShare against the values that
+// tests/speech/baseline.py gives for the same pairs. It runs first in the row.
+func checkWrongShare(t *testing.T) {
+	t.Helper()
 	cases := []struct {
 		text, transcript string
 		want             float64

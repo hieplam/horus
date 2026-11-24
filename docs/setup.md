@@ -161,8 +161,8 @@ The scripts read these environment variables:
 | `HORUS_INSTALL_DIR` | Installs the program in this folder. |
 | `HORUS_INSTALL_NO_PATH=1` | Leaves the PATH and the shell profile unchanged. |
 
-The README shows the manual steps (download the file, check its SHA-256, put it on the
-PATH): [install by hand](../README.md#install-horus).
+The manual steps (download the file, check its SHA-256, put it on the
+PATH) are below: [install by hand](#install-by-hand).
 
 **The user folder.** horus keeps its own files in `<home>/horus`: `%USERPROFILE%\horus` on
 Windows, `~/horus` on macOS. `HORUS_HOME` changes it. This folder holds `.env`, `outputs/`
@@ -175,6 +175,61 @@ still has priority: inside a clone, horus uses the `workflows/` and the `.env` o
 - `horus` is "not recognized" or "command not found": open a new terminal. The old terminal has the old PATH.
 - `the SHA-256 of the download is not the SHA-256 in checksums.txt`: the download is damaged. The script installed nothing. Run the line again.
 - `this script supports Windows only` or `macOS on Apple silicon only`: you ran the script of the other system, or this machine is not supported (Intel Macs and Linux).
+
+### Install by hand
+
+Use these steps when you do not want to run a script from the
+internet. There are three: download the program, check its SHA-256, and put it on
+the PATH. Do the steps of your system.
+
+On Windows, in PowerShell, download the program and the list of hashes:
+
+```
+Invoke-WebRequest https://github.com/hieplam/horus/releases/latest/download/horus-windows-amd64.exe -OutFile horus.exe
+Invoke-WebRequest https://github.com/hieplam/horus/releases/latest/download/checksums.txt -OutFile checksums.txt
+```
+
+Print the SHA-256 of your download, then the line of `checksums.txt` for the same
+file. The two hashes must be equal, letter for letter. If they differ, delete
+`horus.exe` and do not run it.
+
+```
+(Get-FileHash horus.exe -Algorithm SHA256).Hash
+Select-String horus-windows-amd64.exe checksums.txt
+```
+
+Move the program to its folder, then add the folder to the PATH of your user account:
+
+```
+New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\horus"
+Move-Item horus.exe "$env:LOCALAPPDATA\Programs\horus\horus.exe" -Force
+[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Programs\horus", 'User')
+```
+
+On macOS, in Terminal, download the program and the list of hashes:
+
+```
+curl -fsSLO https://github.com/hieplam/horus/releases/latest/download/horus-darwin-arm64
+curl -fsSLO https://github.com/hieplam/horus/releases/latest/download/checksums.txt
+```
+
+Print the SHA-256 of your download, then the line of `checksums.txt` for the same
+file. The two hashes must be equal. If they differ, delete `horus-darwin-arm64` and
+do not run it.
+
+```
+shasum -a 256 horus-darwin-arm64
+grep horus-darwin-arm64 checksums.txt
+```
+
+Make the file a program, move it to its folder, and add the folder to the PATH:
+
+```
+chmod +x horus-darwin-arm64
+mkdir -p "$HOME/.local/bin"
+mv horus-darwin-arm64 "$HOME/.local/bin/horus"
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
 
 ## Step 1: put your Hugging Face token in `.env`
 

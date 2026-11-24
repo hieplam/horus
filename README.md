@@ -1,27 +1,51 @@
 # horus
 
-Get your first image from a local AI model, with an AI agent at the controls.
+horus gives an AI agent (Claude Code or Codex) tools to make images and Vietnamese
+speech with local AI models on your own machine. The machine is a Windows PC with an
+NVIDIA GPU, or a Mac with Apple Silicon. The agent calls the horus MCP server. MCP
+(Model Context Protocol) is the standard way an agent calls tools. horus sets up the
+models, runs the job and returns the path of the file.
 
-horus is a starter kit for engineers who are new to local image generation.
-It installs [ComfyUI](https://github.com/comfyanonymous/ComfyUI) on a Windows PC
-with an NVIDIA GPU or on a Mac with Apple Silicon, downloads one verified model set (FLUX 3 Image Klein), and
-gives an AI agent (Claude Code or Codex) the image and speech tools of the horus MCP server.
+New here? Read Features, then Quick start.
 
-You describe the image. The agent picks a workflow, writes the subject and
-calls `generate_image`. horus runs the job on your ComfyUI and returns the path
-of the PNG. The agent never sees ComfyUI.
+## Features
 
-A new style needs a new workflow. An agent makes it in a clone of this repo,
-with the rules of this repo and the comfy MCP server (see
-[Work on this repo](#work-on-this-repo-developers)).
+| Feature | What it does | Detail |
+|---|---|---|
+| Images (`it-illustration`) | Text to image with FLUX 3 Image Klein. Size 1536×1024, PNG. Runs on your GPU. | [workflow](workflows/it-illustration/README.md) |
+| Vietnamese speech (`vi-speech`) | Vietnamese text to speech, 25 preset voices, WAV or MP3. Runs on the CPU. | [workflow](workflows/vi-speech/README.md) |
+| Tools for any agent | Six MCP tools. `horus register` gives them to an agent in any folder. | [`docs/mcp.md`](docs/mcp.md) |
+| Safe setup and removal | A plan first, then `-yes`. SHA-256 checks. Consent before a package and before a license. `horus uninstall` removes what horus installed. | [`docs/setup.md`](docs/setup.md) |
+| Docker stack | A job queue, the Horus UI and MCP over HTTP. Images only. | [stack](docs/setup.md#run-horus-as-a-stack) |
+| Your own workflows | An agent in a clone of this repo builds a new workflow with the comfy MCP server. | [`docs/style-to-workflow.md`](docs/style-to-workflow.md) |
 
-## Install horus
+## How it works
 
-horus is one program. You install it with one line. The line downloads the
-program from the newest [GitHub Release](https://github.com/hieplam/horus/releases),
-checks its SHA-256, and puts it on your PATH. SHA-256 is a hash of the file. A
-download that does not match the hash is never installed. You need no clone of
-this repo, no Go and no Python for this step.
+```mermaid
+flowchart LR
+  you[You] -->|ask| agent[AI agent]
+  agent -->|MCP tools| mcp[horus MCP server]
+  mcp -->|HTTP :8188| comfy[ComfyUI on GPU]
+  comfy -->|loads| img[(Image model files)]
+  mcp -->|jobs| sp[Speech worker on CPU]
+  sp -->|loads| spm[(Speech model files)]
+  you -->|setup, doctor, register| cli[horus commands]
+  cli -->|install and verify| img
+  cli -->|install and verify| spm
+```
+
+A workflow is a named recipe: a model set plus its settings, for example
+`it-illustration`. ComfyUI is the program that runs image models on your GPU.
+The agent talks only to the horus MCP server and never sees ComfyUI or the speech
+worker. The horus MCP server and the horus commands are one program, `horus`.
+
+## Quick start
+
+### Install horus
+
+Run one line. It downloads the program from the newest
+[GitHub Release](https://github.com/hieplam/horus/releases) and puts it on your PATH.
+You need no clone, no Go and no Python for this step.
 
 On Windows 10 or 11 (64-bit), open PowerShell and run:
 
@@ -35,290 +59,176 @@ On macOS with Apple Silicon, open Terminal and run:
 curl -fsSL https://raw.githubusercontent.com/hieplam/horus/main/install.sh | sh
 ```
 
-The script puts the program here:
-
-| System | Program file | PATH |
-|---|---|---|
-| Windows | `%LOCALAPPDATA%\Programs\horus\horus.exe` | The script adds the folder to the PATH of your user account. |
-| macOS | `~/.local/bin/horus` | The script adds one marked line to your shell profile when the folder is not on the PATH. |
-
-Open a new terminal after the install, so that the new PATH is read. To update,
-run the same line again. The script replaces the program. It sends no token and
-reads no secret.
-
-**Settings.** Set an environment variable before the line to change a default.
-`HORUS_VERSION` picks a release, for example `0.1.0`. The default is the newest
-release. `HORUS_INSTALL_DIR` picks the folder of the program.
-`HORUS_INSTALL_NO_PATH=1` leaves the PATH unchanged.
-
-**Install by hand.** Use these steps when you do not want to run a script from the
-internet. There are three: download the program, check its SHA-256, and put it on
-the PATH. Do the steps of your system.
-
-On Windows, in PowerShell, download the program and the list of hashes:
-
-```
-Invoke-WebRequest https://github.com/hieplam/horus/releases/latest/download/horus-windows-amd64.exe -OutFile horus.exe
-Invoke-WebRequest https://github.com/hieplam/horus/releases/latest/download/checksums.txt -OutFile checksums.txt
-```
-
-Print the SHA-256 of your download, then the line of `checksums.txt` for the same
-file. The two hashes must be equal, letter for letter. If they differ, delete
-`horus.exe` and do not run it.
-
-```
-(Get-FileHash horus.exe -Algorithm SHA256).Hash
-Select-String horus-windows-amd64.exe checksums.txt
-```
-
-Move the program to its folder, then add the folder to the PATH of your user account:
-
-```
-New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\horus"
-Move-Item horus.exe "$env:LOCALAPPDATA\Programs\horus\horus.exe" -Force
-[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Programs\horus", 'User')
-```
-
-On macOS, in Terminal, download the program and the list of hashes:
-
-```
-curl -fsSLO https://github.com/hieplam/horus/releases/latest/download/horus-darwin-arm64
-curl -fsSLO https://github.com/hieplam/horus/releases/latest/download/checksums.txt
-```
-
-Print the SHA-256 of your download, then the line of `checksums.txt` for the same
-file. The two hashes must be equal. If they differ, delete `horus-darwin-arm64` and
-do not run it.
-
-```
-shasum -a 256 horus-darwin-arm64
-grep horus-darwin-arm64 checksums.txt
-```
-
-Make the file a program, move it to its folder, and add the folder to the PATH:
-
-```
-chmod +x horus-darwin-arm64
-mkdir -p "$HOME/.local/bin"
-mv horus-darwin-arm64 "$HOME/.local/bin/horus"
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-```
-
-**If it fails.**
-
-- `horus` is "not recognized" or "command not found": open a new terminal. The old terminal has the old PATH.
-- The script says that the SHA-256 is wrong: the download is damaged or changed. The script installed nothing. Run the line again. If it fails again, do not use the program.
-- The script says that it cannot download: the release does not exist or the network is down. Check [the releases page](https://github.com/hieplam/horus/releases).
-
-## Check the install and see the plan
+Open a new terminal, then check the program:
 
 ```
 horus version
+```
+
+The script checks the SHA-256 of the download. SHA-256 is a hash of the file. A
+download that does not match is never installed. To install without the script, see
+[install by hand](docs/setup.md#install-by-hand).
+
+Settings, set before the line: `HORUS_VERSION` picks a release (default: the newest).
+`HORUS_INSTALL_DIR` picks the program folder. `HORUS_INSTALL_NO_PATH=1` leaves the PATH
+unchanged.
+
+If it fails:
+
+- `horus` is "not recognized" or "command not found": open a new terminal.
+- The SHA-256 is wrong: the script installed nothing. Run the line again.
+- The script cannot download: check [the releases page](https://github.com/hieplam/horus/releases).
+
+### Set up a workflow
+
+**Image.** The model files need a Hugging Face token and the FLUX Kommunity License.
+Write `HF_TOKEN=<your token>` in `~/horus/.env` (macOS) or `%USERPROFILE%\horus\.env`
+(Windows). [Setup step 1](docs/setup.md#step-1-put-your-hugging-face-token-in-env)
+shows how to get the token. Then:
+
+```
 horus setup it-illustration
-```
-
-`horus version` prints one line: `horus <version>`. If it prints an error, the
-program is not on the PATH (see "If it fails" above).
-
-`horus setup <workflow>` prints a plan and changes nothing. The plan lists each
-model file of the workflow (`PRESENT` or `MISSING`) and each step that the
-machine still needs: a system package, ComfyUI, the model files. The next section
-runs the plan.
-
-## The parts
-
-| Part | What it is |
-|---|---|
-| ComfyUI | The program that runs image models on your GPU. A job is a graph of nodes, called a workflow. |
-| horus MCP server | The image and speech tools for agents, started as `horus mcp`. MCP (Model Context Protocol) is the standard way an agent calls tools. The tools: `list_workflows`, `describe_workflow`, `install_workflow`, `uninstall_workflow`, `generate_image`, `generate_speech`. For an image, the caller names a workflow and a subject and gets a PNG path. For speech, the caller names a workflow, a text and a voice, and gets an audio file path and its transcript. horus adds no style: the caller writes the look in the subject. The caller never sees ComfyUI or the speech worker. See [`docs/mcp.md`](docs/mcp.md). |
-| horus commands | The commands that you run: `horus setup`, `horus doctor`, `horus register`, `horus uninstall`. The horus MCP server and the commands are one program, `horus`. |
-| comfy MCP server | A separate program with low-level ComfyUI tools such as `validate_workflow` and `run_workflow`. Only an agent in a clone of this repo uses it, to build and debug a workflow. |
-| This repo | The rules, the Go code of the `horus` program, the workflows and the saved prompts. An agent reads it when it changes horus or makes a new workflow. To make images you need no clone: the program holds the workflows. |
-| Model files | Gigabytes of weights on disk. Never in git. Each file is checked by SHA-256. |
-
-```mermaid
-flowchart LR
-  you[You] -->|describe the image| agent[AI agent]
-  you -->|horus setup| cli[horus commands]
-  agent -->|list_workflows, generate_image| mcp[horus MCP server]
-  mcp -->|HTTP :8188| comfy[ComfyUI]
-  cli -->|install| comfy
-  cli -->|download and verify| models[(Model files)]
-  comfy -->|loads| models
-```
-
-The agent talks only to the horus MCP server. The horus MCP server sends HTTP
-requests to ComfyUI. The comfy MCP server is not on this path. The agent can
-also download the model files with the tool `install_workflow`, after you agree.
-
-## Set up the machine
-
-Run the plan with `-yes`. This installs ComfyUI first, then downloads the model
-files (11 GB for `it-illustration`).
-
-```
 horus setup it-illustration -yes
 ```
 
-Two things can stop it before it changes anything.
+The first command prints the plan and changes nothing. The second runs it: ComfyUI,
+then 11 GB of model files. Add `-with-packages` to approve 7-Zip (Windows) or
+Python 3.12 (macOS).
 
-- **A system package.** A new machine can lack a program that ComfyUI needs: 7-Zip on Windows (installed with `winget`) or Python 3.12 on macOS (installed with `brew`). horus never installs a system package without your approval. Without it, `horus setup it-illustration -yes` prints the package and its command, changes nothing and exits 1. To approve the package, add `-with-packages`. Or install the package yourself, then run the command again. If `winget` or `brew` is missing, the plan says what to install and where to get it.
-- **The Hugging Face token.** The model files need the FLUX Kommunity License and a token. Write the token as `HF_TOKEN=<your token>` in the file `.env` of the user folder: `%USERPROFILE%\horus\.env` on Windows, `~/horus/.env` on macOS. [Setup step 1](docs/setup.md#step-1-put-your-hugging-face-token-in-env) shows how to get the token. Without it, the download stops with HTTP 401 or 403.
-
-To approve the package step too, run:
+**Speech.** One command sets up Python 3.12, FFmpeg, the speech venv and 1.1 GB of models:
 
 ```
-horus setup it-illustration -yes -with-packages
+horus setup vi-speech -yes -with-packages
 ```
 
-Every command is safe to run again. A second run prints `Plan: 0 steps. Nothing is missing.`
-An agent can do the same setup through the tool `install_workflow`. The tool asks
-you before it installs a package (`accept_setup`) and before it downloads the model
-files (`accept_license`). See [`docs/mcp.md`](docs/mcp.md).
+Both commands are safe to run again. Check a workflow with `horus doctor -workflow <name>`.
 
-Then give the horus tools to your agent. This registers the server `horus` with
-Claude Code.
+### Connect your agent
 
 ```
 horus register
 ```
 
-To register it with Codex, run `horus register -client codex`. After this, an agent
-in any folder of your PC has the tools `list_workflows`, `describe_workflow`,
-`install_workflow`, `uninstall_workflow`, `generate_image` and `generate_speech`. Check the machine at
-any time with `horus doctor`.
+For Codex, run `horus register -client codex`. Restart the agent. Type `/mcp`. The
+server `horus` must show as connected.
+
+### Make your first image and audio file
+
+Start the agent in any folder and ask:
+
+- Image: "Make a flat vector illustration of a message queue."
+- Speech: "Read this text aloud in Vietnamese with the voice Hải Đăng: Xin chào, tôi là Hải Đăng. Hôm nay chúng ta sẽ nói về hàng đợi tin nhắn."
+
+For an image, the agent returns the path of a PNG. For speech, it returns the path of
+the audio file and its transcript. Compare the transcript with your text. Files go to
+`outputs/` in the user folder (`~/horus` or `%USERPROFILE%\horus`). Without an agent, run
+`horus run-illustration -subject "..."` for an image. Speech has no command: it needs the agent.
+
+## Use horus from an agent
+
+| Tool | What it does |
+|---|---|
+| `list_workflows` | Lists the workflows and their kind (image or speech). |
+| `describe_workflow` | Gives the rules and the inputs of one workflow. |
+| `install_workflow` | Sets up a workflow. It asks consent first. |
+| `uninstall_workflow` | Removes the files of a workflow. |
+| `generate_image` | Makes a PNG from a workflow and a subject. |
+| `generate_speech` | Makes an audio file and its transcript from a workflow, a text and a voice. |
+
+The usual flow: `list_workflows`, `describe_workflow`, `install_workflow`, then
+`generate_image` or `generate_speech`. `install_workflow` asks you before a package
+step (`accept_setup`) and before the model download (`accept_license`). An error has
+`error.code`, `error.next_step` and `error.action_by`, so the agent knows if it must
+retry, change its call or ask you. An agent in any folder can use the tools. Details:
+[`docs/mcp.md`](docs/mcp.md).
+
+## Workflows
+
+| Workflow | Does | Model family | Kind | Runs on | Size |
+|---|---|---|---|---|---|
+| [`it-illustration`](workflows/it-illustration/README.md) | Text to image, 1536×1024. No style of its own: the caller writes the look. | FLUX 3 Image Klein | image | GPU (ComfyUI) | 11 GB |
+| [`vi-speech`](workflows/vi-speech/README.md) | Vietnamese text to speech, 25 voices, 2 to 4,000 characters. | VieNeu-TTS v3 Turbo | speech | CPU | 1.1 GB |
+
+Manage them with `horus workflow list`, `install <name>`, `check <name>` and
+`remove <name>`. See [manage workflows](docs/setup.md#manage-workflows-list-install-check-remove).
+
+## Run horus as a Docker stack
+
+The stack adds a job queue, the Horus UI and MCP over HTTP. It makes images only.
+It needs a clone of this repo and Docker (Docker Desktop on Windows or macOS).
+ComfyUI stays on the host: start it with `horus start-comfyui`. The stack never starts it.
+
+- `horus-db`: Postgres, the job store.
+- `horus-worker`: runs the jobs of the queue on ComfyUI.
+- `horus-api`: serves `/mcp`, the Horus UI, `/readyz` and `/livez`.
+
+```
+# In the .env of the clone: HORUS_DB_PASSWORD=<long random>, and HORUS_API_TOKEN for HTTP
+# Set HORUS_MODELS_DIR (and optional HORUS_SHARED_DIRS)
+horus stack-mounts
+docker compose up -d --wait
+docker exec horus-api horus ready
+horus register -docker
+```
+
+`horus ready` must print 4 lines that say `ok`. `horus register -docker` connects by
+stdio. `horus register -http` connects to `http://127.0.0.1:8190/mcp` with the header
+`Authorization: Bearer <HORUS_API_TOKEN>`.
+
+The Horus UI is a read-only page at `http://127.0.0.1:8190/` (the port is `HORUS_API_PORT`).
+It shows the readiness, the queue, the running jobs, the recent results, the worker and the
+workflows. In the stack, `generate_speech` and the install of a speech workflow answer
+`BACKEND_UNAVAILABLE`. Use the horus program on the host for speech.
+Full steps: [`docs/setup.md`](docs/setup.md#run-horus-as-a-stack).
 
 ## Uninstall
 
-`horus uninstall` prints what horus installed on this machine and changes nothing.
-Each line starts with `REMOVE` or `KEEP`, then the path and the reason.
-
-```
-horus uninstall
-```
-
-`horus uninstall -yes` removes each `REMOVE` item. Read the plan first, because
-nobody can undo the removal.
-
-```
-horus uninstall -yes
-```
-
-What `-yes` removes:
-
-- **The model files of the workflows.** This includes a model file that a person downloaded by hand, when its size matches `models.json`. A file with another size stays. The model files of a speech workflow are in the speech folder.
-- **The ComfyUI folder and the venv of comfy-cli and the comfy MCP server.** Only a folder that horus installed. horus writes a file `horus-install.json` into each folder that it makes, and it deletes a folder only when that file is there. A ComfyUI that you installed yourself, or that an older horus installed, stays. A ComfyUI that answers and that horus did not start stays too.
-- **The speech venv and the file of the speech worker** (`worker.py`), in the speech folder. Only a speech venv that horus made: it has the file `horus-install.json`. Then each empty folder of the speech folder goes. Close each agent program that uses horus first: a speech worker that runs holds files of the speech venv.
-- **The registration** of the server `horus` in Claude Code and in Codex.
-- **The copy of the built-in workflows** and the state files of horus in the user folder.
-- **The PATH entry of the install script, and the program itself.** The program is the last item.
-
-What it keeps: `.env` (your token) and `outputs/` (your images), because they are your
-data. The plan names both paths. A system package (7-Zip, Python, FFmpeg) stays: horus never
-removes a system package. A PATH entry that you added by hand stays: remove it yourself.
-
-`horus uninstall -models` limits the command to the model files. `horus uninstall -mcp`
-limits it to the registration.
-
-## Next steps
-
-1. **Make your first image.** Start the agent in any folder and ask for "a flat
-   vector illustration of a message queue". The agent calls `generate_image` and
-   gives you the path of the PNG. [`workflows/it-illustration`](workflows/it-illustration/README.md)
-   shows how to write the subject. Without an agent, run
-   `horus run-illustration -subject "..."`.
-2. **Make your own style:** [`docs/style-to-workflow.md`](docs/style-to-workflow.md).
-   How an agent in a clone goes from one sentence to a tested, saved workflow.
-3. **Every step in detail:** [`docs/setup.md`](docs/setup.md).
-
-New to the words? Read [`docs/concepts.md`](docs/concepts.md) first.
-
-## Work on this repo (developers)
-
-This section is for people who change the code of horus. A user who only wants
-images needs the install line above. Claude Code starts each MCP server itself,
-as a child program (a stdio server). The full setup is [`docs/setup.md`](docs/setup.md).
-
-In a clone, the file `.mcp.json` gives the agent two servers. The comfy MCP
-server is the low-level tool to build, check and debug a workflow. The horus MCP
-server has the same tools that a user's agent gets. Both servers send HTTP
-requests to the same ComfyUI.
-
-```mermaid
-flowchart LR
-  agent[AI agent in a clone] -->|reads AGENTS.md and docs| repo[horus repo]
-  agent -->|server_info, validate_workflow, run_workflow| cmcp[comfy MCP server]
-  agent -->|generate_image| mcp[horus MCP server]
-  cmcp -->|HTTP :8188| comfy[ComfyUI]
-  mcp -->|HTTP :8188| comfy
-```
-
-1. Install Go 1.27.3 or newer, Python 3.12 and Claude Code. On Windows, Python
-   needs the Python Launcher. On macOS, `brew install python@3.12 go uv` installs
-   Python and Go.
-2. Clone this repo and open a terminal in its root folder.
-3. Build `horus`, then install the comfy MCP server. `go install` puts `horus` in
-   `%USERPROFILE%\go\bin` (`~/go/bin` on macOS). That folder must be
-   on the PATH, because `.mcp.json` starts both servers through `horus`
-   ([how](docs/setup.md#build-horus)).
-
-   ```
-   go install ./cmd/horus
-   horus install-comfy-mcp
-   ```
-
-4. Check the machine. No line may show `FAIL`. On macOS, a `WARN` line names a
-   path in a folder that macOS protects ([why](docs/setup.md#the-macos-privacy-folders)).
-
-   ```
-   horus doctor
-   ```
-
-   To see what a workflow still needs, run `horus setup it-illustration`. It
-   prints the plan and changes nothing. `horus setup it-illustration -yes` runs
-   the plan: ComfyUI first, then the model files. `horus stop-comfyui` stops a
-   ComfyUI that horus started. The older command names (`check-setup`,
-   `install-comfyui`, `workflow install`) still work.
-
-5. Start `claude` in this folder. Approve the project servers `comfy-mcp` and `horus`.
-6. Type `/mcp`. Both servers must show as connected.
-
-**Where Claude Code finds the servers.**
-
-| Entry | Where | Which sessions see it |
-|---|---|---|
-| `.mcp.json` (project scope) | this repo, in git | sessions started in this folder, after you approve |
-| `claude mcp add --scope user` (user scope), made by `horus register` | your Claude Code user settings | sessions in every folder |
-
-Claude Code reads `.mcp.json` by itself, but it does not build or install the
-programs. If you skip step 3, `/mcp` shows the server as failed. An agent in this
-repo reads [`AGENTS.md`](AGENTS.md), which tells it to run `horus doctor` and
-the install command that a FAIL line names.
-
-## Give other agents the horus tools
-
-`horus register` (see "Set up the machine") adds the server `horus` to your agent.
-After this, an agent in any folder of your PC (for example a video project
-that needs pictures) has the horus tools. It calls `list_workflows`, reads the
-rules of a style with `describe_workflow`, and calls `generate_image` or `generate_speech`. The call
-waits until the PNG or the audio file is on disk and returns its path (for speech, also the transcript). Errors have a code, a
-`next_step` and `action_by`, so the agent knows if it must retry, change its
-call or ask you. Details: [`docs/mcp.md`](docs/mcp.md). Without a clone, the
-tools use the workflows that the program holds. In a clone, `horus register` also
-sets the variable `HORUS_ROOT` to the clone, so the tools use the workflows of the
-clone. You do not set it by hand
-([setup step 3](docs/setup.md#step-3-give-the-horus-tools-to-your-agent)).
+`horus uninstall` prints the plan (`REMOVE` and `KEEP` lines) and changes nothing.
+`horus uninstall -yes` removes what horus installed: model files, the ComfyUI folder,
+the speech venv, the registration, the built-in workflow copy, the PATH entry and the
+program. Nobody can undo it, so read the plan first. It keeps `.env`, `outputs/` and
+system packages. `-models` and `-mcp` limit the command. The full table is in
+[`docs/setup.md`](docs/setup.md#uninstall).
 
 ## What you need
 
 - Windows 10 or 11, NVIDIA GPU with 6 GB VRAM or more, 16 GB RAM, about 20 GB free disk.
 - Or macOS on Apple Silicon with 16 GB of memory and about 14 GB free disk.
-  Linux and Intel Macs are not supported yet.
-- A free Hugging Face account, to accept the model license.
-- Python 3.12 on macOS only, for comfy-cli. `horus setup` installs it after you approve it. Windows needs no Python.
-- Go 1.27.3 or newer, Git and Python 3.12, only to work on the code of horus (Python for the comfy MCP server).
-  The [prerequisites](docs/setup.md#prerequisites) list each item for each system.
+  Linux and Intel Macs are not supported.
+- A free Hugging Face account, to accept the FLUX license (images).
+- Python 3.12 on macOS, for comfy-cli. `horus setup` installs it after you approve it.
+- For speech: Python 3.12 and FFmpeg on both systems (`-with-packages` installs them),
+  1.1 GB of disk and no GPU.
 - An AI agent CLI: [Claude Code](https://claude.com/claude-code) or Codex.
+- Go 1.27.3 or newer, Git and Python 3.12, only to work on the code of horus.
+  The [prerequisites](docs/setup.md#prerequisites) list each item for each system.
+
+## Work on this repo (developers)
+
+This section is for people who change the code of horus. Agents read
+[`AGENTS.md`](AGENTS.md). In a clone, the file `.mcp.json` gives the agent two servers:
+the comfy MCP server (low-level ComfyUI tools to build and debug a workflow) and the
+horus MCP server.
+
+```mermaid
+flowchart LR
+  agent[AI agent in a clone] -->|reads AGENTS.md and docs| repo[horus repo]
+  agent -->|validate_workflow, run_workflow| cmcp[comfy MCP server]
+  agent -->|generate_image| mcp[horus MCP server]
+  cmcp -->|HTTP :8188| comfy[ComfyUI]
+  mcp -->|HTTP :8188| comfy
+```
+
+1. Install Go 1.27.3 or newer, Python 3.12 and Claude Code.
+2. Clone this repo. Open a terminal in its root folder.
+3. Run `go install ./cmd/horus`, then `horus install-comfy-mcp`.
+4. Run `horus doctor`. No line may show `FAIL`.
+5. Start `claude` in the folder. Approve the servers `comfy-mcp` and `horus`.
+6. Type `/mcp`. Both servers must show as connected.
+
+Before a pull request, run `python scripts/lint-public.py`, `gofmt -l .` and
+`go test ./...`. More: [setup for developers](docs/setup.md#for-developers-work-in-a-clone)
+and [`docs/style-to-workflow.md`](docs/style-to-workflow.md).
 
 ## Docs
 
@@ -331,20 +241,12 @@ clone. You do not set it by hand
 | [`docs/mcp.md`](docs/mcp.md) | The horus MCP server: tools, result envelope, error codes, long calls |
 | [`docs/models.md`](docs/models.md) | The verified model catalog |
 | [`docs/why-flux3-klein.md`](docs/why-flux3-klein.md) | Why FLUX 3 Image Klein, what else was tried, small-GPU traps |
+| [`workflows/vi-speech/README.md`](workflows/vi-speech/README.md) | The speech workflow: voices, tags, limits |
+| [`docs/adr/README.md`](docs/adr/README.md) | Decision records |
 | [`ROADMAP.md`](ROADMAP.md) | Where horus goes next |
-
-## Workflows
-
-List them, install the files of one, or remove them with
-`horus workflow` (`list`, `install <name>`, `check <name>`, `remove <name>`). See [manage workflows](docs/setup.md#manage-workflows-list-install-check-remove).
-
-| Workflow | Does | Model family |
-|---|---|---|
-| [`it-illustration`](workflows/it-illustration/README.md) | Text to image, 1536×1024. No style of its own: the caller writes the look. | FLUX 3 Image Klein |
-| [`vi-speech`](workflows/vi-speech/README.md) | Text to speech in Vietnamese, 25 preset voices, on the CPU. Kind `speech`. The tool `generate_speech` makes the audio file and its transcript. | VieNeu-TTS v3 Turbo |
 
 ## License
 
-The code and docs in this repo are MIT ([`LICENSE`](LICENSE)). The models have
-their own licenses. FLUX 3 Image Klein uses the FLUX Kommunity License, which
-you accept on Hugging Face before the download works.
+The code and docs in this repo are MIT ([`LICENSE`](LICENSE)). FLUX 3 Image Klein uses
+the FLUX Kommunity License, which you accept on Hugging Face before the download works.
+The vi-speech models use Apache-2.0 (VieNeu-TTS, MOSS Audio Tokenizer Nano) and MIT (Whisper).

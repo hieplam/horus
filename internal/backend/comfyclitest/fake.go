@@ -18,7 +18,9 @@
 //	         keeps its process id in the background record (one for each
 //	         user, as comfy-cli does), then ends. With the global flag --json
 //	         it prints the envelope of comfy-cli with that process id. It
-//	         refuses a second background ComfyUI.
+//	         refuses a second background ComfyUI. Like comfy-cli 1.25.0, it
+//	         starts a second `comfy` by name: when comfy is not on its PATH,
+//	         it prints FileNotFoundError on stderr and exits 1.
 //	stop     ends the process of the background record and deletes the
 //	         record. Without one, it exits 1.
 //
@@ -227,6 +229,10 @@ func launch(mode, workspace string, asJSON bool, rest []string) int {
 		if asJSON {
 			envelope(false, map[string]any{"code": "server_already_running", "message": "ComfyUI is already running in background."}, nil)
 		}
+		return 1
+	}
+	if _, err := exec.LookPath("comfy"); err != nil {
+		fmt.Fprintln(os.Stderr, "FileNotFoundError: [Errno 2] No such file or directory: 'comfy'")
 		return 1
 	}
 	logDir := filepath.Join(workspace, "user")

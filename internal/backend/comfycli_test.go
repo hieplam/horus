@@ -287,6 +287,22 @@ func TestComfyCLIStartRunsLaunchAndTheServerAnswers(t *testing.T) {
 	}
 }
 
+// TestComfyCLIStartFindsTheComfyOfTheVenv: with comfy only in the venv, not on
+// the PATH, Start puts the folder of that comfy on the PATH of comfy, so that
+// `comfy launch --background` can start its second comfy by name.
+func TestComfyCLIStartFindsTheComfyOfTheVenv(t *testing.T) {
+	r := newComfyRig(t)
+	venvBin := filepath.Dir(platform.VenvBin(filepath.Join(r.home, ".venvs", "comfy-mcp"), "comfy"))
+	r.putComfy(t, venvBin)
+	r.install(t)
+	if err := r.c.Start(context.Background(), r.out); err != nil {
+		t.Fatalf("Start: %v\n%s", err, r.out)
+	}
+	if !answers(context.Background(), r.url) {
+		t.Fatal("the server does not answer after Start")
+	}
+}
+
 // TestComfyCLIStartFailsWhenComfyUIIsNotInstalled: Start on a folder without
 // ComfyUI/main.py runs no comfy, and its error has the method NotInstalled.
 func TestComfyCLIStartFailsWhenComfyUIIsNotInstalled(t *testing.T) {

@@ -5,8 +5,10 @@
 //
 // Install: skip when ComfyUI is already in the install folder. Else find
 // comfy (the PATH, then the venv of horus install-comfy-mcp) and run
-// `comfy --workspace <dir>/ComfyUI install --m-series --version 0.44.0` with
-// a closed standard input. comfy makes the ComfyUI folder, its Python venv
+// `comfy --workspace <dir>/ComfyUI --skip-prompt install --m-series --version 0.44.0`
+// with a closed standard input. --skip-prompt because comfy-cli asks a yes/no
+// question before the install, and with a closed stdin that question stops
+// the install with "Aborted.". comfy makes the ComfyUI folder, its Python venv
 // (.venv) and the PyTorch of Apple Silicon (MPS).
 //
 // Start: nothing when the server answers. Else run
@@ -16,6 +18,8 @@
 // on its standard output with the process id of the background process that
 // runs ComfyUI. That process ends when ComfyUI ends. Start writes the state
 // file (started.go) with that id, then waits until the server answers.
+// comfy-cli starts a second comfy by its name for `launch --background`, so
+// horus puts the folder of the comfy that it runs first on the PATH (comfyEnv).
 //
 // Stop: comfy-cli keeps one background ComfyUI for each user, not for each
 // workspace, and `comfy stop` stops that one, also when a person started it.
@@ -88,8 +92,8 @@ func (c *comfyCLI) Install(ctx context.Context, out io.Writer) error {
 	}
 	pin := strings.TrimPrefix(version, "v")
 	fmt.Fprintf(out, "Installing ComfyUI %s with comfy-cli in %s (a few minutes) ...\n", version, dir)
-	code, err := platform.Programs{}.Run(ctx, platform.Command{Path: comfy,
-		Args:   []string{"--workspace", comfyUIDir(dir), "install", "--m-series", "--version", pin},
+	code, err := platform.Programs{}.Run(ctx, platform.Command{Path: comfy, Env: comfyEnv(comfy),
+		Args:   []string{"--workspace", comfyUIDir(dir), "--skip-prompt", "install", "--m-series", "--version", pin},
 		Stdout: out, Stderr: out})
 	if err != nil {
 		return fmt.Errorf("cannot run %s: %w", comfy, err)
@@ -145,7 +149,7 @@ func (c *comfyCLI) Start(ctx context.Context, out io.Writer) error {
 	log := comfyLog(ui, port)
 	fmt.Fprintf(out, "Starting ComfyUI with comfy-cli in %s ...\n", ui)
 	var envelope bytes.Buffer
-	code, err := platform.Programs{}.Run(ctx, platform.Command{Path: comfy, Args: launchArgs(ui, port), Stdout: &envelope, Stderr: out})
+	code, err := platform.Programs{}.Run(ctx, platform.Command{Path: comfy, Env: comfyEnv(comfy), Args: launchArgs(ui, port), Stdout: &envelope, Stderr: out})
 	if err != nil {
 		return fmt.Errorf("cannot run %s: %w", comfy, err)
 	}
@@ -160,7 +164,7 @@ func (c *comfyCLI) Start(ctx context.Context, out io.Writer) error {
 	st := state{Tree: "comfy-cli:" + ui, PID: pid, URL: serverURL, Started: time.Now().Format(time.RFC3339)}
 	if err := writeState(path, st); err != nil {
 		// Without the state file, Stop cannot end this ComfyUI: end it now.
-		_, _ = platform.Programs{}.Run(ctx, platform.Command{Path: comfy, Args: stopArgs(ui), Stdout: out, Stderr: out})
+		_, _ = platform.Programs{}.Run(ctx, platform.Command{Path: comfy, Env: comfyEnv(comfy), Args: stopArgs(ui), Stdout: out, Stderr: out})
 		return fmt.Errorf("cannot write %s: %w", path, err)
 	}
 	return c.waitUp(ctx, out, st, []string{log}, func() error {
@@ -187,7 +191,7 @@ func (c *comfyCLI) Stop(ctx context.Context, out io.Writer) error {
 		if err != nil {
 			return false, err
 		}
-		code, err := platform.Programs{}.Run(ctx, platform.Command{Path: comfy, Args: stopArgs(comfyUIDir(dir)), Stdout: out, Stderr: out})
+		code, err := platform.Programs{}.Run(ctx, platform.Command{Path: comfy, Env: comfyEnv(comfy), Args: stopArgs(comfyUIDir(dir)), Stdout: out, Stderr: out})
 		if err != nil {
 			return false, fmt.Errorf("cannot run %s: %w", comfy, err)
 		}
@@ -223,6 +227,13 @@ func readEnvelope(stdout []byte) (pid int, message string) {
 		return 0, env.Error.Message
 	}
 	return 0, ""
+}
+
+// comfyEnv is the environment that horus adds for comfy. comfy-cli starts a
+// second `comfy` by name for `launch --background`, so the folder of the comfy
+// that horus runs goes first on the PATH.
+func comfyEnv(comfy string) []string {
+	return []string{"PATH=" + filepath.Dir(comfy) + string(os.PathListSeparator) + os.Getenv("PATH")}
 }
 
 // findComfy gives the path of the program comfy: the PATH first, then the

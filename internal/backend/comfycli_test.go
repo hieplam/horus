@@ -131,7 +131,7 @@ func TestComfyCLIIsTheBackendOfDarwin(t *testing.T) {
 }
 
 // TestComfyCLIInstallRunsTheCommandOfTheSpec: Install runs exactly
-// `comfy --workspace <dir>/ComfyUI install --m-series --version 0.44.0`, one
+// `comfy --workspace <dir>/ComfyUI --skip-prompt install --m-series --version 0.44.0`, one
 // time, with a closed standard input, and gives the lines of comfy to out.
 func TestComfyCLIInstallRunsTheCommandOfTheSpec(t *testing.T) {
 	r := newComfyRig(t)
@@ -139,7 +139,7 @@ func TestComfyCLIInstallRunsTheCommandOfTheSpec(t *testing.T) {
 	if err := r.c.Install(context.Background(), r.out); err != nil {
 		t.Fatalf("Install: %v\n%s", err, r.out)
 	}
-	want := "--workspace " + filepath.Join(r.dir, "ComfyUI") + " install --m-series --version 0.44.0\nstdin closed\n"
+	want := "--workspace " + filepath.Join(r.dir, "ComfyUI") + " --skip-prompt install --m-series --version 0.44.0\nstdin closed\n"
 	if got := r.recorded(); got != want {
 		t.Errorf("the fake comfy got %q, want %q", got, want)
 	}
@@ -154,6 +154,26 @@ func TestComfyCLIInstallRunsTheCommandOfTheSpec(t *testing.T) {
 	}
 }
 
+// TestFakeComfyInstallAbortsWithoutSkipPrompt: the fake comfy keeps the
+// behaviour of comfy-cli 1.25: without the global option --skip-prompt,
+// install asks its question, prints "Aborted." and exits 1. So a regression
+// of the arguments of Install fails TestComfyCLIInstallRunsTheCommandOfTheSpec.
+func TestFakeComfyInstallAbortsWithoutSkipPrompt(t *testing.T) {
+	r := newComfyRig(t)
+	comfy := r.putComfy(t, r.bin)
+	out, err := exec.Command(comfy, "--workspace", r.ui, "install", "--m-series", "--version", "0.44.0").CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("exit = %v, want exit code 1\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "Aborted.") {
+		t.Errorf("output has no \"Aborted.\":\n%s", out)
+	}
+	if _, ok := r.c.Installed(); ok {
+		t.Error("main.py exists after the aborted install")
+	}
+}
+
 // TestComfyCLIInstallFindsComfyInTheVenv: with no comfy on the PATH, Install
 // runs the comfy of the venv of horus install-comfy-mcp.
 func TestComfyCLIInstallFindsComfyInTheVenv(t *testing.T) {
@@ -163,7 +183,7 @@ func TestComfyCLIInstallFindsComfyInTheVenv(t *testing.T) {
 	if err := r.c.Install(context.Background(), r.out); err != nil {
 		t.Fatalf("Install: %v\n%s", err, r.out)
 	}
-	if !strings.HasPrefix(r.recorded(), "--workspace "+filepath.Join(r.dir, "ComfyUI")+" install ") {
+	if !strings.HasPrefix(r.recorded(), "--workspace "+filepath.Join(r.dir, "ComfyUI")+" --skip-prompt install ") {
 		t.Errorf("the comfy of the venv did not run: %q", r.recorded())
 	}
 }
@@ -264,6 +284,22 @@ func TestComfyCLIStartRunsLaunchAndTheServerAnswers(t *testing.T) {
 	}
 	if got, want := r.out.String(), "ComfyUI already answers at "+r.url+"\n"; got != want {
 		t.Errorf("second Start: output %q, want %q", got, want)
+	}
+}
+
+// TestComfyCLIStartFindsTheComfyOfTheVenv: with comfy only in the venv, not on
+// the PATH, Start puts the folder of that comfy on the PATH of comfy, so that
+// `comfy launch --background` can start its second comfy by name.
+func TestComfyCLIStartFindsTheComfyOfTheVenv(t *testing.T) {
+	r := newComfyRig(t)
+	venvBin := filepath.Dir(platform.VenvBin(filepath.Join(r.home, ".venvs", "comfy-mcp"), "comfy"))
+	r.putComfy(t, venvBin)
+	r.install(t)
+	if err := r.c.Start(context.Background(), r.out); err != nil {
+		t.Fatalf("Start: %v\n%s", err, r.out)
+	}
+	if !answers(context.Background(), r.url) {
+		t.Fatal("the server does not answer after Start")
 	}
 }
 

@@ -233,7 +233,7 @@ func TestSetupYesWithTheFakeComfyThenASecondPlanHasZeroSteps(t *testing.T) {
 		!strings.Contains(out, "OK: this machine is set up for workflow 'demo'.") {
 		t.Fatalf("-yes: exit %d:\n%s", code, out)
 	}
-	if got, want := recorded(), "--workspace "+ui+" install --m-series --version 0.44.0\nstdin closed\n"; got != want {
+	if got, want := recorded(), "--workspace "+ui+" --skip-prompt install --m-series --version 0.44.0\nstdin closed\n"; got != want {
 		t.Fatalf("the fake comfy got %q, want %q", got, want)
 	}
 	installed := strings.Index(out, "OK: ComfyUI v0.44.0 is installed in "+full(t, s.comfy)+"\n")

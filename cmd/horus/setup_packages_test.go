@@ -307,7 +307,7 @@ func TestSetupYesWithPackagesRunsTheFakePackageManagerThenAPlanHasZeroSteps(t *t
 				}
 			case "darwin":
 				ui := filepath.Join(full(t, r.s.comfy), "ComfyUI")
-				if got, want := r.comfy.Recorded(), "--workspace "+ui+" install --m-series --version 0.44.0\nstdin closed\n"; got != want {
+				if got, want := r.comfy.Recorded(), "--workspace "+ui+" --skip-prompt install --m-series --version 0.44.0\nstdin closed\n"; got != want {
 					t.Errorf("the fake comfy got %q, want %q", got, want)
 				}
 				if !strings.Contains(out, "OK: comfy-mcp is installed in ") {

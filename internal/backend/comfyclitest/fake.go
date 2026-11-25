@@ -9,7 +9,9 @@
 // Each run appends two lines to the record file: its arguments, and
 // "stdin closed" or "stdin open". The commands:
 //
-//	install  writes a line and makes <workspace>/main.py
+//	install  writes a line and makes <workspace>/main.py. Without the global
+//	         option --skip-prompt it asks the yes/no question of comfy-cli,
+//	         prints "Aborted." (stdin is closed) and exits 1.
 //	launch --background -- <args of ComfyUI>
 //	         starts a stand-in ComfyUI as a background process that answers
 //	         /system_stats on the --port of the args, waits until it answers,
@@ -146,9 +148,13 @@ func run(mode string, args []string) int {
 	if mode == Fail {
 		return 3
 	}
-	workspace, asJSON, cmd, rest := split(args)
+	workspace, asJSON, skipPrompt, cmd, rest := split(args)
 	switch cmd {
 	case "install":
+		if !skipPrompt {
+			fmt.Fprintf(os.Stdout, "Install from https://github.com/comfyanonymous/ComfyUI to %s? [y/N]: Aborted.\n", workspace)
+			return 1
+		}
 		os.Stdout.WriteString("fake comfy install line\n")
 		if mode != NoMain && workspace != "" {
 			os.MkdirAll(workspace, 0o755)
@@ -183,9 +189,9 @@ func record(args []string) {
 	}
 }
 
-// split gives the global options (--workspace, --json), the command, and the
-// arguments after the command.
-func split(args []string) (workspace string, asJSON bool, cmd string, rest []string) {
+// split gives the global options (--workspace, --json, --skip-prompt), the
+// command, and the arguments after the command.
+func split(args []string) (workspace string, asJSON, skipPrompt bool, cmd string, rest []string) {
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--workspace" && i+1 < len(args):
@@ -193,12 +199,14 @@ func split(args []string) (workspace string, asJSON bool, cmd string, rest []str
 			i++
 		case a == "--json":
 			asJSON = true
+		case a == "--skip-prompt":
+			skipPrompt = true
 		case strings.HasPrefix(a, "-"):
 		default:
-			return workspace, asJSON, a, args[i+1:]
+			return workspace, asJSON, skipPrompt, a, args[i+1:]
 		}
 	}
-	return workspace, asJSON, "", nil
+	return workspace, asJSON, skipPrompt, "", nil
 }
 
 func launch(mode, workspace string, asJSON bool, rest []string) int {

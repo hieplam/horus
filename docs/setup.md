@@ -52,7 +52,7 @@ The repo keeps the master copy of each workflow.
 | Item | Windows | macOS |
 |---|---|---|
 | Hardware | An NVIDIA GPU with 6 GB VRAM or more, and 16 GB RAM. | Apple Silicon (an M-series chip) with 16 GB of memory. Tested on an Apple M4 with 16 GB. |
-| How `horus` installs ComfyUI | It downloads the official Windows portable build (2 GB). The build has its own Python. It needs 7-Zip. | It runs comfy-cli: `comfy --workspace <dir>/ComfyUI install --m-series --version 0.44.0`. comfy-cli makes a Python venv and installs PyTorch for the GPU of the Mac. |
+| How `horus` installs ComfyUI | It downloads the official Windows portable build (2 GB). The build has its own Python. It needs 7-Zip. | It runs comfy-cli: `comfy --workspace <dir>/ComfyUI --skip-prompt install --m-series --version 0.44.0`. comfy-cli makes a Python venv and installs PyTorch for the GPU of the Mac. |
 | Where `comfy` comes from | Not needed. | The venv `~/.venvs/comfy-mcp` that `horus setup` makes, or the PATH. `horus` looks on the PATH first. |
 | Default install folder (`HORUS_COMFYUI_DIR`) | `%USERPROFILE%\ComfyUI_windows_portable` | `~/horus`. ComfyUI goes to `~/horus/ComfyUI`. |
 | Default models folder | `%USERPROFILE%\ComfyUI_windows_portable\ComfyUI\models` | `~/horus/ComfyUI/models` |

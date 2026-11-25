@@ -5,8 +5,10 @@
 //
 // Install: skip when ComfyUI is already in the install folder. Else find
 // comfy (the PATH, then the venv of horus install-comfy-mcp) and run
-// `comfy --workspace <dir>/ComfyUI install --m-series --version 0.44.0` with
-// a closed standard input. comfy makes the ComfyUI folder, its Python venv
+// `comfy --workspace <dir>/ComfyUI --skip-prompt install --m-series --version 0.44.0`
+// with a closed standard input. --skip-prompt because comfy-cli asks a yes/no
+// question before the install, and with a closed stdin that question stops
+// the install with "Aborted.". comfy makes the ComfyUI folder, its Python venv
 // (.venv) and the PyTorch of Apple Silicon (MPS).
 //
 // Start: nothing when the server answers. Else run
@@ -89,7 +91,7 @@ func (c *comfyCLI) Install(ctx context.Context, out io.Writer) error {
 	pin := strings.TrimPrefix(version, "v")
 	fmt.Fprintf(out, "Installing ComfyUI %s with comfy-cli in %s (a few minutes) ...\n", version, dir)
 	code, err := platform.Programs{}.Run(ctx, platform.Command{Path: comfy,
-		Args:   []string{"--workspace", comfyUIDir(dir), "install", "--m-series", "--version", pin},
+		Args:   []string{"--workspace", comfyUIDir(dir), "--skip-prompt", "install", "--m-series", "--version", pin},
 		Stdout: out, Stderr: out})
 	if err != nil {
 		return fmt.Errorf("cannot run %s: %w", comfy, err)

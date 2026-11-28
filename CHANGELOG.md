@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/hieplam/horus/compare/v0.1.8...v0.1.9) (2026-11-25)
+
+
+### Bug Fixes
+
+* **backend:** make comfy-cli 1.25 install and start ComfyUI on macOS ([#275](https://github.com/hieplam/horus/issues/275)) ([8bed310](https://github.com/hieplam/horus/commit/8bed310f68044ec5ad2cd882157e65a3ebc5e5ad))
+
 ## [0.1.8](https://github.com/hieplam/horus/compare/v0.1.7...v0.1.8) (2026-11-20)
 
 
